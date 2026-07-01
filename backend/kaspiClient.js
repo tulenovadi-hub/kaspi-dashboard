@@ -49,37 +49,17 @@ async function fetchOrders(dateFromMs, dateToMs) {
 
 async function fetchOrderEntries(orderId) {
   const http = client();
-
-  // Запрашиваем позиции заказа вместе с данными о товаре
-  const response = await http.get(`/orders/${orderId}/entries`, {
-    params: { include: 'masterproduct' },
-  });
-
+  const response = await http.get(`/orders/${orderId}/entries`);
   const entries = response.data.data || [];
-  const included = response.data.included || [];
-  console.log('RAW ENTRIES:', JSON.stringify(response.data).slice(0, 800));
-
-  // Логируем первый ответ для отладки
-  if (entries.length > 0 && included.length > 0) {
-    console.log('INCLUDED TYPE:', included[0].type, 'ATTRS:', JSON.stringify(included[0].attributes).slice(0, 200));
-  }
 
   return entries.map((entry) => {
     const attrs = entry.attributes || {};
-
-    // Ищем товар в included по любому типу
-    const productRel = entry.relationships && entry.relationships.product && entry.relationships.product.data;
-    const productId = productRel ? productRel.id : null;
-    const productInfo = included.find((inc) => inc.id === productId);
-    const productName = (productInfo && productInfo.attributes && (
-      productInfo.attributes.name ||
-      productInfo.attributes.title ||
-      productInfo.attributes.displayName
-    )) || attrs.name || `Товар ${entry.id.slice(-6)}`;
+    const productName = (attrs.offer && attrs.offer.name) || attrs.name || 'Неизвестный товар';
+    const productId = (attrs.offer && attrs.offer.code) || entry.id;
 
     return {
       id: entry.id,
-      productId: productId || entry.id,
+      productId,
       productName,
       quantity: attrs.quantity || 1,
       totalPrice: attrs.totalPrice || 0,
