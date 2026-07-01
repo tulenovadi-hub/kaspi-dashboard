@@ -1,16 +1,18 @@
-// routes/stats.js — эндпоинты, которые фронтенд использует для построения графиков и таблиц
 const express = require('express');
 const { pool } = require('../db');
 
 const router = express.Router();
 
-// Маленький помощник: проверяет, что даты пришли в правильном формате YYYY-MM-DD
 function isValidDate(str) {
   return /^\d{4}-\d{2}-\d{2}$/.test(str);
 }
 
-// GET /api/stats/summary?from=2026-06-01&to=2026-06-29
-// Возвращает: общую сумму продаж и количество заказов за период, по дням
+// Конвертируем дату Алматы в UTC границы
+// Алматы UTC+5, значит начало дня 2026-07-02 по Алматы = 2026-07-01 19:00 UTC
+function almatyDateToUTC(dateStr) {
+  return `(('${dateStr}'::timestamp - interval '5 hours'))`;
+}
+
 router.get('/summary', async (req, res) => {
   const { from, to } = req.query;
   if (!isValidDate(from) || !isValidDate(to)) {
@@ -18,17 +20,14 @@ router.get('/summary', async (req, res) => {
   }
 
   try {
-    // Группируем по дню в часовом поясе Алматы (UTC+5), а не в UTC сервера —
-    // иначе заказы, сделанные поздно вечером по местному времени, могли бы
-    // ошибочно попадать в "следующий день" в статистике.
     const result = await pool.query(
       `SELECT
-         (creation_date AT TIME ZONE 'Asia/Almaty')::date AS day,
+         (creation_date + interval '5 hours')::date AS day,
          COUNT(*) AS orders_count,
          SUM(total_price) AS total_revenue
        FROM orders
-       WHERE creation_date >= ($1::date AT TIME ZONE 'Asia/Almaty')
-         AND creation_date < (($2::date + interval '1 day') AT TIME ZONE 'Asia/Almaty')
+       WHERE creation_date >= $1::timestamp - interval '5 hours'
+         AND creation_date < $2::timestamp - interval '5 hours' + interval '1 day'
          AND status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
        GROUP BY day
        ORDER BY day`,
@@ -42,8 +41,6 @@ router.get('/summary', async (req, res) => {
   }
 });
 
-// GET /api/stats/products?from=...&to=...
-// Возвращает список товаров с суммарными продажами за период — для выбора в выпадающем списке и общего рейтинга
 router.get('/products', async (req, res) => {
   const { from, to } = req.query;
   if (!isValidDate(from) || !isValidDate(to)) {
@@ -58,8 +55,8 @@ router.get('/products', async (req, res) => {
          SUM(quantity) AS total_quantity,
          SUM(total_price) AS total_revenue
        FROM order_items
-       WHERE creation_date >= ($1::date AT TIME ZONE 'Asia/Almaty')
-         AND creation_date < (($2::date + interval '1 day') AT TIME ZONE 'Asia/Almaty')
+       WHERE creation_date >= $1::timestamp - interval '5 hours'
+         AND creation_date < $2::timestamp - interval '5 hours' + interval '1 day'
        GROUP BY product_id, product_name
        ORDER BY total_revenue DESC`,
       [from, to]
@@ -72,8 +69,6 @@ router.get('/products', async (req, res) => {
   }
 });
 
-// GET /api/stats/product/:productId?from=...&to=...
-// Возвращает продажи конкретного товара по дням за период — для графика роста/спада
 router.get('/product/:productId', async (req, res) => {
   const { productId } = req.params;
   const { from, to } = req.query;
@@ -84,13 +79,13 @@ router.get('/product/:productId', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
-         (creation_date AT TIME ZONE 'Asia/Almaty')::date AS day,
+         (creation_date + interval '5 hours')::date AS day,
          SUM(quantity) AS total_quantity,
          SUM(total_price) AS total_revenue
        FROM order_items
        WHERE product_id = $1
-         AND creation_date >= ($2::date AT TIME ZONE 'Asia/Almaty')
-         AND creation_date < (($3::date + interval '1 day') AT TIME ZONE 'Asia/Almaty')
+         AND creation_date >= $2::timestamp - interval '5 hours'
+         AND creation_date < $3::timestamp - interval '5 hours' + interval '1 day'
        GROUP BY day
        ORDER BY day`,
       [productId, from, to]
