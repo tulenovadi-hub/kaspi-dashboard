@@ -57,6 +57,8 @@ async function fetchOrderEntries(orderId) {
   });
 
   const entries = response.data.data || [];
+  if (entries.length > 0) console.log('ENTRIES SAMPLE:', JSON.stringify(entries[0], null, 2));
+if (included.length > 0) console.log('INCLUDED SAMPLE:', JSON.stringify(included[0], null, 2));
   const included = response.data.included || [];
 
   // Сопоставляем каждую позицию заказа с названием товара из included-блока
