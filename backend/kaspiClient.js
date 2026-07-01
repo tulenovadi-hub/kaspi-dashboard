@@ -9,7 +9,7 @@ function client() {
     headers: {
       'X-Auth-Token': process.env.KASPI_API_TOKEN,
       'Content-Type': 'application/vnd.api+json',
-      Accept: 'application/json',
+      Accept: 'application/vnd.api+json',
     },
     timeout: 30000,
   });
