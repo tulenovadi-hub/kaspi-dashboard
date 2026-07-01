@@ -57,6 +57,7 @@ async function fetchOrderEntries(orderId) {
 
   const entries = response.data.data || [];
   const included = response.data.included || [];
+  console.log('RAW ENTRIES:', JSON.stringify(response.data).slice(0, 800));
 
   // Логируем первый ответ для отладки
   if (entries.length > 0 && included.length > 0) {
