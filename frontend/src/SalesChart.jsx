@@ -45,7 +45,7 @@ export default function SalesChart({ data, dataKey = 'total_revenue' }) {
           tickLine={false}
           axisLine={{ stroke: '#262f45' }}
         />
-        <YAxis stroke="#6b7690" fontSize={12} tickLine={false} axisLine={false} width={50} />
+        <YAxis stroke="#6b7690" fontSize={12} tickLine={false} axisLine={false} width={50} domain={[0, (dataMax) => Math.ceil(dataMax * 1.15)]} />
         <Tooltip content={<CustomTooltip />} />
         <Area type="monotone" dataKey={dataKey} stroke="#6e8bff" strokeWidth={2} fill="url(#revenueFill)" />
       </AreaChart>
