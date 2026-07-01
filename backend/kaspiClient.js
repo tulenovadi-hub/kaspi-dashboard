@@ -52,9 +52,8 @@ async function fetchOrders(dateFromMs, dateToMs) {
 // orderId здесь — это ID в кодировке Kaspi (поле "id" у заказа).
 async function fetchOrderEntries(orderId) {
   const http = client();
-  const response = await http.get(`/orders/${orderId}/entries`, {
-    params: { include: 'product' },
-  });
+  const response = await http.get(`/orders/${orderId}/entries`);
+console.log('ENTRIES RESPONSE:', JSON.stringify(response.data).slice(0, 500));
 
   const entries = response.data.data || [];
  
@@ -65,8 +64,7 @@ async function fetchOrderEntries(orderId) {
     const productRel = entry.relationships && entry.relationships.product;
     const productId = productRel && productRel.data ? productRel.data.id : null;
     const productInfo = included.find((inc) => inc.id === productId);
-const productName = (productInfo && productInfo.attributes && (productInfo.attributes.name || productInfo.attributes.displayName || productInfo.attributes.title)) || (entry.attributes && entry.attributes.name) || 'Неизвестный товар';
-    return {
+const productName = entry.attributes && entry.attributes.name ? entry.attributes.name : entry.id;
       id: entry.id,
       productId,
       productName,
