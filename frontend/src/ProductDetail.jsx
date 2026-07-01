@@ -7,6 +7,7 @@ export default function ProductDetail({ password, product, from, to, onClose }) 
   const [days, setDays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [metric, setMetric] = useState('total_revenue'); // 'total_revenue' или 'total_quantity'
 
   useEffect(() => {
     let cancelled = false;
@@ -14,25 +15,18 @@ export default function ProductDetail({ password, product, from, to, onClose }) 
     setError('');
 
     fetchProductStats(password, product.product_id, from, to)
-      .then((data) => {
-        if (!cancelled) setDays(data.days);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .then((data) => { if (!cancelled) setDays(data.days); })
+      .catch((err) => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [password, product.product_id, from, to]);
 
   const half = Math.floor(days.length / 2);
-  const firstHalfRevenue = days.slice(0, half).reduce((sum, d) => sum + Number(d.total_revenue), 0);
-  const secondHalfRevenue = days.slice(half).reduce((sum, d) => sum + Number(d.total_revenue), 0);
-  const trend = percentChange(secondHalfRevenue, firstHalfRevenue);
+  const key = metric;
+  const firstHalf = days.slice(0, half).reduce((sum, d) => sum + Number(d[key]), 0);
+  const secondHalf = days.slice(half).reduce((sum, d) => sum + Number(d[key]), 0);
+  const trend = percentChange(secondHalf, firstHalf);
 
   return (
     <div className="card">
@@ -46,6 +40,22 @@ export default function ProductDetail({ password, product, from, to, onClose }) 
         <button className="sync-button" onClick={onClose}>Назад к списку</button>
       </div>
 
+      {/* Переключатель метрики */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <button
+          className={`period-chip ${metric === 'total_revenue' ? 'active' : ''}`}
+          onClick={() => setMetric('total_revenue')}
+        >
+          Выручка
+        </button>
+        <button
+          className={`period-chip ${metric === 'total_quantity' ? 'active' : ''}`}
+          onClick={() => setMetric('total_quantity')}
+        >
+          Количество продаж
+        </button>
+      </div>
+
       {trend !== null && days.length > 1 && (
         <div style={{ marginBottom: 16, fontSize: 13, color: trend >= 0 ? '#3ddc97' : '#ff6b6b' }}>
           {trend >= 0 ? '↑' : '↓'} {Math.abs(trend).toFixed(1)}% — вторая половина периода против первой
@@ -54,7 +64,7 @@ export default function ProductDetail({ password, product, from, to, onClose }) 
 
       {loading && <div className="empty-state">Загрузка...</div>}
       {error && <div className="error-banner">{error}</div>}
-      {!loading && !error && <SalesChart data={days} dataKey="total_revenue" />}
+      {!loading && !error && <SalesChart data={days} dataKey={metric} />}
     </div>
   );
 }
