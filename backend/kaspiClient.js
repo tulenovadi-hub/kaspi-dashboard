@@ -2,15 +2,16 @@ const axios = require('axios');
 
 const BASE_URL = 'https://kaspi.kz/shop/api/v2';
 
-// Справочник товаров: артикул → название
+// Справочник товаров: base64-ID → название
 const PRODUCT_NAMES = {
-  '230273701': 'TOMMILI LumenPro TM-D34',
-  '305435303': 'Проектор TOMMILI T15 PRO',
-  '707062070': 'Проектор TOMMILI LUMIX HD',
-  '426553': 'Проектор TOMMILI HY320',
-  '107802641': 'TOMMILI MasterClean черный',
-  '116138814': 'Проектор TOMMILI X6',
-  '302817922': 'Проектор TOMMILI X6',
+  'MTU1NDc2NTAy': 'Стеклоочиститель TOMMILI MasterClean',
+  'OTgyNzA1ODk2IyMw': 'Проектор TOMMILI T15 PRO',
+  'MTQxOTYxNDYz': 'Экран TOMMILI LumenPro TM-D34',
+  'MTUzMzYwODUw': 'Неизвестный товар',
+  'MTE2MTM4ODE0': 'Проектор TOMMILI X6',
+  'MTM2NTE3NjA2': 'Проектор TOMMILI LUMIX HD',
+  'MTUxNDc4ODA1': 'Проектор TOMMILI T15 PRO',
+  'MTE2MTM4Nzk5': 'Проектор TOMMILI HY320',
 };
 
 function getHeaders() {
@@ -66,19 +67,7 @@ async function fetchOrderEntries(orderId) {
 
   for (const entry of entries) {
     const attrs = entry.attributes || {};
-
-    // Ищем артикул в ID позиции заказа
-    let productName = null;
-    for (const [sku, name] of Object.entries(PRODUCT_NAMES)) {
-      if (entry.id && entry.id.includes(sku)) {
-        productName = name;
-        break;
-      }
-    }
-
-    if (!productName) {
-      productName = attrs.name || attrs.title || `Товар ${entry.id ? entry.id.slice(-8) : '?'}`;
-    }
+    const productName = PRODUCT_NAMES[entry.id] || attrs.name || `Товар ${entry.id.slice(-6)}`;
 
     results.push({
       id: entry.id,
