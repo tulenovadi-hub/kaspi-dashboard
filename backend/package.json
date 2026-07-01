@@ -1,0 +1,22 @@
+{
+  "name": "kaspi-dashboard-backend",
+  "version": "1.0.0",
+  "description": "Backend для дашборда продаж Kaspi Магазина",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "sync": "node syncJob.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.12.0",
+    "node-cron": "^3.0.3",
+    "axios": "^1.7.4",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

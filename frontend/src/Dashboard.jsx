@@ -1,0 +1,142 @@
+import React, { useEffect, useState } from 'react';
+import PeriodSelector from './PeriodSelector.jsx';
+import TodayVsYesterday from './TodayVsYesterday.jsx';
+import SalesChart from './SalesChart.jsx';
+import ProductTable from './ProductTable.jsx';
+import ProductDetail from './ProductDetail.jsx';
+import { fetchSummary, fetchProducts, triggerSync } from './api.js';
+import { toISODate, daysAgo, formatMoney, formatNumber } from './dateUtils.js';
+
+export default function Dashboard({ password, onLogout }) {
+  const [from, setFrom] = useState(toISODate(daysAgo(6)));
+  const [to, setTo] = useState(toISODate(daysAgo(0)));
+  const [presetKey, setPresetKey] = useState('7days');
+
+  const [summaryDays, setSummaryDays] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [todayRevenue, setTodayRevenue] = useState(0);
+  const [yesterdayRevenue, setYesterdayRevenue] = useState(0);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [syncing, setSyncing] = useState(false);
+
+  function loadData() {
+    setLoading(true);
+    setError('');
+
+    const todayStr = toISODate(daysAgo(0));
+    const yesterdayStr = toISODate(daysAgo(1));
+
+    Promise.all([
+      fetchSummary(password, from, to),
+      fetchProducts(password, from, to),
+      fetchSummary(password, yesterdayStr, todayStr),
+    ])
+      .then(([summaryRes, productsRes, recentRes]) => {
+        setSummaryDays(summaryRes.days);
+        setProducts(productsRes.products);
+
+        const todayRow = recentRes.days.find((d) => toISODate(new Date(d.day)) === todayStr);
+        const yesterdayRow = recentRes.days.find((d) => toISODate(new Date(d.day)) === yesterdayStr);
+        setTodayRevenue(todayRow ? Number(todayRow.total_revenue) : 0);
+        setYesterdayRevenue(yesterdayRow ? Number(yesterdayRow.total_revenue) : 0);
+      })
+      .catch((err) => {
+        if (err.message === 'UNAUTHORIZED') {
+          onLogout();
+        } else {
+          setError(err.message);
+        }
+      })
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to]);
+
+  function handlePeriodChange({ from: newFrom, to: newTo, presetKey: newPreset }) {
+    setFrom(newFrom);
+    setTo(newTo);
+    setPresetKey(newPreset);
+    setSelectedProduct(null);
+  }
+
+  function handleManualSync() {
+    setSyncing(true);
+    triggerSync(password)
+      .then(() => loadData())
+      .catch((err) => setError(err.message))
+      .finally(() => setSyncing(false));
+  }
+
+  const totalRevenue = summaryDays.reduce((sum, d) => sum + Number(d.total_revenue), 0);
+  const totalOrders = summaryDays.reduce((sum, d) => sum + Number(d.orders_count), 0);
+  const avgOrder = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+  return (
+    <div className="app">
+      <div className="app-header">
+        <h1 className="app-title">Продажи <span>Kaspi</span></h1>
+        <div className="sync-status">
+          <button className="sync-button" onClick={handleManualSync} disabled={syncing}>
+            {syncing ? 'Обновляем...' : 'Обновить сейчас'}
+          </button>
+          <button className="sync-button" onClick={onLogout}>Выйти</button>
+        </div>
+      </div>
+
+      <TodayVsYesterday todayRevenue={todayRevenue} yesterdayRevenue={yesterdayRevenue} />
+
+      <PeriodSelector from={from} to={to} activePreset={presetKey} onChange={handlePeriodChange} />
+
+      {error && <div className="error-banner">{error}</div>}
+
+      {loading ? (
+        <div className="empty-state">Загрузка данных...</div>
+      ) : (
+        <>
+          <div className="stats-row">
+            <div className="stat-card">
+              <div className="stat-label">Сумма продаж за период</div>
+              <div className="stat-value">{formatMoney(totalRevenue)}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Количество заказов</div>
+              <div className="stat-value">{formatNumber(totalOrders)}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Средний чек</div>
+              <div className="stat-value">{formatMoney(avgOrder)}</div>
+            </div>
+          </div>
+
+          <div className="section-title">Динамика продаж</div>
+          <div className="card">
+            <SalesChart data={summaryDays} dataKey="total_revenue" />
+          </div>
+
+          {selectedProduct ? (
+            <ProductDetail
+              password={password}
+              product={selectedProduct}
+              from={from}
+              to={to}
+              onClose={() => setSelectedProduct(null)}
+            />
+          ) : (
+            <>
+              <div className="section-title">Продажи по товарам</div>
+              <div className="card">
+                <ProductTable products={products} onSelectProduct={setSelectedProduct} />
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
