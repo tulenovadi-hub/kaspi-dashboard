@@ -1,13 +1,15 @@
 import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { formatDayLabel, formatMoney } from './dateUtils.js';
+import { formatDayLabel, formatMoney, formatNumber } from './dateUtils.js';
 
-function CustomTooltip({ active, payload, label }) {
+function CustomTooltip({ active, payload, label, isQuantity }) {
   if (!active || !payload || !payload.length) return null;
   return (
     <div style={{ background: '#1c2436', border: '1px solid #262f45', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
       <div style={{ color: '#6b7690', marginBottom: 4 }}>{formatDayLabel(label)}</div>
-      <div style={{ color: '#e8ecf4', fontFamily: 'JetBrains Mono, monospace' }}>{formatMoney(payload[0].value)}</div>
+      <div style={{ color: '#e8ecf4', fontFamily: 'JetBrains Mono, monospace' }}>
+        {isQuantity ? `${formatNumber(payload[0].value)} шт` : formatMoney(payload[0].value)}
+      </div>
     </div>
   );
 }
@@ -17,6 +19,7 @@ export default function SalesChart({ data, dataKey = 'total_revenue' }) {
     return <div className="empty-state">За выбранный период данных нет</div>;
   }
 
+  const isQuantity = dataKey === 'total_quantity';
   const maxVal = Math.max(...data.map(d => Number(d[dataKey] || 0)));
 
   return (
@@ -31,7 +34,7 @@ export default function SalesChart({ data, dataKey = 'total_revenue' }) {
         <CartesianGrid strokeDasharray="3 3" stroke="#262f45" vertical={false} />
         <XAxis dataKey="day" tickFormatter={formatDayLabel} stroke="#6b7690" fontSize={12} tickLine={false} axisLine={{ stroke: '#262f45' }} />
         <YAxis stroke="#6b7690" fontSize={12} tickLine={false} axisLine={false} width={80} domain={[0, Math.ceil(maxVal * 1.2)]} />
-        <Tooltip content={<CustomTooltip />} />
+        <Tooltip content={<CustomTooltip isQuantity={isQuantity} />} />
         <Area type="monotone" dataKey={dataKey} stroke="#6e8bff" strokeWidth={2} fill="url(#revenueFill)" />
       </AreaChart>
     </ResponsiveContainer>
