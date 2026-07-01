@@ -53,23 +53,19 @@ async function fetchOrders(dateFromMs, dateToMs) {
 async function fetchOrderEntries(orderId) {
   const http = client();
   const response = await http.get(`/orders/${orderId}/entries`);
-console.log('ENTRIES RESPONSE:', JSON.stringify(response.data).slice(0, 500));
-
   const entries = response.data.data || [];
- 
-  const included = response.data.included || [];
 
-  // Сопоставляем каждую позицию заказа с названием товара из included-блока
   return entries.map((entry) => {
-    const productRel = entry.relationships && entry.relationships.product;
-    const productId = productRel && productRel.data ? productRel.data.id : null;
-    const productInfo = included.find((inc) => inc.id === productId);
-const productName = entry.attributes && entry.attributes.name ? entry.attributes.name : entry.id;
+    const attrs = entry.attributes || {};
+    const productName = attrs.name || attrs.title || attrs.productName || entry.id;
+    const productId = entry.id;
+
+    return {
       id: entry.id,
       productId,
       productName,
-      quantity: entry.attributes.quantity,
-      totalPrice: entry.attributes.totalPrice,
+      quantity: attrs.quantity || 1,
+      totalPrice: attrs.totalPrice || 0,
     };
   });
 }
