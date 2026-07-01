@@ -54,20 +54,30 @@ async function fetchOrderEntries(orderId) {
   const http = client();
   const response = await http.get(`/orders/${orderId}/entries`);
   const entries = response.data.data || [];
+  const results = [];
 
-  return entries.map((entry) => {
+  for (const entry of entries) {
     const attrs = entry.attributes || {};
-    const productName = attrs.name || attrs.title || attrs.productName || entry.id;
-    const productId = entry.id;
+    let productName = entry.id;
 
-    return {
+    try {
+      const productRes = await http.get(`/orderentries/${entry.id}/product`);
+      const productData = productRes.data.data;
+      if (productData && productData.attributes) {
+        productName = productData.attributes.name || productData.attributes.title || entry.id;
+      }
+    } catch (e) {
+      productName = attrs.name || attrs.title || entry.id;
+    }
+
+    results.push({
       id: entry.id,
-      productId,
+      productId: entry.id,
       productName,
       quantity: attrs.quantity || 1,
       totalPrice: attrs.totalPrice || 0,
-    };
-  });
-}
+    });
+  }
+  return results;
 
 module.exports = { fetchOrders, fetchOrderEntries };
