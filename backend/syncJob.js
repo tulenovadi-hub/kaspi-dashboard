@@ -64,9 +64,20 @@ async function syncRecentOrders(daysBack = 3) {
 }
 
 // Если файл запущен напрямую (node syncJob.js), а не подключён как модуль — выполняем синхронизацию сразу
+async function syncHistorical(daysBack = 60) {
+  const dateTo = Date.now();
+  const dateFrom = dateTo - daysBack * 24 * 60 * 60 * 1000;
+  console.log(`Историческая синхронизация за ${daysBack} дней...`);
+  const { fetchOrders, fetchOrderEntries } = require('./kaspiClient');
+  const orders = await fetchOrders(dateFrom, dateTo);
+  console.log(`Получено заказов: ${orders.length}`);
+  // используем ту же логику что и syncRecentOrders
+  await syncRecentOrders(daysBack);
+}
+
 if (require.main === module) {
   initDb()
-    .then(() => syncRecentOrders())
+    .then(() => syncRecentOrders(60))
     .then(() => pool.end())
     .catch((err) => {
       console.error('Ошибка синхронизации:', err);
