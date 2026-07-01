@@ -10,6 +10,13 @@ export function daysAgo(n) {
   return d;
 }
 
+export function toISODateAlmaty(date) {
+  // Алматы UTC+5
+  const offset = 5 * 60;
+  const local = new Date(date.getTime() + offset * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
 export function formatMoney(value) {
   const num = Number(value || 0);
   return new Intl.NumberFormat('ru-RU').format(Math.round(num)) + ' ₸';
