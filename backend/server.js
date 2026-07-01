@@ -27,8 +27,8 @@ app.use('/api/stats', statsRoutes);
 // Эндпоинт, чтобы вручную запустить синхронизацию из дашборда (кнопка "Обновить сейчас")
 app.post('/api/sync', async (req, res) => {
   try {
-    await syncRecentOrders();
     res.json({ ok: true });
+    syncRecentOrders().catch((err) => console.error('Ошибка фоновой синхронизации:', err));
   } catch (err) {
     console.error('Ошибка ручной синхронизации:', err);
     res.status(500).json({ error: 'Синхронизация не удалась' });
