@@ -3,20 +3,22 @@ const axios = require('axios');
 
 const BASE_URL = 'https://kaspi.kz/shop/api/v2';
 
+function getHeaders() {
+  return {
+    'X-Auth-Token': process.env.KASPI_API_TOKEN,
+    'Content-Type': 'application/vnd.api+json',
+    Accept: 'application/vnd.api+json',
+  };
+}
+
 function client() {
   return axios.create({
     baseURL: BASE_URL,
-    headers: {
-      'X-Auth-Token': process.env.KASPI_API_TOKEN,
-      'Content-Type': 'application/vnd.api+json',
-      Accept: 'application/vnd.api+json',
-    },
+    headers: getHeaders(),
     timeout: 30000,
   });
 }
 
-// Kaspi отдаёт максимум 100 заказов на страницу — поэтому забираем все страницы по очереди.
-// dateFromMs / dateToMs — границы периода в миллисекундах (формат, который ждёт Kaspi).
 async function fetchOrders(dateFromMs, dateToMs) {
   const http = client();
   const allOrders = [];
@@ -48,8 +50,6 @@ async function fetchOrders(dateFromMs, dateToMs) {
   return allOrders;
 }
 
-// Для каждого заказа состав (товары) приходит отдельным запросом.
-// orderId здесь — это ID в кодировке Kaspi (поле "id" у заказа).
 async function fetchOrderEntries(orderId) {
   const http = client();
   const response = await http.get(`/orders/${orderId}/entries`);
@@ -58,16 +58,35 @@ async function fetchOrderEntries(orderId) {
 
   for (const entry of entries) {
     const attrs = entry.attributes || {};
-    let productName = entry.id;
+    let productName = null;
 
     try {
-      const productRes = await http.get(`/orderentries/${entry.id}/product`);
-      const productData = productRes.data.data;
-      if (productData && productData.attributes) {
-        productName = productData.attributes.name || productData.attributes.title || entry.id;
+      const relatedUrl =
+        entry.relationships &&
+        entry.relationships.product &&
+        entry.relationships.product.links &&
+        entry.relationships.product.links.related;
+
+      if (relatedUrl) {
+        const productRes = await axios.get(relatedUrl, {
+          headers: getHeaders(),
+          timeout: 15000,
+        });
+        const pd = productRes.data && productRes.data.data;
+        if (pd && pd.attributes) {
+          productName =
+            pd.attributes.name ||
+            pd.attributes.title ||
+            pd.attributes.displayName ||
+            null;
+        }
       }
     } catch (e) {
-      productName = attrs.name || attrs.title || entry.id;
+      // не получилось — продолжим без названия
+    }
+
+    if (!productName) {
+      productName = attrs.name || attrs.title || attrs.productName || `Товар ${entry.id.slice(-6)}`;
     }
 
     results.push({
@@ -78,6 +97,8 @@ async function fetchOrderEntries(orderId) {
       totalPrice: attrs.totalPrice || 0,
     });
   }
+
   return results;
+}
 
 module.exports = { fetchOrders, fetchOrderEntries };
