@@ -64,9 +64,8 @@ async function fetchOrderEntries(orderId) {
   return entries.map((entry) => {
     const productRel = entry.relationships && entry.relationships.product;
     const productId = productRel && productRel.data ? productRel.data.id : null;
-    const productInfo = included.find((inc) => inc.type === 'offer' && inc.id === productId);
-    const productName = productInfo && productInfo.attributes ? productInfo.attributes.name : 'Неизвестный товар';
-
+    const productInfo = included.find((inc) => inc.id === productId);
+const productName = (productInfo && productInfo.attributes && (productInfo.attributes.name || productInfo.attributes.displayName || productInfo.attributes.title)) || (entry.attributes && entry.attributes.name) || 'Неизвестный товар';
     return {
       id: entry.id,
       productId,
