@@ -2,18 +2,6 @@ const axios = require('axios');
 
 const BASE_URL = 'https://kaspi.kz/shop/api/v2';
 
-// Справочник товаров: base64-ID → название
-const PRODUCT_NAMES = {
-  'MTU1NDc2NTAy': 'Стеклоочиститель TOMMILI MasterClean',
-  'OTgyNzA1ODk2IyMw': 'Проектор TOMMILI T15 PRO',
-  'MTQxOTYxNDYz': 'Экран TOMMILI LumenPro TM-D34',
-  'MTUzMzYwODUw': 'Неизвестный товар',
-  'MTE2MTM4ODE0': 'Проектор TOMMILI X6',
-  'MTM2NTE3NjA2': 'Проектор TOMMILI LUMIX HD',
-  'MTUxNDc4ODA1': 'Проектор TOMMILI T15 PRO',
-  'MTE2MTM4Nzk5': 'Проектор TOMMILI HY320',
-};
-
 function getHeaders() {
   return {
     'X-Auth-Token': process.env.KASPI_API_TOKEN,
@@ -61,24 +49,41 @@ async function fetchOrders(dateFromMs, dateToMs) {
 
 async function fetchOrderEntries(orderId) {
   const http = client();
-  const response = await http.get(`/orders/${orderId}/entries`);
+
+  // Запрашиваем позиции заказа вместе с данными о товаре
+  const response = await http.get(`/orders/${orderId}/entries`, {
+    params: { include: 'masterproduct' },
+  });
+
   const entries = response.data.data || [];
-  const results = [];
+  const included = response.data.included || [];
 
-  for (const entry of entries) {
+  // Логируем первый ответ для отладки
+  if (entries.length > 0 && included.length > 0) {
+    console.log('INCLUDED TYPE:', included[0].type, 'ATTRS:', JSON.stringify(included[0].attributes).slice(0, 200));
+  }
+
+  return entries.map((entry) => {
     const attrs = entry.attributes || {};
-    const productName = PRODUCT_NAMES[entry.id] || attrs.name || `Товар ${entry.id.slice(-6)}`;
 
-    results.push({
+    // Ищем товар в included по любому типу
+    const productRel = entry.relationships && entry.relationships.product && entry.relationships.product.data;
+    const productId = productRel ? productRel.id : null;
+    const productInfo = included.find((inc) => inc.id === productId);
+    const productName = (productInfo && productInfo.attributes && (
+      productInfo.attributes.name ||
+      productInfo.attributes.title ||
+      productInfo.attributes.displayName
+    )) || attrs.name || `Товар ${entry.id.slice(-6)}`;
+
+    return {
       id: entry.id,
-      productId: entry.id,
+      productId: productId || entry.id,
       productName,
       quantity: attrs.quantity || 1,
       totalPrice: attrs.totalPrice || 0,
-    });
-  }
-
-  return results;
+    };
+  });
 }
 
 module.exports = { fetchOrders, fetchOrderEntries };
