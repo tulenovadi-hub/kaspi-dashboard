@@ -1,7 +1,17 @@
-// kaspiClient.js — всё общение с Kaspi API сосредоточено здесь
 const axios = require('axios');
 
 const BASE_URL = 'https://kaspi.kz/shop/api/v2';
+
+// Справочник товаров: артикул → название
+const PRODUCT_NAMES = {
+  '230273701': 'TOMMILI LumenPro TM-D34',
+  '305435303': 'Проектор TOMMILI T15 PRO',
+  '707062070': 'Проектор TOMMILI LUMIX HD',
+  '426553': 'Проектор TOMMILI HY320',
+  '107802641': 'TOMMILI MasterClean черный',
+  '116138814': 'Проектор TOMMILI X6',
+  '302817922': 'Проектор TOMMILI X6',
+};
 
 function getHeaders() {
   return {
@@ -41,9 +51,7 @@ async function fetchOrders(dateFromMs, dateToMs) {
     const totalCount = response.data.meta ? response.data.meta.totalCount : orders.length;
     const fetchedSoFar = (page + 1) * pageSize;
 
-    if (orders.length === 0 || fetchedSoFar >= totalCount) {
-      break;
-    }
+    if (orders.length === 0 || fetchedSoFar >= totalCount) break;
     page += 1;
   }
 
@@ -58,35 +66,18 @@ async function fetchOrderEntries(orderId) {
 
   for (const entry of entries) {
     const attrs = entry.attributes || {};
+
+    // Ищем артикул в ID позиции заказа
     let productName = null;
-
-    try {
-      const relatedUrl =
-        entry.relationships &&
-        entry.relationships.product &&
-        entry.relationships.product.links &&
-        entry.relationships.product.links.related;
-
-      if (relatedUrl) {
-        const productRes = await axios.get(relatedUrl, {
-          headers: getHeaders(),
-          timeout: 15000,
-        });
-        const pd = productRes.data && productRes.data.data;
-        if (pd && pd.attributes) {
-          productName =
-            pd.attributes.name ||
-            pd.attributes.title ||
-            pd.attributes.displayName ||
-            null;
-        }
+    for (const [sku, name] of Object.entries(PRODUCT_NAMES)) {
+      if (entry.id && entry.id.includes(sku)) {
+        productName = name;
+        break;
       }
-    } catch (e) {
-      // не получилось — продолжим без названия
     }
 
     if (!productName) {
-      productName = attrs.name || attrs.title || attrs.productName || `Товар ${entry.id.slice(-6)}`;
+      productName = attrs.name || attrs.title || `Товар ${entry.id ? entry.id.slice(-8) : '?'}`;
     }
 
     results.push({
