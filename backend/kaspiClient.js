@@ -57,15 +57,14 @@ async function fetchOrderEntries(orderId) {
   });
 
   const entries = response.data.data || [];
-  if (entries.length > 0) console.log('ENTRIES SAMPLE:', JSON.stringify(entries[0], null, 2));
-if (included.length > 0) console.log('INCLUDED SAMPLE:', JSON.stringify(included[0], null, 2));
+ 
   const included = response.data.included || [];
 
   // Сопоставляем каждую позицию заказа с названием товара из included-блока
   return entries.map((entry) => {
     const productRel = entry.relationships && entry.relationships.product;
     const productId = productRel && productRel.data ? productRel.data.id : null;
-    const productInfo = included.find((inc) => inc.type === 'masterproducts' && inc.id === productId);
+    const productInfo = included.find((inc) => inc.type === 'offer' && inc.id === productId);
     const productName = productInfo && productInfo.attributes ? productInfo.attributes.name : 'Неизвестный товар';
 
     return {
