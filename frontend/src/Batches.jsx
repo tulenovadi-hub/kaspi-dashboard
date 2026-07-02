@@ -8,11 +8,15 @@ function todayISO() {
 
 function AddBatchModal({ password, products, onClose, onSaved }) {
   const [productId, setProductId] = useState('');
-  const [costPrice, setCostPrice] = useState('');
+  const [purchasePrice, setPurchasePrice] = useState('');
+  const [logisticsCost, setLogisticsCost] = useState('');
   const [quantity, setQuantity] = useState('');
   const [receivedDate, setReceivedDate] = useState(todayISO());
+  const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const costPrice = (Number(purchasePrice) || 0) + (Number(logisticsCost) || 0);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -26,7 +30,9 @@ function AddBatchModal({ password, products, onClose, onSaved }) {
     addBatch(password, {
       product_id: product.product_id,
       product_name: product.product_name,
-      cost_price: costPrice,
+      purchase_price: purchasePrice,
+      logistics_cost: logisticsCost || 0,
+      note,
       quantity,
       received_date: receivedDate,
     })
@@ -37,7 +43,7 @@ function AddBatchModal({ password, products, onClose, onSaved }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-box modal-box-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Новая поставка</h2>
           <button className="modal-close" onClick={onClose}>✕</button>
@@ -61,18 +67,36 @@ function AddBatchModal({ password, products, onClose, onSaved }) {
             </select>
           </div>
 
-          <div className="batch-form-row">
+          <div className="batch-form-row-2">
             <div className="batch-form-field">
-              <label>Себестоимость за 1 шт, ₸</label>
+              <label>Закупочная цена за 1 шт, ₸</label>
               <input
                 type="number"
                 min="0"
                 step="0.01"
-                value={costPrice}
-                onChange={(e) => setCostPrice(e.target.value)}
+                value={purchasePrice}
+                onChange={(e) => setPurchasePrice(e.target.value)}
                 required
               />
             </div>
+            <div className="batch-form-field">
+              <label>Логистика за 1 шт, ₸</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={logisticsCost}
+                onChange={(e) => setLogisticsCost(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+          </div>
+
+          <div className="batch-cost-preview">
+            Себестоимость за 1 шт: <strong>{costPrice.toLocaleString('ru-RU')} ₸</strong>
+          </div>
+
+          <div className="batch-form-row-2">
             <div className="batch-form-field">
               <label>Количество, шт</label>
               <input
@@ -93,6 +117,17 @@ function AddBatchModal({ password, products, onClose, onSaved }) {
                 required
               />
             </div>
+          </div>
+
+          <div className="batch-form-field">
+            <label>Примечание</label>
+            <textarea
+              className="batch-note-input"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Необязательно — например, номер поставщика или комментарий"
+              rows={3}
+            />
           </div>
 
           <button className="primary-button batch-submit" type="submit" disabled={saving}>
@@ -210,6 +245,7 @@ export default function Batches({ password, onClose }) {
                 <th className="num">Себестоимость</th>
                 <th className="num">Заявлено</th>
                 <th className="num">Остаток</th>
+                <th>Примечание</th>
                 <th></th>
               </tr>
             </thead>
@@ -222,6 +258,7 @@ export default function Batches({ password, onClose }) {
                   <td className="num">{formatMoney(b.cost_price)}</td>
                   <td className="num">{formatNumber(b.quantity)}</td>
                   <td className="num">{formatNumber(b.remaining_quantity)}</td>
+                  <td className="batch-note-cell">{b.note || '—'}</td>
                   <td className="num">
                     <button className="batch-delete" onClick={() => handleDelete(b.id)} title="Удалить поставку">✕</button>
                   </td>
