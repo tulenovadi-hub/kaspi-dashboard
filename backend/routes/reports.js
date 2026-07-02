@@ -153,9 +153,13 @@ const VALID_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK']
 // для продаж с этой даты, чтобы не задваивать со старыми продажами (та же логика, что на "Складе").
 const STOCK_CUTOFF_DATE = '2026-06-01';
 
+const MAIN_CITIES = ['Алматы', 'Астана'];
+const SELF_BUY_CITIES = ['Талдыкорган', 'Юбилейное'];
+
 // Считает себестоимость проданных товаров по методу FIFO (та же логика, что на "Складе"),
-// но результат группирует по месяцу продажи, а не по остаткам.
-async function computeMonthlyCogs() {
+// но результат группирует по месяцу продажи, а не по остаткам. warehouses — необязательный
+// список городов для фильтрации (если не передан — считает по всем городам сразу).
+async function computeMonthlyCogs(warehouses) {
   const batchesResult = await pool.query(`
     SELECT product_id, warehouse, cost_price, quantity, received_date
     FROM product_batches
@@ -170,8 +174,9 @@ async function computeMonthlyCogs() {
      WHERE o.status = ANY($1::text[])
        AND o.origin_city IS NOT NULL
        AND o.creation_date >= $2::date
+       ${warehouses ? 'AND o.origin_city = ANY($3::text[])' : ''}
      ORDER BY oi.product_id, o.origin_city, oi.creation_date ASC`,
-    [VALID_STATUSES, STOCK_CUTOFF_DATE]
+    warehouses ? [VALID_STATUSES, STOCK_CUTOFF_DATE, warehouses] : [VALID_STATUSES, STOCK_CUTOFF_DATE]
   );
 
   const batchesByKey = new Map();
@@ -204,56 +209,72 @@ async function computeMonthlyCogs() {
   return cogsByMonth;
 }
 
+// warehouses — необязательный список городов. Номер заказа в Excel-отчёте Kaspi Pay совпадает
+// с orders.code, поэтому можно связать операции с городом отгрузки через эту связку.
+async function aggregateKaspiPayMonthly(warehouses) {
+  const joinAndFilter = warehouses
+    ? `LEFT JOIN orders o ON o.code = kpt.order_number WHERE o.origin_city = ANY($1::text[])`
+    : '';
+
+  const result = await pool.query(
+    `SELECT
+       to_char(kpt.operation_date, 'YYYY-MM') AS month,
+       SUM(CASE WHEN kpt.operation_type = 'Возврат' THEN kpt.amount ELSE 0 END) AS returns_amount,
+       SUM(CASE WHEN kpt.operation_type != 'Возврат' THEN kpt.amount ELSE 0 END) AS purchases_amount,
+       SUM(kpt.commission_total) AS commission_total,
+       SUM(kpt.delivery_cost) AS delivery_total,
+       COUNT(*) AS operations_count
+     FROM kaspi_pay_transactions kpt
+     ${joinAndFilter}
+     GROUP BY month
+     ORDER BY month DESC`,
+    warehouses ? [warehouses] : []
+  );
+
+  const cogsByMonth = await computeMonthlyCogs(warehouses);
+
+  return result.rows.map((row) => {
+    const revenue = Number(row.purchases_amount); // выручка от продаж (без возвратов)
+    const costOfGoods = cogsByMonth[row.month] || 0; // себестоимость проданных товаров (FIFO)
+    const returns = -Number(row.returns_amount); // сумма возвратов как положительное число
+    const netRevenue = revenue - returns; // чистый оборот после возвратов — база для налога и маржи
+
+    const commission = -Number(row.commission_total); // положительное число — расход
+    const delivery = -Number(row.delivery_total); // положительное число — расход
+    const taxes = netRevenue > 0 ? netRevenue * TAX_RATE : 0;
+
+    const netProfit = netRevenue - costOfGoods - commission - delivery - taxes;
+    const totalExpenses = costOfGoods + commission + delivery + taxes;
+
+    const margin = netRevenue !== 0 ? (netProfit / netRevenue) * 100 : null;
+    const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
+
+    return {
+      month: row.month,
+      revenue,
+      cost_of_goods: costOfGoods,
+      returns,
+      net_revenue: netRevenue,
+      commission,
+      delivery,
+      taxes,
+      net_profit: netProfit,
+      margin,
+      roi,
+      operations_count: Number(row.operations_count),
+    };
+  });
+}
+
 router.get('/monthly', async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT
-        to_char(operation_date, 'YYYY-MM') AS month,
-        SUM(CASE WHEN operation_type = 'Возврат' THEN amount ELSE 0 END) AS returns_amount,
-        SUM(CASE WHEN operation_type != 'Возврат' THEN amount ELSE 0 END) AS purchases_amount,
-        SUM(commission_total) AS commission_total,
-        SUM(delivery_cost) AS delivery_total,
-        COUNT(*) AS operations_count
-      FROM kaspi_pay_transactions
-      GROUP BY month
-      ORDER BY month DESC
-    `);
+    const [months, monthsMainCities, monthsSelfBuyCities] = await Promise.all([
+      aggregateKaspiPayMonthly(),
+      aggregateKaspiPayMonthly(MAIN_CITIES),
+      aggregateKaspiPayMonthly(SELF_BUY_CITIES),
+    ]);
 
-    const cogsByMonth = await computeMonthlyCogs();
-
-    const months = result.rows.map((row) => {
-      const revenue = Number(row.purchases_amount); // выручка от продаж (без возвратов)
-      const costOfGoods = cogsByMonth[row.month] || 0; // себестоимость проданных товаров (FIFO)
-      const returns = -Number(row.returns_amount); // сумма возвратов как положительное число
-      const netRevenue = revenue - returns; // чистый оборот после возвратов — база для налога и маржи
-
-      const commission = -Number(row.commission_total); // положительное число — расход
-      const delivery = -Number(row.delivery_total); // положительное число — расход
-      const taxes = netRevenue > 0 ? netRevenue * TAX_RATE : 0;
-
-      const netProfit = netRevenue - costOfGoods - commission - delivery - taxes;
-      const totalExpenses = costOfGoods + commission + delivery + taxes;
-
-      const margin = netRevenue !== 0 ? (netProfit / netRevenue) * 100 : null;
-      const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
-
-      return {
-        month: row.month,
-        revenue,
-        cost_of_goods: costOfGoods,
-        returns,
-        net_revenue: netRevenue,
-        commission,
-        delivery,
-        taxes,
-        net_profit: netProfit,
-        margin,
-        roi,
-        operations_count: Number(row.operations_count),
-      };
-    });
-
-    res.json({ months });
+    res.json({ months, monthsMainCities, monthsSelfBuyCities });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить отчёт' });
