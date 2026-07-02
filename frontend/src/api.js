@@ -24,16 +24,16 @@ async function apiRequest(path, password, options = {}) {
   return response.json();
 }
 
-export function fetchSummary(password, from, to) {
-  return apiRequest(`/api/stats/summary?from=${from}&to=${to}`, password);
+export function fetchSummary(password, from, to, mode = 'main') {
+  return apiRequest(`/api/stats/summary?from=${from}&to=${to}&mode=${mode}`, password);
 }
 
-export function fetchProducts(password, from, to) {
-  return apiRequest(`/api/stats/products?from=${from}&to=${to}`, password);
+export function fetchProducts(password, from, to, mode = 'main') {
+  return apiRequest(`/api/stats/products?from=${from}&to=${to}&mode=${mode}`, password);
 }
 
-export function fetchProductStats(password, productId, from, to) {
-  return apiRequest(`/api/stats/product/${encodeURIComponent(productId)}?from=${from}&to=${to}`, password);
+export function fetchProductStats(password, productId, from, to, mode = 'main') {
+  return apiRequest(`/api/stats/product/${encodeURIComponent(productId)}?from=${from}&to=${to}&mode=${mode}`, password);
 }
 
 export function triggerSync(password) {

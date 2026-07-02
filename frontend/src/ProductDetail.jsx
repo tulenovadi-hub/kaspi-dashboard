@@ -3,7 +3,7 @@ import SalesChart from './SalesChart.jsx';
 import { fetchProductStats } from './api.js';
 import { formatMoney, formatNumber, percentChange } from './dateUtils.js';
 
-export default function ProductDetail({ password, product, from, to, onClose }) {
+export default function ProductDetail({ password, product, from, to, mode = 'main', onClose }) {
   const [days, setDays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -14,13 +14,13 @@ export default function ProductDetail({ password, product, from, to, onClose }) 
     setLoading(true);
     setError('');
 
-    fetchProductStats(password, product.product_id, from, to)
+    fetchProductStats(password, product.product_id, from, to, mode)
       .then((data) => { if (!cancelled) setDays(data.days); })
       .catch((err) => { if (!cancelled) setError(err.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [password, product.product_id, from, to]);
+  }, [password, product.product_id, from, to, mode]);
 
   const half = Math.floor(days.length / 2);
   const key = metric;

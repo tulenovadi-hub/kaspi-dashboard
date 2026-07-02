@@ -20,6 +20,9 @@ const icons = {
   marketing: (
     <svg viewBox="0 0 20 20" fill="none"><path d="M2 8v4h3l5 3V5L5 8H2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M14 7.5a3 3 0 010 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M16.3 5.5a6 6 0 010 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
   ),
+  selfbuy: (
+    <svg viewBox="0 0 20 20" fill="none"><path d="M3 4h1.5l1.2 8.4a1.5 1.5 0 001.5 1.3h6.2a1.5 1.5 0 001.5-1.2L16 7H5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="8" cy="17" r="1" fill="currentColor"/><circle cx="14" cy="17" r="1" fill="currentColor"/><path d="M13 3.5l2 2-2 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/><path d="M15 5.5H10.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
+  ),
   collapse: (
     <svg viewBox="0 0 20 20" fill="none"><rect x="2.5" y="3.5" width="15" height="13" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M7.5 3.5v13" stroke="currentColor" strokeWidth="1.5"/></svg>
   ),
@@ -37,6 +40,7 @@ const icons = {
 const NAV_ITEMS = [
   { key: 'sales', label: 'Главная', icon: 'home' },
   { key: 'report', label: 'Отчёт', icon: 'report' },
+  { key: 'selfbuy', label: 'Самовыкупы', icon: 'selfbuy' },
   { key: 'expenses', label: 'Расходы', icon: 'expenses' },
   { key: 'batches', label: 'Поставки', icon: 'batches' },
   { key: 'warehouse', label: 'Склад', icon: 'warehouse' },
