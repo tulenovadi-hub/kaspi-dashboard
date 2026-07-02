@@ -81,3 +81,11 @@ export function fetchMonthlyReport(password) {
 export function fetchWarehouse(password) {
   return apiRequest('/api/warehouse', password);
 }
+
+export function fetchProductImages(password, productIds) {
+  return apiRequest('/api/product-images', password, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ product_ids: productIds }),
+  });
+}

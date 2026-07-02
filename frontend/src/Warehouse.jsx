@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { fetchWarehouse } from './api.js';
+import { fetchWarehouse, fetchProductImages } from './api.js';
 import { formatMoney, formatNumber, WAREHOUSES } from './dateUtils.js';
 
 export default function Warehouse({ password }) {
   const [products, setProducts] = useState([]);
+  const [images, setImages] = useState({});
   const [cutoffDate, setCutoffDate] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -17,6 +18,13 @@ export default function Warehouse({ password }) {
       .then((res) => {
         setProducts(res.products);
         setCutoffDate(res.cutoff_date || '');
+
+        const uniqueIds = Array.from(new Set(res.products.map((p) => p.product_id)));
+        if (uniqueIds.length > 0) {
+          fetchProductImages(password, uniqueIds)
+            .then((imgRes) => setImages(imgRes.images || {}))
+            .catch(() => {}); // картинки — это украшение, не критично, если не подтянулись
+        }
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -75,12 +83,21 @@ export default function Warehouse({ password }) {
                     <React.Fragment key={rowKey}>
                       <tr onClick={() => toggleExpand(rowKey)}>
                         <td>
-                          {p.product_name}
-                          {p.oversold_qty > 0 && (
-                            <span className="warehouse-warning" title="Продано больше, чем известно поставок на этом складе — добавьте недостающие партии">
-                              ⚠ продано на {formatNumber(p.oversold_qty)} шт больше поставок
-                            </span>
-                          )}
+                          <div className="warehouse-product-cell">
+                            {images[p.product_id] ? (
+                              <img className="warehouse-thumb" src={images[p.product_id]} alt={p.product_name} />
+                            ) : (
+                              <div className="warehouse-thumb warehouse-thumb-empty" />
+                            )}
+                            <div>
+                              {p.product_name}
+                              {p.oversold_qty > 0 && (
+                                <span className="warehouse-warning" title="Продано больше, чем известно поставок на этом складе — добавьте недостающие партии">
+                                  ⚠ продано на {formatNumber(p.oversold_qty)} шт больше поставок
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </td>
                         <td>{p.warehouse}</td>
                         <td className="num">{formatNumber(p.total_supplied)}</td>
