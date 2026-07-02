@@ -89,7 +89,10 @@ export default function Report({ password }) {
                 <tr>
                   <th>Месяц</th>
                   <th className="num">Выручка</th>
-                  <th className="num">Расходы</th>
+                  <th className="num">Возвраты</th>
+                  <th className="num">Комиссия</th>
+                  <th className="num">Доставка</th>
+                  <th className="num">Налоги (3%)</th>
                   <th className="num">Чистая прибыль</th>
                   <th className="num">Маржа</th>
                   <th className="num">ROI</th>
@@ -100,7 +103,10 @@ export default function Report({ password }) {
                   <tr key={m.month}>
                     <td>{formatMonthLabel(m.month)}</td>
                     <td className="num">{formatMoney(m.revenue)}</td>
-                    <td className="num">{formatMoney(m.expenses)}</td>
+                    <td className="num">{formatMoney(m.returns)}</td>
+                    <td className="num">{formatMoney(m.commission)}</td>
+                    <td className="num">{formatMoney(m.delivery)}</td>
+                    <td className="num">{formatMoney(m.taxes)}</td>
                     <td className="num">{formatMoney(m.net_profit)}</td>
                     <td className="num">{formatPercent(m.margin)}</td>
                     <td className="num">{formatPercent(m.roi)}</td>
@@ -113,8 +119,8 @@ export default function Report({ password }) {
       </div>
 
       <div className="report-note">
-        ⚠️ Чистая прибыль здесь считается как Выручка минус комиссии Kaspi и стоимость доставки.
-        Себестоимость товаров (закупочная цена) пока не вычитается — она подключится, когда доучёт партий на «Поставках» заработает полностью.
+        ⚠️ Налог считается упрощённо: 3% с чистого оборота (выручка минус возвраты). Себестоимость товаров (закупочная цена) в чистую прибыль пока не входит —
+        она подключится, когда доучёт партий на «Поставках» заработает полностью.
       </div>
     </div>
   );
