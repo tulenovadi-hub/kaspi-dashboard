@@ -32,7 +32,7 @@ export default function TodayVsYesterday({ todayRevenue, yesterdayRevenue }) {
         <span className="delta-arrow">по сравнению со вчера</span>
       </div>
 
-      <div className="hero-block" style={{ textAlign: 'right' }}>
+      <div className="hero-block hero-block-today">
         <span className="hero-label">Сегодня</span>
         <span className="hero-value">{formatMoney(todayRevenue)}</span>
         <span className="hero-sub">сумма продаж</span>

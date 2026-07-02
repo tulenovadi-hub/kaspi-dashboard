@@ -194,6 +194,16 @@ select:focus-visible {
   }
 }
 
+.hero-block-today {
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  .hero-block-today {
+    text-align: center;
+  }
+}
+
 .hero-block {
   display: flex;
   flex-direction: column;
@@ -810,6 +820,7 @@ select:focus-visible {
     inset: 0;
     background: rgba(6, 9, 16, 0.65);
     z-index: 50;
+    animation: overlayFadeIn 0.2s ease;
   }
 
   .mobile-menu-panel {
@@ -826,6 +837,17 @@ select:focus-visible {
     flex-direction: column;
     gap: 4px;
     overflow-y: auto;
+    animation: menuSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes overlayFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes menuSlideIn {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
   }
 
   .mobile-menu-header {
