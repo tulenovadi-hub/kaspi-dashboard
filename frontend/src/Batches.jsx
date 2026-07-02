@@ -154,7 +154,6 @@ export default function Batches({ password, onClose }) {
     <div>
       <div className="app-header">
         <h1 className="app-title">Поставки <span>товаров</span></h1>
-        <button className="sync-button" onClick={onClose}>← Назад к продажам</button>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
