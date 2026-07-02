@@ -3,6 +3,8 @@ const { pool } = require('../db');
 
 const router = express.Router();
 
+const VALID_WAREHOUSES = ['Алматы', 'Астана', 'Талдыкорган', 'Юбилейное'];
+
 // Список всех продуктов, которые когда-либо продавались — нужно для выпадающего
 // списка при добавлении новой партии, чтобы не вводить название вручную и не ошибиться.
 router.get('/products', async (req, res) => {
@@ -42,7 +44,7 @@ router.post('/', async (req, res) => {
   if (!product_id || !product_name) {
     return res.status(400).json({ error: 'Не указан товар' });
   }
-  if (!warehouse || !['Алматы', 'Астана'].includes(warehouse)) {
+  if (!warehouse || !VALID_WAREHOUSES.includes(warehouse)) {
     return res.status(400).json({ error: 'Не указан склад (город)' });
   }
   const purchasePrice = Number(purchase_price);
