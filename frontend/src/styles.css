@@ -53,6 +53,12 @@ select:focus-visible {
   min-height: 100vh;
 }
 
+@media (max-width: 780px) {
+  .layout {
+    flex-direction: column;
+  }
+}
+
 .main-content {
   flex: 1;
   min-width: 0;
@@ -737,22 +743,100 @@ select:focus-visible {
   width: 100%;
 }
 
+/* ===== Мобильный топбар и выезжающее меню ===== */
+.mobile-topbar {
+  display: none;
+}
+
+.mobile-menu-overlay {
+  display: none;
+}
+
 @media (max-width: 780px) {
   .sidebar {
-    width: 64px;
-    align-items: center;
-  }
-  .sidebar .sidebar-item-label,
-  .sidebar .sidebar-brand {
     display: none;
   }
-  .sidebar .sidebar-item {
-    justify-content: center;
-    padding: 10px;
+
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
   }
-  .sidebar-top {
+
+  .mobile-menu-btn {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    padding: 6px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
     justify-content: center;
-    padding: 4px 0 20px;
+    flex-shrink: 0;
+  }
+
+  .mobile-menu-btn:hover {
+    background: var(--bg-card-hover);
+  }
+
+  .mobile-menu-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .mobile-topbar-title {
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .mobile-topbar-title span {
+    color: var(--accent-brand);
+    font-weight: 500;
+  }
+
+  .mobile-topbar-spacer {
+    flex: 1;
+  }
+
+  .mobile-menu-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(6, 9, 16, 0.65);
+    z-index: 50;
+  }
+
+  .mobile-menu-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 82%;
+    max-width: 300px;
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+  }
+
+  .mobile-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 4px 20px;
+  }
+
+  .mobile-menu-panel .sidebar-nav {
+    flex: 1;
   }
 }
 
@@ -771,15 +855,6 @@ select:focus-visible {
 @media (max-width: 480px) {
   .app {
     padding: 16px 12px 40px;
-  }
-
-  .sidebar {
-    width: 52px;
-  }
-
-  .sidebar-item-icon svg {
-    width: 18px;
-    height: 18px;
   }
 
   .app-title {

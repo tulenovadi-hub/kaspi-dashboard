@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 // Простые line-иконки без внешних зависимостей — 20x20, stroke=currentColor
 const icons = {
@@ -26,6 +26,12 @@ const icons = {
   logout: (
     <svg viewBox="0 0 20 20" fill="none"><path d="M8 3H4a1 1 0 00-1 1v12a1 1 0 001 1h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M13 14l4-4-4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M17 10H7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
   ),
+  burger: (
+    <svg viewBox="0 0 20 20" fill="none"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
+  ),
+  close: (
+    <svg viewBox="0 0 20 20" fill="none"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
+  ),
 };
 
 const NAV_ITEMS = [
@@ -37,34 +43,80 @@ const NAV_ITEMS = [
   { key: 'marketing', label: 'Маркетинг', icon: 'marketing' },
 ];
 
-export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, onLogout }) {
+function NavList({ view, onSelect, collapsed }) {
   return (
-    <div className={`sidebar${collapsed ? ' collapsed' : ''}`}>
-      <div className="sidebar-top">
-        {!collapsed && <div className="sidebar-brand">Kaspi <span>Dashboard</span></div>}
-        <button className="sidebar-collapse-btn" onClick={onToggleCollapse} title={collapsed ? 'Развернуть' : 'Свернуть'}>
-          {icons.collapse}
+    <nav className="sidebar-nav">
+      {NAV_ITEMS.map((item) => (
+        <button
+          key={item.key}
+          className={`sidebar-item${view === item.key ? ' active' : ''}`}
+          onClick={() => onSelect(item.key)}
+          title={collapsed ? item.label : undefined}
+        >
+          <span className="sidebar-item-icon">{icons[item.icon]}</span>
+          {!collapsed && <span className="sidebar-item-label">{item.label}</span>}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, onLogout }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  function handleSelect(key) {
+    onSelect(key);
+    setMobileOpen(false);
+  }
+
+  return (
+    <>
+      {/* ===== Десктоп: постоянная колонка слева ===== */}
+      <div className={`sidebar${collapsed ? ' collapsed' : ''}`}>
+        <div className="sidebar-top">
+          {!collapsed && <div className="sidebar-brand">Kaspi <span>Dashboard</span></div>}
+          <button className="sidebar-collapse-btn" onClick={onToggleCollapse} title={collapsed ? 'Развернуть' : 'Свернуть'}>
+            {icons.collapse}
+          </button>
+        </div>
+
+        <NavList view={view} onSelect={onSelect} collapsed={collapsed} />
+
+        <button className="sidebar-item sidebar-logout" onClick={onLogout} title={collapsed ? 'Выйти' : undefined}>
+          <span className="sidebar-item-icon">{icons.logout}</span>
+          {!collapsed && <span className="sidebar-item-label">Выйти</span>}
         </button>
       </div>
 
-      <nav className="sidebar-nav">
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.key}
-            className={`sidebar-item${view === item.key ? ' active' : ''}`}
-            onClick={() => onSelect(item.key)}
-            title={collapsed ? item.label : undefined}
-          >
-            <span className="sidebar-item-icon">{icons[item.icon]}</span>
-            {!collapsed && <span className="sidebar-item-label">{item.label}</span>}
-          </button>
-        ))}
-      </nav>
+      {/* ===== Мобильный: верхняя панель с гамбургером ===== */}
+      <div className="mobile-topbar">
+        <button className="mobile-menu-btn" onClick={() => setMobileOpen(true)} aria-label="Открыть меню">
+          {icons.burger}
+        </button>
+        <div className="mobile-topbar-title">Kaspi <span>Dashboard</span></div>
+        <div className="mobile-topbar-spacer" />
+      </div>
 
-      <button className="sidebar-item sidebar-logout" onClick={onLogout} title={collapsed ? 'Выйти' : undefined}>
-        <span className="sidebar-item-icon">{icons.logout}</span>
-        {!collapsed && <span className="sidebar-item-label">Выйти</span>}
-      </button>
-    </div>
+      {/* ===== Мобильный: выезжающее меню поверх контента ===== */}
+      {mobileOpen && (
+        <div className="mobile-menu-overlay" onClick={() => setMobileOpen(false)}>
+          <div className="mobile-menu-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="mobile-menu-header">
+              <div className="sidebar-brand">Kaspi <span>Dashboard</span></div>
+              <button className="modal-close" onClick={() => setMobileOpen(false)} aria-label="Закрыть меню">
+                {icons.close}
+              </button>
+            </div>
+
+            <NavList view={view} onSelect={handleSelect} collapsed={false} />
+
+            <button className="sidebar-item sidebar-logout" onClick={onLogout}>
+              <span className="sidebar-item-icon">{icons.logout}</span>
+              <span className="sidebar-item-label">Выйти</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
