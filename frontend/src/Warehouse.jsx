@@ -4,6 +4,7 @@ import { formatMoney, formatNumber, WAREHOUSES } from './dateUtils.js';
 
 export default function Warehouse({ password }) {
   const [products, setProducts] = useState([]);
+  const [cutoffDate, setCutoffDate] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(null);
@@ -13,7 +14,10 @@ export default function Warehouse({ password }) {
     setLoading(true);
     setError('');
     fetchWarehouse(password)
-      .then((res) => setProducts(res.products))
+      .then((res) => {
+        setProducts(res.products);
+        setCutoffDate(res.cutoff_date || '');
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, [password]);
@@ -60,6 +64,7 @@ export default function Warehouse({ password }) {
                   <th>Склад</th>
                   <th className="num">Поставлено</th>
                   <th className="num">Продано</th>
+                  <th className="num">В обработке</th>
                   <th className="num">Остаток</th>
                   <th className="num">Себестоимость (FIFO)</th>
                   <th className="num">Стоимость остатка</th>
@@ -82,13 +87,14 @@ export default function Warehouse({ password }) {
                         <td>{p.warehouse}</td>
                         <td className="num">{formatNumber(p.total_supplied)}</td>
                         <td className="num">{formatNumber(p.total_sold)}</td>
+                        <td className="num">{formatNumber(p.in_progress)}</td>
                         <td className="num">{formatNumber(p.remaining)}</td>
                         <td className="num">{p.current_cost_price !== null ? formatMoney(p.current_cost_price) : '—'}</td>
                         <td className="num">{formatMoney(p.remaining_value)}</td>
                       </tr>
                       {expanded === rowKey && p.batches.length > 0 && (
                         <tr>
-                          <td colSpan={7} className="warehouse-batches-cell">
+                          <td colSpan={8} className="warehouse-batches-cell">
                             <table className="product-table warehouse-sub-table">
                               <thead>
                                 <tr>
@@ -122,9 +128,9 @@ export default function Warehouse({ password }) {
       </div>
 
       <div className="report-note">
-        Остаток считается по методу FIFO отдельно для каждого склада: партии Алматы списываются только продажами, отгруженными из Алматы, партии Астаны — только
-        продажами из Астаны (город отгрузки Kaspi присылает в каждом заказе). Строка «Не определён» — заказы, по которым Kaspi не прислал город отгрузки.
-        Нажмите на строку товара, чтобы увидеть разбивку по партиям.
+        Остаток считается по методу FIFO отдельно для каждого склада, и учитывает только заказы {cutoffDate ? `с ${cutoffDate} и позже` : 'после даты отсечки'} —
+        так партии, введённые с учётом остатков на эту дату, не задваиваются со старыми продажами. «Продано» — завершённые заказы (COMPLETED), «В обработке» —
+        заказы, которые уже приняты в работу, но ещё не завершены (актуально для рассрочки). Нажмите на строку товара, чтобы увидеть разбивку по партиям.
       </div>
     </div>
   );
