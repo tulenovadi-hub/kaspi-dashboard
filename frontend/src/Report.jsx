@@ -2,8 +2,58 @@ import React, { useEffect, useRef, useState } from 'react';
 import { uploadKaspiPayReport, fetchMonthlyReport } from './api.js';
 import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
 
+function MonthlyTable({ title, months }) {
+  return (
+    <>
+      <div className="section-title">{title}</div>
+      <div className="card">
+        {months.length === 0 ? (
+          <div className="empty-state">Нет данных за загруженный период</div>
+        ) : (
+          <div className="table-scroll">
+            <table className="product-table">
+              <thead>
+                <tr>
+                  <th>Месяц</th>
+                  <th className="num">Выручка</th>
+                  <th className="num">Себестоимость</th>
+                  <th className="num">Возвраты</th>
+                  <th className="num">Комиссия</th>
+                  <th className="num">Доставка</th>
+                  <th className="num">Налоги (3%)</th>
+                  <th className="num">Чистая прибыль</th>
+                  <th className="num">Маржа</th>
+                  <th className="num">ROI</th>
+                </tr>
+              </thead>
+              <tbody>
+                {months.map((m) => (
+                  <tr key={m.month}>
+                    <td>{formatMonthLabel(m.month)}</td>
+                    <td className="num">{formatMoney(m.revenue)}</td>
+                    <td className="num">{formatMoney(m.cost_of_goods)}</td>
+                    <td className="num">{formatMoney(m.returns)}</td>
+                    <td className="num">{formatMoney(m.commission)}</td>
+                    <td className="num">{formatMoney(m.delivery)}</td>
+                    <td className="num">{formatMoney(m.taxes)}</td>
+                    <td className="num">{formatMoney(m.net_profit)}</td>
+                    <td className="num">{formatPercent(m.margin)}</td>
+                    <td className="num">{formatPercent(m.roi)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 export default function Report({ password }) {
   const [months, setMonths] = useState([]);
+  const [monthsMainCities, setMonthsMainCities] = useState([]);
+  const [monthsSelfBuyCities, setMonthsSelfBuyCities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -14,7 +64,11 @@ export default function Report({ password }) {
     setLoading(true);
     setError('');
     fetchMonthlyReport(password)
-      .then((res) => setMonths(res.months))
+      .then((res) => {
+        setMonths(res.months);
+        setMonthsMainCities(res.monthsMainCities);
+        setMonthsSelfBuyCities(res.monthsSelfBuyCities);
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }
@@ -76,54 +130,20 @@ export default function Report({ password }) {
 
       {error && <div className="error-banner">{error}</div>}
 
-      <div className="section-title">По месяцам</div>
-      <div className="card">
-        {loading ? (
-          <div className="empty-state">Загрузка...</div>
-        ) : months.length === 0 ? (
-          <div className="empty-state">Пока нет данных — загрузите отчёт Kaspi Pay выше</div>
-        ) : (
-          <div className="table-scroll">
-            <table className="product-table">
-              <thead>
-                <tr>
-                  <th>Месяц</th>
-                  <th className="num">Выручка</th>
-                  <th className="num">Себестоимость</th>
-                  <th className="num">Возвраты</th>
-                  <th className="num">Комиссия</th>
-                  <th className="num">Доставка</th>
-                  <th className="num">Налоги (3%)</th>
-                  <th className="num">Чистая прибыль</th>
-                  <th className="num">Маржа</th>
-                  <th className="num">ROI</th>
-                </tr>
-              </thead>
-              <tbody>
-                {months.map((m) => (
-                  <tr key={m.month}>
-                    <td>{formatMonthLabel(m.month)}</td>
-                    <td className="num">{formatMoney(m.revenue)}</td>
-                    <td className="num">{formatMoney(m.cost_of_goods)}</td>
-                    <td className="num">{formatMoney(m.returns)}</td>
-                    <td className="num">{formatMoney(m.commission)}</td>
-                    <td className="num">{formatMoney(m.delivery)}</td>
-                    <td className="num">{formatMoney(m.taxes)}</td>
-                    <td className="num">{formatMoney(m.net_profit)}</td>
-                    <td className="num">{formatPercent(m.margin)}</td>
-                    <td className="num">{formatPercent(m.roi)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {loading ? (
+        <div className="empty-state">Загрузка...</div>
+      ) : (
+        <>
+          <MonthlyTable title="По месяцам" months={months} />
+          <MonthlyTable title="Алматы + Астана" months={monthsMainCities} />
+          <MonthlyTable title="Талдыкорган + Юбилейное" months={monthsSelfBuyCities} />
+        </>
+      )}
 
       <div className="report-note">
         ⚠️ Налог считается упрощённо: 3% с чистого оборота (выручка минус возвраты). Себестоимость считается по методу FIFO на основе партий на «Поставках»
-        и только по продажам с 1 июня 2026 — так же, как на «Складе». Если у товара ещё нет введённых партий, его себестоимость пока считается как 0
-        (чистая прибыль по нему будет завышена, пока вы не внесёте партии).
+        и только по продажам с 1 июня 2026 — так же, как на «Складе». Таблицы по городам определяются по номеру заказа: он совпадает и в Excel-отчёте Kaspi
+        Pay, и в данных заказов Kaspi — так мы узнаём, с какого склада ушёл каждый заказ.
       </div>
     </div>
   );
