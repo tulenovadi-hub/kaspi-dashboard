@@ -472,6 +472,12 @@ select:focus-visible {
   font-size: 14px;
 }
 
+.batch-form-field input:disabled {
+  color: var(--text-muted);
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+
 .batch-submit {
   margin-top: 16px;
 }
@@ -509,6 +515,25 @@ select:focus-visible {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.batch-row {
+  cursor: pointer;
+}
+
+.batch-missing-logistics {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--accent-down);
+  font-weight: 500;
+}
+
+.batch-field-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .batch-group {

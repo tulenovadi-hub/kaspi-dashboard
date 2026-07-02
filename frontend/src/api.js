@@ -56,6 +56,14 @@ export function addBatch(password, batch) {
   });
 }
 
+export function updateBatch(password, id, batch) {
+  return apiRequest(`/api/batches/${id}`, password, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(batch),
+  });
+}
+
 export function deleteBatch(password, id) {
   return apiRequest(`/api/batches/${id}`, password, { method: 'DELETE' });
 }
