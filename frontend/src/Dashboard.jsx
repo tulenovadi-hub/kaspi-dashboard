@@ -7,13 +7,13 @@ import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
 import Batches from './Batches.jsx';
 import Report from './Report.jsx';
+import Warehouse from './Warehouse.jsx';
 import ComingSoon from './ComingSoon.jsx';
 import { fetchSummary, fetchProducts, triggerSync } from './api.js';
 import { toISODate, daysAgo, formatMoney, formatNumber } from './dateUtils.js';
 
 const SECTION_TITLES = {
   expenses: 'Расходы',
-  warehouse: 'Склад',
   marketing: 'Маркетинг',
 };
 
@@ -109,6 +109,10 @@ export default function Dashboard({ password, onLogout }) {
 
     if (view === 'report') {
       return <Report password={password} />;
+    }
+
+    if (view === 'warehouse') {
+      return <Warehouse password={password} />;
     }
 
     if (SECTION_TITLES[view]) {

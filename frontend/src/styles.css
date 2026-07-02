@@ -969,3 +969,27 @@ select:focus-visible {
   line-height: 1.6;
   padding: 4px;
 }
+
+/* ===== Warehouse (Склад) ===== */
+.warehouse-warning {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--accent-down);
+  font-weight: 500;
+}
+
+.warehouse-batches-cell {
+  background: var(--bg);
+  padding: 12px 20px !important;
+  cursor: default;
+}
+
+.warehouse-sub-table {
+  font-size: 13px;
+}
+
+.warehouse-sub-table th,
+.warehouse-sub-table td {
+  padding: 6px 10px;
+}

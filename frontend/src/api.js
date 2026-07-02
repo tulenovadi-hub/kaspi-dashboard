@@ -69,3 +69,7 @@ export function uploadKaspiPayReport(password, file) {
 export function fetchMonthlyReport(password) {
   return apiRequest('/api/reports/monthly', password);
 }
+
+export function fetchWarehouse(password) {
+  return apiRequest('/api/warehouse', password);
+}
