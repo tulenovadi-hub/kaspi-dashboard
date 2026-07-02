@@ -59,10 +59,23 @@ async function initDb() {
   // Данные, импортированные из Excel-отчёта Kaspi Pay (детализация по операциям):
   // выручка, все виды комиссий и стоимость доставки Kaspi по каждой операции.
   // Используется для отчёта по прибыли/марже/ROI помесячно.
+  // Миграция: если таблица создана по старой схеме (уникальный order_number, без row_key),
+  // в ней могли потеряться строки из-за бага с перезаписью по номеру заказа
+  // (у одного заказа бывает несколько операций — например, покупка и её возврат).
+  // Пересоздаём таблицу начисто — после этого нужно перезалить Excel-отчёт на странице "Отчёт".
+  const rowKeyCheck = await pool.query(`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_name = 'kaspi_pay_transactions' AND column_name = 'row_key'
+  `);
+  if (rowKeyCheck.rowCount === 0) {
+    await pool.query(`DROP TABLE IF EXISTS kaspi_pay_transactions;`);
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS kaspi_pay_transactions (
       id SERIAL PRIMARY KEY,
-      order_number TEXT UNIQUE NOT NULL,
+      row_key TEXT UNIQUE NOT NULL,
+      order_number TEXT NOT NULL,
       operation_date DATE NOT NULL,
       operation_type TEXT,
       product_name TEXT,
