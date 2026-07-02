@@ -10,7 +10,6 @@ const statsRoutes = require('./routes/stats');
 const batchesRoutes = require('./routes/batches');
 const reportsRoutes = require('./routes/reports');
 const warehouseRoutes = require('./routes/warehouse');
-const debugRoutes = require('./routes/debug');
 
 const app = express();
 app.use(cors());
@@ -30,7 +29,6 @@ app.use('/api/stats', statsRoutes);
 app.use('/api/batches', batchesRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/warehouse', warehouseRoutes);
-app.use('/api/debug', debugRoutes);
 
 // Эндпоинт, чтобы вручную запустить синхронизацию из дашборда (кнопка "Обновить сейчас")
 app.post('/api/sync', async (req, res) => {
