@@ -24,7 +24,7 @@ router.get('/products', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, quantity, remaining_quantity, received_date, created_at
+      `SELECT id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, created_at
        FROM product_batches
        ORDER BY product_name, received_date, id`
     );
@@ -37,10 +37,13 @@ router.get('/', async (req, res) => {
 
 // Добавление новой партии
 router.post('/', async (req, res) => {
-  const { product_id, product_name, purchase_price, logistics_cost, note, quantity, received_date } = req.body;
+  const { product_id, product_name, purchase_price, logistics_cost, note, warehouse, quantity, received_date } = req.body;
 
   if (!product_id || !product_name) {
     return res.status(400).json({ error: 'Не указан товар' });
+  }
+  if (!warehouse || !['Алматы', 'Астана'].includes(warehouse)) {
+    return res.status(400).json({ error: 'Не указан склад (город)' });
   }
   const purchasePrice = Number(purchase_price);
   const logisticsCost = Number(logistics_cost || 0);
@@ -62,10 +65,10 @@ router.post('/', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `INSERT INTO product_batches (product_id, product_name, cost_price, purchase_price, logistics_cost, note, quantity, remaining_quantity, received_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)
-       RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, quantity, remaining_quantity, received_date, created_at`,
-      [product_id, product_name, costPrice, purchasePrice, logisticsCost, note || null, qty, received_date]
+      `INSERT INTO product_batches (product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
+       RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, created_at`,
+      [product_id, product_name, costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, received_date]
     );
     res.status(201).json({ batch: result.rows[0] });
   } catch (err) {
