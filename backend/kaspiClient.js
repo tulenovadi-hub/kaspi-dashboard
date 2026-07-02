@@ -47,6 +47,18 @@ async function fetchOrders(dateFromMs, dateToMs) {
   return allOrders;
 }
 
+// Kaspi кодирует id ресурса в base64: "MTM2NTE3NjA2" -> "136517606".
+// Это тот же код, что виден в публичной ссылке на товар (kaspi.kz/shop/p/.../-<code>/),
+// используем его позже, чтобы подтянуть картинку товара с публичной страницы.
+function decodeMasterProductCode(relationshipId) {
+  if (!relationshipId) return null;
+  try {
+    return Buffer.from(relationshipId, 'base64').toString('utf-8');
+  } catch (err) {
+    return null;
+  }
+}
+
 async function fetchOrderEntries(orderId) {
   const http = client();
   const response = await http.get(`/orders/${orderId}/entries`);
@@ -56,6 +68,9 @@ async function fetchOrderEntries(orderId) {
     const attrs = entry.attributes || {};
     const productName = (attrs.offer && attrs.offer.name) || attrs.name || 'Неизвестный товар';
     const productId = (attrs.offer && attrs.offer.code) || entry.id;
+    const productRelId = entry.relationships && entry.relationships.product && entry.relationships.product.data
+      ? entry.relationships.product.data.id
+      : null;
 
     return {
       id: entry.id,
@@ -63,6 +78,7 @@ async function fetchOrderEntries(orderId) {
       productName,
       quantity: attrs.quantity || 1,
       totalPrice: attrs.totalPrice || 0,
+      masterProductCode: decodeMasterProductCode(productRelId),
     };
   });
 }

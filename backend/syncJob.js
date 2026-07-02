@@ -50,13 +50,14 @@ async function syncRecentOrders(daysBack = 3) {
         const entries = await fetchOrderEntries(order.id);
         for (const item of entries) {
           await pool.query(
-            `INSERT INTO order_items (id, order_id, product_id, product_name, quantity, total_price, creation_date)
-             VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7 / 1000.0))
+            `INSERT INTO order_items (id, order_id, product_id, product_name, quantity, total_price, creation_date, master_product_code)
+             VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7 / 1000.0), $8)
              ON CONFLICT (id) DO UPDATE SET
                quantity = EXCLUDED.quantity,
                total_price = EXCLUDED.total_price,
-               product_name = EXCLUDED.product_name`,
-            [item.id, order.id, item.productId, item.productName, item.quantity, item.totalPrice, attrs.creationDate]
+               product_name = EXCLUDED.product_name,
+               master_product_code = EXCLUDED.master_product_code`,
+            [item.id, order.id, item.productId, item.productName, item.quantity, item.totalPrice, attrs.creationDate, item.masterProductCode]
           );
           totalItems += 1;
         }

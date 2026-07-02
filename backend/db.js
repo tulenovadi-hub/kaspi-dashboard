@@ -117,7 +117,21 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_kaspi_pay_date ON kaspi_pay_transactions(operation_date);`);
 
-  console.log('База данных готова: таблицы orders, order_items, product_batches и kaspi_pay_transactions на месте.');
+  // Код товара в общем каталоге Kaspi (не путать с product_id — это код именно вашего
+  // предложения). Нужен, чтобы построить ссылку на публичную страницу товара и вытащить оттуда картинку.
+  await pool.query(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS master_product_code TEXT;`);
+
+  // Кэш картинок товаров — чтобы не дёргать kaspi.kz при каждой загрузке страницы "Склад".
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS product_images (
+      product_id TEXT PRIMARY KEY,
+      master_product_code TEXT,
+      image_url TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  console.log('База данных готова: таблицы orders, order_items, product_batches, kaspi_pay_transactions и product_images на месте.');
 }
 
 module.exports = { pool, initDb };
