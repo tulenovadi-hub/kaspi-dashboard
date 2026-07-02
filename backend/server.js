@@ -8,6 +8,7 @@ const { initDb } = require('./db');
 const { syncRecentOrders } = require('./syncJob');
 const statsRoutes = require('./routes/stats');
 const batchesRoutes = require('./routes/batches');
+const reportsRoutes = require('./routes/reports');
 
 const app = express();
 app.use(cors());
@@ -25,6 +26,7 @@ app.use('/api', (req, res, next) => {
 
 app.use('/api/stats', statsRoutes);
 app.use('/api/batches', batchesRoutes);
+app.use('/api/reports', reportsRoutes);
 
 // Эндпоинт, чтобы вручную запустить синхронизацию из дашборда (кнопка "Обновить сейчас")
 app.post('/api/sync', async (req, res) => {

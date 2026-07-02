@@ -56,7 +56,25 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_batches_product_id ON product_batches(product_id, received_date);`);
 
-  console.log('База данных готова: таблицы orders, order_items и product_batches на месте.');
+  // Данные, импортированные из Excel-отчёта Kaspi Pay (детализация по операциям):
+  // выручка, все виды комиссий и стоимость доставки Kaspi по каждой операции.
+  // Используется для отчёта по прибыли/марже/ROI помесячно.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kaspi_pay_transactions (
+      id SERIAL PRIMARY KEY,
+      order_number TEXT UNIQUE NOT NULL,
+      operation_date DATE NOT NULL,
+      operation_type TEXT,
+      product_name TEXT,
+      amount NUMERIC NOT NULL DEFAULT 0,
+      commission_total NUMERIC NOT NULL DEFAULT 0,
+      delivery_cost NUMERIC NOT NULL DEFAULT 0,
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_kaspi_pay_date ON kaspi_pay_transactions(operation_date);`);
+
+  console.log('База данных готова: таблицы orders, order_items, product_batches и kaspi_pay_transactions на месте.');
 }
 
 module.exports = { pool, initDb };
