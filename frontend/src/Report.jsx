@@ -89,6 +89,7 @@ export default function Report({ password }) {
                 <tr>
                   <th>Месяц</th>
                   <th className="num">Выручка</th>
+                  <th className="num">Себестоимость</th>
                   <th className="num">Возвраты</th>
                   <th className="num">Комиссия</th>
                   <th className="num">Доставка</th>
@@ -103,6 +104,7 @@ export default function Report({ password }) {
                   <tr key={m.month}>
                     <td>{formatMonthLabel(m.month)}</td>
                     <td className="num">{formatMoney(m.revenue)}</td>
+                    <td className="num">{formatMoney(m.cost_of_goods)}</td>
                     <td className="num">{formatMoney(m.returns)}</td>
                     <td className="num">{formatMoney(m.commission)}</td>
                     <td className="num">{formatMoney(m.delivery)}</td>
@@ -119,8 +121,9 @@ export default function Report({ password }) {
       </div>
 
       <div className="report-note">
-        ⚠️ Налог считается упрощённо: 3% с чистого оборота (выручка минус возвраты). Себестоимость товаров (закупочная цена) в чистую прибыль пока не входит —
-        она подключится, когда доучёт партий на «Поставках» заработает полностью.
+        ⚠️ Налог считается упрощённо: 3% с чистого оборота (выручка минус возвраты). Себестоимость считается по методу FIFO на основе партий на «Поставках»
+        и только по продажам с 1 июня 2026 — так же, как на «Складе». Если у товара ещё нет введённых партий, его себестоимость пока считается как 0
+        (чистая прибыль по нему будет завышена, пока вы не внесёте партии).
       </div>
     </div>
   );
