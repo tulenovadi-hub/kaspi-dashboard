@@ -24,7 +24,7 @@ router.get('/products', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, product_id, product_name, cost_price, quantity, remaining_quantity, received_date, created_at
+      `SELECT id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, quantity, remaining_quantity, received_date, created_at
        FROM product_batches
        ORDER BY product_name, received_date, id`
     );
@@ -37,15 +37,19 @@ router.get('/', async (req, res) => {
 
 // Добавление новой партии
 router.post('/', async (req, res) => {
-  const { product_id, product_name, cost_price, quantity, received_date } = req.body;
+  const { product_id, product_name, purchase_price, logistics_cost, note, quantity, received_date } = req.body;
 
   if (!product_id || !product_name) {
     return res.status(400).json({ error: 'Не указан товар' });
   }
-  const costPrice = Number(cost_price);
+  const purchasePrice = Number(purchase_price);
+  const logisticsCost = Number(logistics_cost || 0);
   const qty = Number(quantity);
-  if (!Number.isFinite(costPrice) || costPrice < 0) {
-    return res.status(400).json({ error: 'Себестоимость указана некорректно' });
+  if (!Number.isFinite(purchasePrice) || purchasePrice < 0) {
+    return res.status(400).json({ error: 'Закупочная цена указана некорректно' });
+  }
+  if (!Number.isFinite(logisticsCost) || logisticsCost < 0) {
+    return res.status(400).json({ error: 'Логистика указана некорректно' });
   }
   if (!Number.isInteger(qty) || qty <= 0) {
     return res.status(400).json({ error: 'Количество должно быть целым числом больше нуля' });
@@ -54,12 +58,14 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Дата поступления указана некорректно' });
   }
 
+  const costPrice = purchasePrice + logisticsCost;
+
   try {
     const result = await pool.query(
-      `INSERT INTO product_batches (product_id, product_name, cost_price, quantity, remaining_quantity, received_date)
-       VALUES ($1, $2, $3, $4, $4, $5)
-       RETURNING id, product_id, product_name, cost_price, quantity, remaining_quantity, received_date, created_at`,
-      [product_id, product_name, costPrice, qty, received_date]
+      `INSERT INTO product_batches (product_id, product_name, cost_price, purchase_price, logistics_cost, note, quantity, remaining_quantity, received_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)
+       RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, quantity, remaining_quantity, received_date, created_at`,
+      [product_id, product_name, costPrice, purchasePrice, logisticsCost, note || null, qty, received_date]
     );
     res.status(201).json({ batch: result.rows[0] });
   } catch (err) {
