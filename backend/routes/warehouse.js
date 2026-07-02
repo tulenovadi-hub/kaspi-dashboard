@@ -8,6 +8,11 @@ const VALID_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK']
 const COMPLETED_STATUSES = ['COMPLETED'];
 const IN_PROGRESS_STATUSES = ['ACCEPTED_BY_MERCHANT', 'APPROVED_BY_BANK'];
 
+// На "Складе" показываем только эти два города — Юбилейное и Талдыкорган сюда не входят
+// (они самовыкупные/непрофильные, отслеживаются на других страницах).
+const DISPLAY_WAREHOUSES = ['Алматы', 'Астана'];
+const WAREHOUSE_SORT_ORDER = { 'Алматы': 0, 'Астана': 1 };
+
 // Заказы до этой даты не учитываем на Складе — остатки на 1 июня вводятся вручную через
 // партии на странице "Поставки", поэтому продажи до этой даты не должны их списывать ещё раз.
 const STOCK_CUTOFF_DATE = '2026-06-01';
@@ -126,9 +131,14 @@ router.get('/', async (req, res) => {
       }
     }
 
-    products.sort((a, b) => a.product_name.localeCompare(b.product_name, 'ru') || a.warehouse.localeCompare(b.warehouse, 'ru'));
+    const visibleProducts = products.filter((p) => DISPLAY_WAREHOUSES.includes(p.warehouse));
+    visibleProducts.sort((a, b) => {
+      const warehouseDiff = (WAREHOUSE_SORT_ORDER[a.warehouse] ?? 99) - (WAREHOUSE_SORT_ORDER[b.warehouse] ?? 99);
+      if (warehouseDiff !== 0) return warehouseDiff;
+      return a.product_name.localeCompare(b.product_name, 'ru');
+    });
 
-    res.json({ products, cutoff_date: STOCK_CUTOFF_DATE });
+    res.json({ products: visibleProducts, cutoff_date: STOCK_CUTOFF_DATE });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось рассчитать остатки склада' });
