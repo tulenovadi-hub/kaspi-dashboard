@@ -56,6 +56,13 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_batches_product_id ON product_batches(product_id, received_date);`);
 
+  // Миграция: раскладываем себестоимость на закупочную цену + логистику, добавляем примечание.
+  // Для уже существующих партий закупочная цена = старая себестоимость, логистика = 0.
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS purchase_price NUMERIC;`);
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS logistics_cost NUMERIC NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS note TEXT;`);
+  await pool.query(`UPDATE product_batches SET purchase_price = cost_price WHERE purchase_price IS NULL;`);
+
   // Данные, импортированные из Excel-отчёта Kaspi Pay (детализация по операциям):
   // выручка, все виды комиссий и стоимость доставки Kaspi по каждой операции.
   // Используется для отчёта по прибыли/марже/ROI помесячно.
