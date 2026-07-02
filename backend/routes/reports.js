@@ -145,7 +145,8 @@ router.get('/monthly', async (req, res) => {
     const result = await pool.query(`
       SELECT
         to_char(operation_date, 'YYYY-MM') AS month,
-        SUM(amount) AS revenue,
+        SUM(CASE WHEN operation_type = 'Возврат' THEN amount ELSE 0 END) AS returns_amount,
+        SUM(CASE WHEN operation_type != 'Возврат' THEN amount ELSE 0 END) AS purchases_amount,
         SUM(commission_total) AS commission_total,
         SUM(delivery_cost) AS delivery_total,
         COUNT(*) AS operations_count
@@ -154,21 +155,31 @@ router.get('/monthly', async (req, res) => {
       ORDER BY month DESC
     `);
 
+    const TAX_RATE = 0.03; // 3% с оборота (упрощённый режим ИП)
+
     const months = result.rows.map((row) => {
-      const revenue = Number(row.revenue);
-      const commissionTotal = Number(row.commission_total);
-      const deliveryTotal = Number(row.delivery_total);
-      const expenses = -(commissionTotal + deliveryTotal); // расходы как положительное число
-      const netProfit = revenue + commissionTotal + deliveryTotal; // себестоимость товара пока не учтена
-      const margin = revenue !== 0 ? (netProfit / revenue) * 100 : null;
-      const roi = expenses !== 0 ? (netProfit / expenses) * 100 : null;
+      const revenue = Number(row.purchases_amount); // выручка от продаж (без возвратов)
+      const returns = -Number(row.returns_amount); // сумма возвратов как положительное число
+      const netRevenue = revenue - returns; // чистый оборот после возвратов — база для налога и маржи
+
+      const commission = -Number(row.commission_total); // положительное число — расход
+      const delivery = -Number(row.delivery_total); // положительное число — расход
+      const taxes = netRevenue > 0 ? netRevenue * TAX_RATE : 0;
+
+      const netProfit = netRevenue - commission - delivery - taxes;
+      const totalExpenses = commission + delivery + taxes;
+
+      const margin = netRevenue !== 0 ? (netProfit / netRevenue) * 100 : null;
+      const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 
       return {
         month: row.month,
         revenue,
-        commission_total: commissionTotal,
-        delivery_total: deliveryTotal,
-        expenses,
+        returns,
+        net_revenue: netRevenue,
+        commission,
+        delivery,
+        taxes,
         net_profit: netProfit,
         margin,
         roi,
