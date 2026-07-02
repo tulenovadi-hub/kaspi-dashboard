@@ -200,8 +200,9 @@ export default function Batches({ password, onClose }) {
         ) : filtered.length === 0 ? (
           <div className="empty-state">Поставок пока нет — нажмите «Создать новую поставку»</div>
         ) : (
-          <table className="product-table">
-            <thead>
+          <div className="table-scroll">
+            <table className="product-table">
+              <thead>
               <tr>
                 <th>№ поставки</th>
                 <th>Товар</th>
@@ -227,7 +228,8 @@ export default function Batches({ password, onClose }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
         )}
       </div>
 
