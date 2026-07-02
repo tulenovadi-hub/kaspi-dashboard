@@ -12,11 +12,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 const COMMISSION_COLUMNS = [
   'Комиссия за операции (т)',
   'Комиссия за операции по карте (т)',
-  'Комиссия за обеспечение платежа (т)',
   'Комиссия Kaspi Pay (т)',
-  'Комиссия Kaspi Travel (т)',
-  'Оплата услуг за акцию Бонусы от продавца',
-  'Оплата услуг за акцию Бонусы за отзыв',
 ];
 
 function parseNumber(value) {
