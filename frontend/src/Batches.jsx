@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchBatchProducts, fetchBatches, addBatch, deleteBatch } from './api.js';
-import { formatMoney, formatNumber } from './dateUtils.js';
+import { formatMoney, formatNumber, WAREHOUSES } from './dateUtils.js';
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -77,8 +77,9 @@ function AddBatchModal({ password, products, onClose, onSaved }) {
                 onChange={(e) => setWarehouse(e.target.value)}
                 required
               >
-                <option value="Алматы">Алматы</option>
-                <option value="Астана">Астана</option>
+                {WAREHOUSES.map((w) => (
+                  <option key={w} value={w}>{w}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -237,6 +238,8 @@ export default function Batches({ password, onClose }) {
           <option value="">Все склады</option>
           <option value="Алматы">Алматы</option>
           <option value="Астана">Астана</option>
+          <option value="Талдыкорган">Талдыкорган</option>
+          <option value="Юбилейное">Юбилейное</option>
         </select>
         <input
           className="toolbar-input toolbar-date"

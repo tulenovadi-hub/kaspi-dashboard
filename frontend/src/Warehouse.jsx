@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchWarehouse } from './api.js';
-import { formatMoney, formatNumber } from './dateUtils.js';
+import { formatMoney, formatNumber, WAREHOUSES } from './dateUtils.js';
 
 export default function Warehouse({ password }) {
   const [products, setProducts] = useState([]);
@@ -41,6 +41,8 @@ export default function Warehouse({ password }) {
           <option value="">Все склады</option>
           <option value="Алматы">Алматы</option>
           <option value="Астана">Астана</option>
+          <option value="Талдыкорган">Талдыкорган</option>
+          <option value="Юбилейное">Юбилейное</option>
         </select>
       </div>
 
