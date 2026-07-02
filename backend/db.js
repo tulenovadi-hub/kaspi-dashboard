@@ -22,6 +22,16 @@ async function initDb() {
     );
   `);
 
+  // Город склада, с которого реально отгружен заказ (Kaspi отдаёт это в attributes.originAddress.city.name).
+  // Не путать с deliveryAddress — это город клиента, куда привезли, а не откуда отгрузили.
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS origin_city TEXT;`);
+  // Заполняем для уже загруженных заказов прямо из raw_data — повторный запрос к Kaspi API не нужен.
+  await pool.query(`
+    UPDATE orders
+    SET origin_city = raw_data->'attributes'->'originAddress'->'city'->>'name'
+    WHERE origin_city IS NULL AND raw_data IS NOT NULL
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS order_items (
       id TEXT PRIMARY KEY,           -- уникальный ID позиции заказа из Kaspi

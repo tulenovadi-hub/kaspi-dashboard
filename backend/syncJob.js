@@ -27,15 +27,17 @@ async function syncRecentOrders(daysBack = 3) {
 
     for (const order of orders) {
       const attrs = order.attributes;
+      const originCity = attrs.originAddress && attrs.originAddress.city ? attrs.originAddress.city.name : null;
       await pool.query(
-        `INSERT INTO orders (id, code, creation_date, total_price, state, status, raw_data)
-         VALUES ($1, $2, to_timestamp($3 / 1000.0), $4, $5, $6, $7)
+        `INSERT INTO orders (id, code, creation_date, total_price, state, status, raw_data, origin_city)
+         VALUES ($1, $2, to_timestamp($3 / 1000.0), $4, $5, $6, $7, $8)
          ON CONFLICT (id) DO UPDATE SET
            total_price = EXCLUDED.total_price,
            state = EXCLUDED.state,
            status = EXCLUDED.status,
-           raw_data = EXCLUDED.raw_data`,
-        [order.id, attrs.code, attrs.creationDate, attrs.totalPrice, attrs.state, attrs.status, JSON.stringify(order)]
+           raw_data = EXCLUDED.raw_data,
+           origin_city = EXCLUDED.origin_city`,
+        [order.id, attrs.code, attrs.creationDate, attrs.totalPrice, attrs.state, attrs.status, JSON.stringify(order), originCity]
       );
       totalOrders += 1;
 
