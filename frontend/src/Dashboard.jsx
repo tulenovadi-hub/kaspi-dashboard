@@ -4,10 +4,12 @@ import TodayVsYesterday from './TodayVsYesterday.jsx';
 import SalesChart from './SalesChart.jsx';
 import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
+import Batches from './Batches.jsx';
 import { fetchSummary, fetchProducts, triggerSync } from './api.js';
 import { toISODate, daysAgo, formatMoney, formatNumber } from './dateUtils.js';
 
 export default function Dashboard({ password, onLogout }) {
+  const [view, setView] = useState('sales'); // 'sales' | 'batches'
   const [from, setFrom] = useState(toISODate(daysAgo(6)));
   const [to, setTo] = useState(toISODate(daysAgo(0)));
   const [presetKey, setPresetKey] = useState('7days');
@@ -81,11 +83,20 @@ export default function Dashboard({ password, onLogout }) {
   const daysCount = summaryDays.length || 1;
   const avgOrdersPerDay = totalOrders > 0 ? (totalOrders / daysCount).toFixed(1) : 0;
 
+  if (view === 'batches') {
+    return (
+      <div className="app">
+        <Batches password={password} onClose={() => setView('sales')} />
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <div className="app-header">
         <h1 className="app-title">Продажи <span>Kaspi</span></h1>
         <div className="sync-status">
+          <button className="sync-button" onClick={() => setView('batches')}>Поставки</button>
           <button className="sync-button" onClick={handleManualSync} disabled={syncing}>
             {syncing ? 'Обновляем...' : 'Обновить сейчас'}
           </button>

@@ -39,3 +39,23 @@ export function fetchProductStats(password, productId, from, to) {
 export function triggerSync(password) {
   return apiRequest('/api/sync', password, { method: 'POST' });
 }
+
+export function fetchBatchProducts(password) {
+  return apiRequest('/api/batches/products', password);
+}
+
+export function fetchBatches(password) {
+  return apiRequest('/api/batches', password);
+}
+
+export function addBatch(password, batch) {
+  return apiRequest('/api/batches', password, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(batch),
+  });
+}
+
+export function deleteBatch(password, id) {
+  return apiRequest(`/api/batches/${id}`, password, { method: 'DELETE' });
+}
