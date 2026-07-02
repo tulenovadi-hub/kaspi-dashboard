@@ -8,6 +8,7 @@ function todayISO() {
 
 function AddBatchModal({ password, products, onClose, onSaved }) {
   const [productId, setProductId] = useState('');
+  const [warehouse, setWarehouse] = useState('Алматы');
   const [purchasePrice, setPurchasePrice] = useState('');
   const [logisticsCost, setLogisticsCost] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -30,6 +31,7 @@ function AddBatchModal({ password, products, onClose, onSaved }) {
     addBatch(password, {
       product_id: product.product_id,
       product_name: product.product_name,
+      warehouse,
       purchase_price: purchasePrice,
       logistics_cost: logisticsCost || 0,
       note,
@@ -52,19 +54,33 @@ function AddBatchModal({ password, products, onClose, onSaved }) {
         {error && <div className="error-banner">{error}</div>}
 
         <form onSubmit={handleSubmit}>
-          <div className="batch-form-field">
-            <label>Товар</label>
-            <select
-              className="product-select"
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              required
-            >
-              <option value="" disabled>Выберите товар...</option>
-              {products.map((p) => (
-                <option key={p.product_id} value={p.product_id}>{p.product_name}</option>
-              ))}
-            </select>
+          <div className="batch-form-row-2">
+            <div className="batch-form-field">
+              <label>Товар</label>
+              <select
+                className="product-select"
+                value={productId}
+                onChange={(e) => setProductId(e.target.value)}
+                required
+              >
+                <option value="" disabled>Выберите товар...</option>
+                {products.map((p) => (
+                  <option key={p.product_id} value={p.product_id}>{p.product_name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="batch-form-field">
+              <label>Склад</label>
+              <select
+                className="product-select"
+                value={warehouse}
+                onChange={(e) => setWarehouse(e.target.value)}
+                required
+              >
+                <option value="Алматы">Алматы</option>
+                <option value="Астана">Астана</option>
+              </select>
+            </div>
           </div>
 
           <div className="batch-form-row-2">
@@ -148,6 +164,7 @@ export default function Batches({ password, onClose }) {
 
   const [search, setSearch] = useState('');
   const [productFilter, setProductFilter] = useState('');
+  const [warehouseFilter, setWarehouseFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -180,10 +197,11 @@ export default function Batches({ password, onClose }) {
     return batches
       .filter((b) => !search || b.product_name.toLowerCase().includes(search.toLowerCase()))
       .filter((b) => !productFilter || b.product_id === productFilter)
+      .filter((b) => !warehouseFilter || b.warehouse === warehouseFilter)
       .filter((b) => !dateFrom || b.received_date >= dateFrom)
       .filter((b) => !dateTo || b.received_date <= dateTo)
       .sort((a, b) => (a.received_date < b.received_date ? 1 : -1));
-  }, [batches, search, productFilter, dateFrom, dateTo]);
+  }, [batches, search, productFilter, warehouseFilter, dateFrom, dateTo]);
 
   return (
     <div>
@@ -210,6 +228,15 @@ export default function Batches({ password, onClose }) {
           {products.map((p) => (
             <option key={p.product_id} value={p.product_id}>{p.product_name}</option>
           ))}
+        </select>
+        <select
+          className="toolbar-select"
+          value={warehouseFilter}
+          onChange={(e) => setWarehouseFilter(e.target.value)}
+        >
+          <option value="">Все склады</option>
+          <option value="Алматы">Алматы</option>
+          <option value="Астана">Астана</option>
         </select>
         <input
           className="toolbar-input toolbar-date"
@@ -241,6 +268,7 @@ export default function Batches({ password, onClose }) {
               <tr>
                 <th>№ поставки</th>
                 <th>Товар</th>
+                <th>Склад</th>
                 <th>Дата поступления</th>
                 <th className="num">Себестоимость</th>
                 <th className="num">Заявлено</th>
@@ -254,6 +282,7 @@ export default function Batches({ password, onClose }) {
                 <tr key={b.id}>
                   <td className="num">#{b.id}</td>
                   <td>{b.product_name}</td>
+                  <td>{b.warehouse}</td>
                   <td>{b.received_date}</td>
                   <td className="num">{formatMoney(b.cost_price)}</td>
                   <td className="num">{formatNumber(b.quantity)}</td>
