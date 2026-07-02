@@ -5,15 +5,35 @@ const { pool } = require('../db');
 const router = express.Router();
 
 const CACHE_TTL_DAYS = 30; // картинки товаров меняются редко — обновляем раз в месяц
+const REQUEST_DELAY_MS = 600; // пауза между запросами к kaspi.kz, чтобы не словить 429
+const MAX_RETRIES = 2;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function scrapeImageUrl(masterProductCode) {
   const url = `https://kaspi.kz/shop/p/-${masterProductCode}/`;
-  const response = await axios.get(url, {
-    timeout: 10000,
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KaspiDashboardBot/1.0)' },
-  });
-  const match = response.data.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
-  return match ? match[1] : null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    try {
+      const response = await axios.get(url, {
+        timeout: 10000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; KaspiDashboardBot/1.0)' },
+      });
+      const match = response.data.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
+      return match ? match[1] : null;
+    } catch (err) {
+      const status = err.response ? err.response.status : null;
+      if (status === 429 && attempt < MAX_RETRIES) {
+        // Слишком много запросов — ждём подольше и пробуем ещё раз
+        await sleep(REQUEST_DELAY_MS * (attempt + 3));
+        continue;
+      }
+      throw err;
+    }
+  }
+  return null;
 }
 
 // Принимает список product_id (ваши коды предложений), возвращает картинку для каждого —
@@ -56,27 +76,26 @@ router.post('/', async (req, res) => {
       }
     }
 
-    await Promise.all(
-      toFetch.map(async (productId) => {
-        const code = productToCode.get(productId);
-        try {
-          const imageUrl = await scrapeImageUrl(code);
-          images[productId] = imageUrl;
-          await pool.query(
-            `INSERT INTO product_images (product_id, master_product_code, image_url, updated_at)
-             VALUES ($1, $2, $3, now())
-             ON CONFLICT (product_id) DO UPDATE SET
-               master_product_code = EXCLUDED.master_product_code,
-               image_url = EXCLUDED.image_url,
-               updated_at = now()`,
-            [productId, code, imageUrl]
-          );
-        } catch (err) {
-          console.error(`Не удалось получить картинку для ${productId} (${code}):`, err.message);
-          images[productId] = null;
-        }
-      })
-    );
+    for (const productId of toFetch) {
+      const code = productToCode.get(productId);
+      try {
+        const imageUrl = await scrapeImageUrl(code);
+        images[productId] = imageUrl;
+        await pool.query(
+          `INSERT INTO product_images (product_id, master_product_code, image_url, updated_at)
+           VALUES ($1, $2, $3, now())
+           ON CONFLICT (product_id) DO UPDATE SET
+             master_product_code = EXCLUDED.master_product_code,
+             image_url = EXCLUDED.image_url,
+             updated_at = now()`,
+          [productId, code, imageUrl]
+        );
+      } catch (err) {
+        console.error(`Не удалось получить картинку для ${productId} (${code}):`, err.message);
+        images[productId] = null;
+      }
+      await sleep(REQUEST_DELAY_MS);
+    }
 
     res.json({ images });
   } catch (err) {
