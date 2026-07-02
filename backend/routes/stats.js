@@ -3,12 +3,16 @@ const { pool } = require('../db');
 
 const router = express.Router();
 
+// Склады, которые считаются "самовыкупами" — их продажи не входят в основную статистику
+// на Главной, а показываются отдельно на странице "Самовыкупы".
+const SELF_BUY_WAREHOUSES = ['Талдыкорган', 'Юбилейное'];
+
 function isValidDate(str) {
   return /^\d{4}-\d{2}-\d{2}$/.test(str);
 }
 
 router.get('/summary', async (req, res) => {
-  const { from, to } = req.query;
+  const { from, to, mode } = req.query;
   if (!isValidDate(from) || !isValidDate(to)) {
     return res.status(400).json({ error: 'Параметры from и to обязательны, формат: YYYY-MM-DD' });
   }
@@ -23,9 +27,10 @@ router.get('/summary', async (req, res) => {
        WHERE creation_date >= $1::timestamp - interval '5 hours'
          AND creation_date < $2::timestamp - interval '5 hours' + interval '1 day'
          AND status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
+         AND ${mode === 'selfbuy' ? 'origin_city = ANY($3::text[])' : '(origin_city IS NULL OR NOT (origin_city = ANY($3::text[])))'}
        GROUP BY day
        ORDER BY day`,
-      [from, to]
+      [from, to, SELF_BUY_WAREHOUSES]
     );
     res.json({ days: result.rows });
   } catch (err) {
@@ -35,7 +40,7 @@ router.get('/summary', async (req, res) => {
 });
 
 router.get('/products', async (req, res) => {
-  const { from, to } = req.query;
+  const { from, to, mode } = req.query;
   if (!isValidDate(from) || !isValidDate(to)) {
     return res.status(400).json({ error: 'Параметры from и to обязательны, формат: YYYY-MM-DD' });
   }
@@ -52,9 +57,10 @@ router.get('/products', async (req, res) => {
        WHERE oi.creation_date >= $1::timestamp - interval '5 hours'
          AND oi.creation_date < $2::timestamp - interval '5 hours' + interval '1 day'
          AND o.status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
+         AND ${mode === 'selfbuy' ? 'o.origin_city = ANY($3::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($3::text[])))'}
        GROUP BY oi.product_id, oi.product_name
        ORDER BY total_revenue DESC`,
-      [from, to]
+      [from, to, SELF_BUY_WAREHOUSES]
     );
     res.json({ products: result.rows });
   } catch (err) {
@@ -65,7 +71,7 @@ router.get('/products', async (req, res) => {
 
 router.get('/product/:productId', async (req, res) => {
   const { productId } = req.params;
-  const { from, to } = req.query;
+  const { from, to, mode } = req.query;
   if (!isValidDate(from) || !isValidDate(to)) {
     return res.status(400).json({ error: 'Параметры from и to обязательны, формат: YYYY-MM-DD' });
   }
@@ -82,9 +88,10 @@ router.get('/product/:productId', async (req, res) => {
          AND oi.creation_date >= $2::timestamp - interval '5 hours'
          AND oi.creation_date < $3::timestamp - interval '5 hours' + interval '1 day'
          AND o.status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
+         AND ${mode === 'selfbuy' ? 'o.origin_city = ANY($4::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($4::text[])))'}
        GROUP BY day
        ORDER BY day`,
-      [productId, from, to]
+      [productId, from, to, SELF_BUY_WAREHOUSES]
     );
     res.json({ days: result.rows });
   } catch (err) {
