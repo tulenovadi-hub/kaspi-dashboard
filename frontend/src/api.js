@@ -59,3 +59,13 @@ export function addBatch(password, batch) {
 export function deleteBatch(password, id) {
   return apiRequest(`/api/batches/${id}`, password, { method: 'DELETE' });
 }
+
+export function uploadKaspiPayReport(password, file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiRequest('/api/reports/upload', password, { method: 'POST', body: formData });
+}
+
+export function fetchMonthlyReport(password) {
+  return apiRequest('/api/reports/monthly', password);
+}

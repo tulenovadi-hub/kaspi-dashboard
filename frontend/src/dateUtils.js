@@ -34,3 +34,15 @@ export function percentChange(current, previous) {
   }
   return ((current - previous) / previous) * 100;
 }
+
+const MONTH_NAMES = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+export function formatMonthLabel(monthKey) {
+  const [year, month] = monthKey.split('-').map(Number);
+  return `${MONTH_NAMES[month - 1]} ${year}`;
+}
+
+export function formatPercent(value) {
+  if (value === null || value === undefined) return '—';
+  return `${value >= 0 ? '' : ''}${value.toFixed(1)}%`;
+}

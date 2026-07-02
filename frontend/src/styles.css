@@ -922,3 +922,50 @@ select:focus-visible {
     padding: 18px;
   }
 }
+
+/* ===== Report (Отчёт) ===== */
+.report-upload-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.report-upload-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.report-upload-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 480px;
+  line-height: 1.5;
+}
+
+.report-upload-btn {
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.report-upload-btn.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.report-upload-success {
+  margin-top: 14px;
+  color: var(--accent-up);
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+
+.report-note {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  padding: 4px;
+}

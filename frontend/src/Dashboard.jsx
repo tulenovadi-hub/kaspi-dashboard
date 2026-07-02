@@ -6,12 +6,12 @@ import SalesChart from './SalesChart.jsx';
 import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
 import Batches from './Batches.jsx';
+import Report from './Report.jsx';
 import ComingSoon from './ComingSoon.jsx';
 import { fetchSummary, fetchProducts, triggerSync } from './api.js';
 import { toISODate, daysAgo, formatMoney, formatNumber } from './dateUtils.js';
 
 const SECTION_TITLES = {
-  report: 'Отчёт',
   expenses: 'Расходы',
   warehouse: 'Склад',
   marketing: 'Маркетинг',
@@ -105,6 +105,10 @@ export default function Dashboard({ password, onLogout }) {
   function renderContent() {
     if (view === 'batches') {
       return <Batches password={password} onClose={() => setView('sales')} />;
+    }
+
+    if (view === 'report') {
+      return <Report password={password} />;
     }
 
     if (SECTION_TITLES[view]) {
