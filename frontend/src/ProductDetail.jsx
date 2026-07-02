@@ -7,7 +7,7 @@ export default function ProductDetail({ password, product, from, to, onClose }) 
   const [days, setDays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [metric, setMetric] = useState('total_revenue'); // 'total_revenue' или 'total_quantity'
+  const [metric, setMetric] = useState('total_revenue');
 
   useEffect(() => {
     let cancelled = false;
@@ -27,6 +27,11 @@ export default function ProductDetail({ password, product, from, to, onClose }) 
   const firstHalf = days.slice(0, half).reduce((sum, d) => sum + Number(d[key]), 0);
   const secondHalf = days.slice(half).reduce((sum, d) => sum + Number(d[key]), 0);
   const trend = percentChange(secondHalf, firstHalf);
+
+  // Среднее количество заказов в день по этому товару
+  const totalQty = days.reduce((sum, d) => sum + Number(d.total_quantity || 0), 0);
+  const daysCount = days.length || 1;
+  const avgQtyPerDay = (totalQty / daysCount).toFixed(1);
 
   return (
     <div className="card">
@@ -56,11 +61,23 @@ export default function ProductDetail({ password, product, from, to, onClose }) 
         </button>
       </div>
 
-      {trend !== null && days.length > 1 && (
-        <div style={{ marginBottom: 16, fontSize: 13, color: trend >= 0 ? '#3ddc97' : '#ff6b6b' }}>
-          {trend >= 0 ? '↑' : '↓'} {Math.abs(trend).toFixed(1)}% — вторая половина периода против первой
+      <div style={{ display: 'flex', gap: 24, marginBottom: 16, flexWrap: 'wrap' }}>
+        {trend !== null && days.length > 1 && (
+          <div style={{ fontSize: 13, color: trend >= 0 ? '#3ddc97' : '#ff6b6b' }}>
+            {trend >= 0 ? '↑' : '↓'} {Math.abs(trend).toFixed(1)}% — вторая половина периода против первой
+          </div>
+        )}
+        <div style={{
+          fontSize: 13,
+          background: 'rgba(110, 139, 255, 0.15)',
+          color: '#6e8bff',
+          borderRadius: 8,
+          padding: '2px 10px',
+          fontFamily: 'JetBrains Mono, monospace',
+        }}>
+          ⌀ {avgQtyPerDay} шт/день
         </div>
-      )}
+      </div>
 
       {loading && <div className="empty-state">Загрузка...</div>}
       {error && <div className="error-banner">{error}</div>}
