@@ -73,6 +73,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   const idx = {
     orderNumber: colIndex('Номер заказа (ID/RRN)'),
     date: colIndex('Дата операции'),
+    time: colIndex('Время'),
     type: colIndex('Тип операции'),
     product: colIndex('Детали покупки'),
     amount: colIndex('Сумма операции (т)'),
@@ -93,14 +94,22 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     const date = parseKaspiDate(row[idx.date]);
     if (!orderNumber || !date) continue;
 
+    const time = idx.time !== -1 ? String(row[idx.time] || '') : '';
+    const type = idx.type !== -1 ? String(row[idx.type] || '') : '';
+    const amount = parseNumber(row[idx.amount]);
     const commissionTotal = commissionIdx.reduce((sum, ci) => sum + parseNumber(row[ci]), 0);
 
+    // У одного заказа может быть несколько операций (например, покупка и её возврат
+    // делят один и тот же "Номер заказа") — поэтому ключ строим составной, а не просто по номеру заказа.
+    const rowKey = `${orderNumber}_${date}_${time}_${type}_${amount}`;
+
     records.push({
+      rowKey,
       orderNumber,
       date,
-      type: idx.type !== -1 ? String(row[idx.type] || '') : '',
+      type,
       product: idx.product !== -1 ? String(row[idx.product] || '') : '',
-      amount: parseNumber(row[idx.amount]),
+      amount,
       commissionTotal,
       deliveryCost: idx.delivery !== -1 ? parseNumber(row[idx.delivery]) : 0,
     });
@@ -115,9 +124,9 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     await client.query('BEGIN');
     for (const r of records) {
       await client.query(
-        `INSERT INTO kaspi_pay_transactions (order_number, operation_date, operation_type, product_name, amount, commission_total, delivery_cost)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (order_number) DO UPDATE SET
+        `INSERT INTO kaspi_pay_transactions (row_key, order_number, operation_date, operation_type, product_name, amount, commission_total, delivery_cost)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (row_key) DO UPDATE SET
            operation_date = EXCLUDED.operation_date,
            operation_type = EXCLUDED.operation_type,
            product_name = EXCLUDED.product_name,
@@ -125,7 +134,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
            commission_total = EXCLUDED.commission_total,
            delivery_cost = EXCLUDED.delivery_cost,
            uploaded_at = now()`,
-        [r.orderNumber, r.date, r.type, r.product, r.amount, r.commissionTotal, r.deliveryCost]
+        [r.rowKey, r.orderNumber, r.date, r.type, r.product, r.amount, r.commissionTotal, r.deliveryCost]
       );
     }
     await client.query('COMMIT');
