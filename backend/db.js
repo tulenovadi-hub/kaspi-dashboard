@@ -63,6 +63,10 @@ async function initDb() {
   await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS note TEXT;`);
   await pool.query(`UPDATE product_batches SET purchase_price = cost_price WHERE purchase_price IS NULL;`);
 
+  // Склад (город), на который пришла партия — Алматы или Астана.
+  // Для партий, добавленных до этой миграции, считаем, что это Алматы (можно поправить вручную).
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS warehouse TEXT NOT NULL DEFAULT 'Алматы';`);
+
   // Данные, импортированные из Excel-отчёта Kaspi Pay (детализация по операциям):
   // выручка, все виды комиссий и стоимость доставки Kaspi по каждой операции.
   // Используется для отчёта по прибыли/марже/ROI помесячно.
