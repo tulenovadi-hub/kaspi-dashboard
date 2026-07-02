@@ -5,33 +5,41 @@ const router = express.Router();
 
 // Заказы, которые реально считаются продажей (совпадает с логикой в stats.js)
 const VALID_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK'];
+const UNKNOWN_WAREHOUSE = 'Не определён';
 
-// Считает остатки по методу FIFO: партии списываются в порядке поступления,
-// пока не закончится количество, реально проданное по этому товару.
+// Считает остатки по методу FIFO отдельно для каждого склада (города):
+// партии одного города списываются только продажами, отгруженными с этого же города
+// (Kaspi возвращает город отгрузки в attributes.originAddress.city.name — сохраняем
+// его в orders.origin_city при синхронизации).
 router.get('/', async (req, res) => {
   try {
     const batchesResult = await pool.query(`
-      SELECT id, product_id, product_name, cost_price, quantity, received_date
+      SELECT id, product_id, product_name, cost_price, warehouse, quantity, received_date
       FROM product_batches
-      ORDER BY product_id, received_date, id
+      ORDER BY product_id, warehouse, received_date, id
     `);
 
     const soldResult = await pool.query(
-      `SELECT oi.product_id, SUM(oi.quantity) AS total_sold
+      `SELECT oi.product_id, MAX(oi.product_name) AS product_name, o.origin_city AS warehouse, SUM(oi.quantity) AS total_sold
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        WHERE o.status = ANY($1::text[])
-       GROUP BY oi.product_id`,
+       GROUP BY oi.product_id, o.origin_city`,
       [VALID_STATUSES]
     );
-    const soldMap = new Map(soldResult.rows.map((r) => [r.product_id, Number(r.total_sold)]));
+    const soldMap = new Map(
+      soldResult.rows.map((r) => [`${r.product_id}::${r.warehouse || UNKNOWN_WAREHOUSE}`, Number(r.total_sold)])
+    );
+    const soldProductNames = new Map(soldResult.rows.map((r) => [r.product_id, r.product_name]));
 
-    const byProduct = new Map();
+    // Группируем партии по паре (товар, склад) — у каждого склада своя FIFO-очередь
+    const byKey = new Map();
     for (const b of batchesResult.rows) {
-      if (!byProduct.has(b.product_id)) {
-        byProduct.set(b.product_id, { product_id: b.product_id, product_name: b.product_name, batches: [] });
+      const key = `${b.product_id}::${b.warehouse}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, { product_id: b.product_id, product_name: b.product_name, warehouse: b.warehouse, batches: [] });
       }
-      byProduct.get(b.product_id).batches.push({
+      byKey.get(key).batches.push({
         id: b.id,
         received_date: b.received_date,
         cost_price: Number(b.cost_price),
@@ -41,8 +49,8 @@ router.get('/', async (req, res) => {
     }
 
     const products = [];
-    for (const [productId, info] of byProduct) {
-      const totalSold = soldMap.get(productId) || 0;
+    for (const [key, info] of byKey) {
+      const totalSold = soldMap.get(key) || 0;
       let toConsume = totalSold;
       let totalSupplied = 0;
       let remainingValue = 0;
@@ -59,8 +67,9 @@ router.get('/', async (req, res) => {
       const activeBatch = info.batches.find((b) => b.remaining > 0);
 
       products.push({
-        product_id: productId,
+        product_id: info.product_id,
         product_name: info.product_name,
+        warehouse: info.warehouse,
         total_supplied: totalSupplied,
         total_sold: totalSold,
         remaining: totalRemaining,
@@ -77,7 +86,28 @@ router.get('/', async (req, res) => {
       });
     }
 
-    products.sort((a, b) => a.product_name.localeCompare(b.product_name, 'ru'));
+    // Продажи с городом, для которого вообще нет ни одной партии — это тоже важно показать,
+    // иначе продажи "потеряются" молча. Добавляем их отдельными строками с нулевым остатком.
+    for (const [key, totalSold] of soldMap) {
+      const [productId, warehouse] = key.split('::');
+      const alreadyListed = products.some((p) => p.product_id === productId && p.warehouse === warehouse);
+      if (!alreadyListed) {
+        products.push({
+          product_id: productId,
+          product_name: soldProductNames.get(productId) || productId,
+          warehouse,
+          total_supplied: 0,
+          total_sold: totalSold,
+          remaining: 0,
+          remaining_value: 0,
+          current_cost_price: null,
+          oversold_qty: totalSold,
+          batches: [],
+        });
+      }
+    }
+
+    products.sort((a, b) => a.product_name.localeCompare(b.product_name, 'ru') || a.warehouse.localeCompare(b.warehouse, 'ru'));
 
     res.json({ products });
   } catch (err) {
