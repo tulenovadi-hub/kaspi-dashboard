@@ -77,6 +77,10 @@ export default function Dashboard({ password, onLogout }) {
   const totalOrders = summaryDays.reduce((sum, d) => sum + Number(d.orders_count), 0);
   const avgOrder = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
+  // Среднее количество заказов в день за период
+  const daysCount = summaryDays.length || 1;
+  const avgOrdersPerDay = totalOrders > 0 ? (totalOrders / daysCount).toFixed(1) : 0;
+
   return (
     <div className="app">
       <div className="app-header">
@@ -104,9 +108,22 @@ export default function Dashboard({ password, onLogout }) {
               <div className="stat-label">Сумма продаж за период</div>
               <div className="stat-value">{formatMoney(totalRevenue)}</div>
             </div>
-            <div className="stat-card">
+            <div className="stat-card" style={{ position: 'relative' }}>
               <div className="stat-label">Количество заказов</div>
               <div className="stat-value">{formatNumber(totalOrders)}</div>
+              <div style={{
+                position: 'absolute',
+                top: 12,
+                right: 14,
+                background: 'rgba(110, 139, 255, 0.15)',
+                color: '#6e8bff',
+                borderRadius: 8,
+                padding: '2px 8px',
+                fontSize: 11,
+                fontFamily: 'JetBrains Mono, monospace',
+              }}>
+                ⌀ {avgOrdersPerDay}/день
+              </div>
             </div>
             <div className="stat-card">
               <div className="stat-label">Средний чек</div>
