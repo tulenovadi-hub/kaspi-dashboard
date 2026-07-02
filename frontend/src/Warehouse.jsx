@@ -45,8 +45,6 @@ export default function Warehouse({ password }) {
           <option value="">Все склады</option>
           <option value="Алматы">Алматы</option>
           <option value="Астана">Астана</option>
-          <option value="Талдыкорган">Талдыкорган</option>
-          <option value="Юбилейное">Юбилейное</option>
         </select>
       </div>
 
