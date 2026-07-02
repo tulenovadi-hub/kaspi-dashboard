@@ -145,6 +145,65 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   res.json({ ok: true, processed: records.length });
 });
 
+const TAX_RATE = 0.03; // 3% с оборота (упрощённый режим ИП)
+
+// Заказы, которые реально считаются продажей (совпадает с логикой в warehouse.js/stats.js)
+const VALID_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK'];
+// Партии на "Поставках" вводятся как остаток на 1 июня — себестоимость считаем только
+// для продаж с этой даты, чтобы не задваивать со старыми продажами (та же логика, что на "Складе").
+const STOCK_CUTOFF_DATE = '2026-06-01';
+
+// Считает себестоимость проданных товаров по методу FIFO (та же логика, что на "Складе"),
+// но результат группирует по месяцу продажи, а не по остаткам.
+async function computeMonthlyCogs() {
+  const batchesResult = await pool.query(`
+    SELECT product_id, warehouse, cost_price, quantity, received_date
+    FROM product_batches
+    ORDER BY product_id, warehouse, received_date, id
+  `);
+
+  const soldResult = await pool.query(
+    `SELECT oi.product_id, o.origin_city AS warehouse, oi.quantity,
+            to_char(oi.creation_date + interval '5 hours', 'YYYY-MM') AS month
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     WHERE o.status = ANY($1::text[])
+       AND o.origin_city IS NOT NULL
+       AND o.creation_date >= $2::date
+     ORDER BY oi.product_id, o.origin_city, oi.creation_date ASC`,
+    [VALID_STATUSES, STOCK_CUTOFF_DATE]
+  );
+
+  const batchesByKey = new Map();
+  for (const b of batchesResult.rows) {
+    const key = `${b.product_id}::${b.warehouse}`;
+    if (!batchesByKey.has(key)) batchesByKey.set(key, []);
+    batchesByKey.get(key).push({ cost_price: Number(b.cost_price), remaining: Number(b.quantity) });
+  }
+
+  const cogsByMonth = {};
+
+  for (const row of soldResult.rows) {
+    const key = `${row.product_id}::${row.warehouse}`;
+    const batches = batchesByKey.get(key);
+    if (!batches) continue; // нет партий для этого товара/склада — себестоимость неизвестна, пропускаем
+
+    let qtyToConsume = Number(row.quantity);
+
+    for (const batch of batches) {
+      if (qtyToConsume <= 0) break;
+      if (batch.remaining <= 0) continue;
+      const consume = Math.min(batch.remaining, qtyToConsume);
+      batch.remaining -= consume;
+      qtyToConsume -= consume;
+      cogsByMonth[row.month] = (cogsByMonth[row.month] || 0) + consume * batch.cost_price;
+    }
+    // если qtyToConsume всё ещё > 0 — партий не хватило (oversold), эта часть остаётся без себестоимости
+  }
+
+  return cogsByMonth;
+}
+
 router.get('/monthly', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -160,10 +219,11 @@ router.get('/monthly', async (req, res) => {
       ORDER BY month DESC
     `);
 
-    const TAX_RATE = 0.03; // 3% с оборота (упрощённый режим ИП)
+    const cogsByMonth = await computeMonthlyCogs();
 
     const months = result.rows.map((row) => {
       const revenue = Number(row.purchases_amount); // выручка от продаж (без возвратов)
+      const costOfGoods = cogsByMonth[row.month] || 0; // себестоимость проданных товаров (FIFO)
       const returns = -Number(row.returns_amount); // сумма возвратов как положительное число
       const netRevenue = revenue - returns; // чистый оборот после возвратов — база для налога и маржи
 
@@ -171,8 +231,8 @@ router.get('/monthly', async (req, res) => {
       const delivery = -Number(row.delivery_total); // положительное число — расход
       const taxes = netRevenue > 0 ? netRevenue * TAX_RATE : 0;
 
-      const netProfit = netRevenue - commission - delivery - taxes;
-      const totalExpenses = commission + delivery + taxes;
+      const netProfit = netRevenue - costOfGoods - commission - delivery - taxes;
+      const totalExpenses = costOfGoods + commission + delivery + taxes;
 
       const margin = netRevenue !== 0 ? (netProfit / netRevenue) * 100 : null;
       const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
@@ -180,6 +240,7 @@ router.get('/monthly', async (req, res) => {
       return {
         month: row.month,
         revenue,
+        cost_of_goods: costOfGoods,
         returns,
         net_revenue: netRevenue,
         commission,
