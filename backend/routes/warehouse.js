@@ -5,7 +5,6 @@ const router = express.Router();
 
 // Заказы, которые реально считаются продажей (совпадает с логикой в stats.js)
 const VALID_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK'];
-const UNKNOWN_WAREHOUSE = 'Не определён';
 
 // Считает остатки по методу FIFO отдельно для каждого склада (города):
 // партии одного города списываются только продажами, отгруженными с этого же города
@@ -20,15 +19,19 @@ router.get('/', async (req, res) => {
     `);
 
     const soldResult = await pool.query(
+      // Заказы без origin_city — это самовывоз напрямую у продавца (DELIVERY_PICKUP, не через Kaspi
+      // Delivery), Kaspi не присылает по ним точку отгрузки. Владелец подтвердил, что это склад
+      // "Юбилейное", который на сайте учитывать не нужно, поэтому такие заказы просто исключаем.
       `SELECT oi.product_id, MAX(oi.product_name) AS product_name, o.origin_city AS warehouse, SUM(oi.quantity) AS total_sold
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        WHERE o.status = ANY($1::text[])
+         AND o.origin_city IS NOT NULL
        GROUP BY oi.product_id, o.origin_city`,
       [VALID_STATUSES]
     );
     const soldMap = new Map(
-      soldResult.rows.map((r) => [`${r.product_id}::${r.warehouse || UNKNOWN_WAREHOUSE}`, Number(r.total_sold)])
+      soldResult.rows.map((r) => [`${r.product_id}::${r.warehouse}`, Number(r.total_sold)])
     );
     const soldProductNames = new Map(soldResult.rows.map((r) => [r.product_id, r.product_name]));
 
