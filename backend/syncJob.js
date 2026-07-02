@@ -4,6 +4,7 @@
 require('dotenv').config();
 const { pool, initDb } = require('./db');
 const { fetchOrders, fetchOrderEntries } = require('./kaspiClient');
+const { resolveWarehouse } = require('./warehouseMapping');
 
 // По умолчанию забираем заказы за последние 3 дня — так если синхронизация
 // один раз не сработала (например, сервер был недоступен), данные всё равно
@@ -27,17 +28,18 @@ async function syncRecentOrders(daysBack = 3) {
 
     for (const order of orders) {
       const attrs = order.attributes;
-      const originCity = attrs.originAddress && attrs.originAddress.city ? attrs.originAddress.city.name : null;
+      const originCity = resolveWarehouse(attrs.pickupPointId);
       await pool.query(
-        `INSERT INTO orders (id, code, creation_date, total_price, state, status, raw_data, origin_city)
-         VALUES ($1, $2, to_timestamp($3 / 1000.0), $4, $5, $6, $7, $8)
+        `INSERT INTO orders (id, code, creation_date, total_price, state, status, raw_data, origin_city, pickup_point_id)
+         VALUES ($1, $2, to_timestamp($3 / 1000.0), $4, $5, $6, $7, $8, $9)
          ON CONFLICT (id) DO UPDATE SET
            total_price = EXCLUDED.total_price,
            state = EXCLUDED.state,
            status = EXCLUDED.status,
            raw_data = EXCLUDED.raw_data,
-           origin_city = EXCLUDED.origin_city`,
-        [order.id, attrs.code, attrs.creationDate, attrs.totalPrice, attrs.state, attrs.status, JSON.stringify(order), originCity]
+           origin_city = EXCLUDED.origin_city,
+           pickup_point_id = EXCLUDED.pickup_point_id`,
+        [order.id, attrs.code, attrs.creationDate, attrs.totalPrice, attrs.state, attrs.status, JSON.stringify(order), originCity, attrs.pickupPointId || null]
       );
       totalOrders += 1;
 

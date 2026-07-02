@@ -22,15 +22,24 @@ async function initDb() {
     );
   `);
 
-  // Город склада, с которого реально отгружен заказ (Kaspi отдаёт это в attributes.originAddress.city.name).
-  // Не путать с deliveryAddress — это город клиента, куда привезли, а не откуда отгрузили.
+  // Город склада, с которого реально отгружен заказ. Раньше брали из attributes.originAddress.city.name,
+  // но это поле пустое для заказов без Kaspi Delivery (самовывоз). Понадёжнее — attributes.pickupPointId,
+  // он есть у ЛЮБОГО заказа всегда, просто это код точки (например "18619047_PP2"), а не название города —
+  // сопоставляем через справочник warehouseMapping.js.
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS origin_city TEXT;`);
-  // Заполняем для уже загруженных заказов прямо из raw_data — повторный запрос к Kaspi API не нужен.
-  await pool.query(`
-    UPDATE orders
-    SET origin_city = raw_data->'attributes'->'originAddress'->'city'->>'name'
-    WHERE origin_city IS NULL AND raw_data IS NOT NULL
-  `);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_id TEXT;`);
+  await pool.query(`UPDATE orders SET pickup_point_id = raw_data->'attributes'->>'pickupPointId' WHERE raw_data IS NOT NULL;`);
+
+  const { PICKUP_POINT_WAREHOUSE_MAP } = require('./warehouseMapping');
+  const mappingEntries = Object.entries(PICKUP_POINT_WAREHOUSE_MAP);
+  if (mappingEntries.length > 0) {
+    const caseSql = mappingEntries.map(([id, city]) => `WHEN '${id}' THEN '${city}'`).join(' ');
+    await pool.query(`
+      UPDATE orders
+      SET origin_city = CASE pickup_point_id ${caseSql} ELSE NULL END
+      WHERE raw_data IS NOT NULL
+    `);
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS order_items (
