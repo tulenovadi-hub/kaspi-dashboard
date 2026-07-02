@@ -45,4 +45,13 @@ router.get('/masterproduct/:productId', async (req, res) => {
   }
 });
 
+router.get('/merchantproduct/:productId', async (req, res) => {
+  try {
+    const response = await client().get(`/merchantproducts/${req.params.productId}`);
+    res.json(response.data);
+  } catch (err) {
+    res.status(500).json({ error: err.message, details: err.response ? err.response.data : null });
+  }
+});
+
 module.exports = router;
