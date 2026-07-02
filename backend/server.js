@@ -34,11 +34,14 @@ app.use('/api/warehouse', warehouseRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api/product-images', imagesRoutes);
 
-// Эндпоинт, чтобы вручную запустить синхронизацию из дашборда (кнопка "Обновить сейчас")
+// Эндпоинт, чтобы вручную запустить синхронизацию из дашборда (кнопка "Обновить сейчас").
+// Можно передать { "days": 150 } в теле запроса, чтобы сделать разовую глубокую синхронизацию
+// (например, чтобы подтянуть master_product_code для товаров из старых заказов).
 app.post('/api/sync', async (req, res) => {
   try {
-    res.json({ ok: true });
-    syncRecentOrders().catch((err) => console.error('Ошибка фоновой синхронизации:', err));
+    const days = Number(req.body && req.body.days) || 3;
+    res.json({ ok: true, days });
+    syncRecentOrders(days).catch((err) => console.error('Ошибка фоновой синхронизации:', err));
   } catch (err) {
     console.error('Ошибка ручной синхронизации:', err);
     res.status(500).json({ error: 'Синхронизация не удалась' });
