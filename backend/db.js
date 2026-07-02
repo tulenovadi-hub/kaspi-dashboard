@@ -39,7 +39,24 @@ async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_items_creation_date ON order_items(creation_date);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_items_product_id ON order_items(product_id);`);
 
-  console.log('База данных готова: таблицы orders и order_items на месте.');
+  // Партии (поставки) товара — нужны для учёта себестоимости по методу FIFO:
+  // remaining_quantity уменьшается по мере продажи товара из этой партии
+  // (логика списания появится позже, сейчас только ввод и хранение партий).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS product_batches (
+      id SERIAL PRIMARY KEY,
+      product_id TEXT NOT NULL,
+      product_name TEXT,
+      cost_price NUMERIC NOT NULL,
+      quantity INTEGER NOT NULL,
+      remaining_quantity INTEGER NOT NULL,
+      received_date DATE NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_batches_product_id ON product_batches(product_id, received_date);`);
+
+  console.log('База данных готова: таблицы orders, order_items и product_batches на месте.');
 }
 
 module.exports = { pool, initDb };
