@@ -147,24 +147,13 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
 const TAX_RATE = 0.03; // 3% с оборота (упрощённый режим ИП)
 
-// Заказы, которые реально считаются продажей — для остатков на "Складе" берём все статусы
-// (товар физически уже уехал), но для ЭТОГО отчёта себестоимость нужно сравнивать с выручкой
-// из Kaspi Pay. Деньги там появляются: для предоплаты (PREPAID) — сразу, для рассрочки
-// (PAY_WITH_CREDIT) — только когда заказ дошёл до статуса COMPLETED. Поэтому фильтр строим
-// по комбинации статус+способ оплаты, а не просто по одному статусу.
-const COGS_ORDER_FILTER_SQL = `(
-  o.status = 'COMPLETED'
-  OR (o.status = ANY(ARRAY['ACCEPTED_BY_MERCHANT', 'APPROVED_BY_BANK']) AND o.raw_data->'attributes'->>'paymentMode' = 'PREPAID')
-)`;
-// Партии на "Поставках" вводятся как остаток на 1 июня — себестоимость считаем только
-// для продаж с этой даты, чтобы не задваивать со старыми продажами (та же логика, что на "Складе").
-const STOCK_CUTOFF_DATE = '2026-06-01';
-
 const MAIN_CITIES = ['Алматы', 'Астана'];
 const SELF_BUY_CITIES = ['Талдыкорган', 'Юбилейное'];
 
 // Считает себестоимость проданных товаров по методу FIFO (та же логика, что на "Складе"),
-// но результат группирует по месяцу продажи, а не по остаткам. warehouses — необязательный
+// но только по тем заказам, которые реально есть в загруженном Excel-отчёте Kaspi Pay со статусом
+// "Покупка" — так себестоимость и выручка всегда считаются по одному и тому же набору заказов,
+// без каких-либо предположений про статус или способ оплаты. warehouses — необязательный
 // список городов для фильтрации (если не передан — считает по всем городам сразу).
 async function computeMonthlyCogs(warehouses) {
   const batchesResult = await pool.query(`
@@ -173,24 +162,18 @@ async function computeMonthlyCogs(warehouses) {
     ORDER BY product_id, warehouse, received_date, id
   `);
 
-  // Себестоимость считаем только за те дни, за которые реально есть выручка в загруженном
-  // Excel-отчёте Kaspi Pay — иначе синхронизация заказов (которая идёт постоянно, в отличие
-  // от Excel-файла) "убегает" вперёд и себестоимость считается за дни без соответствующей выручки.
-  const maxDateResult = await pool.query(`SELECT MAX(operation_date) AS max_date FROM kaspi_pay_transactions`);
-  const maxDate = maxDateResult.rows[0].max_date;
-
   const soldResult = await pool.query(
     `SELECT oi.product_id, o.origin_city AS warehouse, oi.quantity,
-            to_char(oi.creation_date + interval '5 hours', 'YYYY-MM') AS month
-     FROM order_items oi
-     JOIN orders o ON o.id = oi.order_id
-     WHERE ${COGS_ORDER_FILTER_SQL}
+            to_char(kpt.operation_date, 'YYYY-MM') AS month,
+            kpt.operation_date
+     FROM kaspi_pay_transactions kpt
+     JOIN orders o ON o.code = kpt.order_number
+     JOIN order_items oi ON oi.order_id = o.id
+     WHERE kpt.operation_type = 'Покупка'
        AND o.origin_city IS NOT NULL
-       AND o.creation_date >= $1::date
-       AND o.creation_date < $2::date + interval '1 day'
-       ${warehouses ? 'AND o.origin_city = ANY($3::text[])' : ''}
-     ORDER BY oi.product_id, o.origin_city, oi.creation_date ASC`,
-    warehouses ? [STOCK_CUTOFF_DATE, maxDate, warehouses] : [STOCK_CUTOFF_DATE, maxDate]
+       ${warehouses ? 'AND o.origin_city = ANY($1::text[])' : ''}
+     ORDER BY oi.product_id, o.origin_city, kpt.operation_date ASC`,
+    warehouses ? [warehouses] : []
   );
 
   const batchesByKey = new Map();
