@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { uploadKaspiPayReport, fetchMonthlyReport } from './api.js';
 import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
 
-function MonthlyTable({ title, months }) {
+// columns — массив { key, label }. key === 'month' форматируется отдельно (название месяца),
+// остальные — через formatMoney, кроме margin/roi (по имени колонки определяем формат).
+function MonthlyTable({ title, months, columns }) {
   return (
     <>
       <div className="section-title">{title}</div>
@@ -14,31 +16,21 @@ function MonthlyTable({ title, months }) {
             <table className="product-table">
               <thead>
                 <tr>
-                  <th>Месяц</th>
-                  <th className="num">Выручка</th>
-                  <th className="num">Себестоимость</th>
-                  <th className="num">Возвраты</th>
-                  <th className="num">Комиссия</th>
-                  <th className="num">Доставка</th>
-                  <th className="num">Налоги (3%)</th>
-                  <th className="num">Чистая прибыль</th>
-                  <th className="num">Маржа</th>
-                  <th className="num">ROI</th>
+                  {columns.map((col) => (
+                    <th key={col.key} className={col.key === 'month' ? '' : 'num'}>{col.label}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {months.map((m) => (
                   <tr key={m.month}>
-                    <td>{formatMonthLabel(m.month)}</td>
-                    <td className="num">{formatMoney(m.revenue)}</td>
-                    <td className="num">{formatMoney(m.cost_of_goods)}</td>
-                    <td className="num">{formatMoney(m.returns)}</td>
-                    <td className="num">{formatMoney(m.commission)}</td>
-                    <td className="num">{formatMoney(m.delivery)}</td>
-                    <td className="num">{formatMoney(m.taxes)}</td>
-                    <td className="num">{formatMoney(m.net_profit)}</td>
-                    <td className="num">{formatPercent(m.margin)}</td>
-                    <td className="num">{formatPercent(m.roi)}</td>
+                    {columns.map((col) => {
+                      if (col.key === 'month') return <td key={col.key}>{formatMonthLabel(m.month)}</td>;
+                      if (col.key === 'margin' || col.key === 'roi') {
+                        return <td key={col.key} className="num">{formatPercent(m[col.key])}</td>;
+                      }
+                      return <td key={col.key} className="num">{formatMoney(m[col.key])}</td>;
+                    })}
                   </tr>
                 ))}
               </tbody>
@@ -49,6 +41,34 @@ function MonthlyTable({ title, months }) {
     </>
   );
 }
+
+const GENERAL_COLUMNS = [
+  { key: 'month', label: 'Месяц' },
+  { key: 'revenue', label: 'Выручка' },
+  { key: 'taxes', label: 'Налоги (3%)' },
+];
+
+const MAIN_COLUMNS = [
+  { key: 'month', label: 'Месяц' },
+  { key: 'revenue', label: 'Выручка' },
+  { key: 'cost_of_goods', label: 'Себестоимость' },
+  { key: 'returns', label: 'Возвраты' },
+  { key: 'commission', label: 'Комиссия' },
+  { key: 'delivery', label: 'Доставка' },
+  { key: 'taxes', label: 'Налоги (3%)' },
+  { key: 'other_expenses', label: 'Прочие расходы' },
+  { key: 'net_profit', label: 'Чистая прибыль' },
+  { key: 'margin', label: 'Маржа' },
+  { key: 'roi', label: 'ROI' },
+];
+
+const SELF_BUY_COLUMNS = [
+  { key: 'month', label: 'Месяц' },
+  { key: 'revenue', label: 'Выручка' },
+  { key: 'commission', label: 'Комиссия' },
+  { key: 'delivery', label: 'Доставка' },
+  { key: 'taxes', label: 'Налоги (3%)' },
+];
 
 export default function Report({ password }) {
   const [months, setMonths] = useState([]);
@@ -134,17 +154,18 @@ export default function Report({ password }) {
         <div className="empty-state">Загрузка...</div>
       ) : (
         <>
-          <MonthlyTable title="По месяцам" months={months} />
-          <MonthlyTable title="Алматы + Астана" months={monthsMainCities} />
-          <MonthlyTable title="Талдыкорган + Юбилейное" months={monthsSelfBuyCities} />
+          <MonthlyTable title="Общий отчёт" months={months} columns={GENERAL_COLUMNS} />
+          <MonthlyTable title="Основной отчёт (Алматы, Астана)" months={monthsMainCities} columns={MAIN_COLUMNS} />
+          <MonthlyTable title="Самовыкупы (Юбилейное, Талдыкорган)" months={monthsSelfBuyCities} columns={SELF_BUY_COLUMNS} />
         </>
       )}
 
       <div className="report-note">
         ⚠️ Налог считается упрощённо: 3% с чистого оборота (выручка минус возвраты). Себестоимость считается по методу FIFO на основе партий на «Поставках»,
-        и только по тем заказам, которые реально есть в загруженном Excel-отчёте Kaspi Pay со статусом «Покупка» — так выручка и себестоимость всегда
-        считаются строго по одному и тому же набору заказов, без каких-либо предположений про статус заказа или способ оплаты. Таблицы по городам
-        определяются по номеру заказа: он совпадает и в Excel-отчёте Kaspi Pay, и в данных заказов Kaspi.
+        и только по тем заказам, которые реально есть в загруженном Excel-отчёте Kaspi Pay со статусом «Покупка». «Прочие расходы» в основном отчёте — это
+        сумма категории «Прочие затраты» из раздела «Расходы» (Google Таблица) за тот же месяц; категория «Товар» туда не входит — она уже учтена через
+        себестоимость, а «Вывод» не входит, так как это не операционный расход бизнеса. Таблицы по городам определяются по номеру заказа: он совпадает
+        и в Excel-отчёте Kaspi Pay, и в данных заказов Kaspi.
       </div>
     </div>
   );
