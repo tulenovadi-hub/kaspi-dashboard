@@ -166,6 +166,12 @@ async function computeMonthlyCogs(warehouses) {
     ORDER BY product_id, warehouse, received_date, id
   `);
 
+  // Себестоимость считаем только за те дни, за которые реально есть выручка в загруженном
+  // Excel-отчёте Kaspi Pay — иначе синхронизация заказов (которая идёт постоянно, в отличие
+  // от Excel-файла) "убегает" вперёд и себестоимость считается за дни без соответствующей выручки.
+  const maxDateResult = await pool.query(`SELECT MAX(operation_date) AS max_date FROM kaspi_pay_transactions`);
+  const maxDate = maxDateResult.rows[0].max_date;
+
   const soldResult = await pool.query(
     `SELECT oi.product_id, o.origin_city AS warehouse, oi.quantity,
             to_char(oi.creation_date + interval '5 hours', 'YYYY-MM') AS month
@@ -174,9 +180,10 @@ async function computeMonthlyCogs(warehouses) {
      WHERE o.status = ANY($1::text[])
        AND o.origin_city IS NOT NULL
        AND o.creation_date >= $2::date
-       ${warehouses ? 'AND o.origin_city = ANY($3::text[])' : ''}
+       AND o.creation_date < $3::date + interval '1 day'
+       ${warehouses ? 'AND o.origin_city = ANY($4::text[])' : ''}
      ORDER BY oi.product_id, o.origin_city, oi.creation_date ASC`,
-    warehouses ? [VALID_STATUSES, STOCK_CUTOFF_DATE, warehouses] : [VALID_STATUSES, STOCK_CUTOFF_DATE]
+    warehouses ? [VALID_STATUSES, STOCK_CUTOFF_DATE, maxDate, warehouses] : [VALID_STATUSES, STOCK_CUTOFF_DATE, maxDate]
   );
 
   const batchesByKey = new Map();
