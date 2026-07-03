@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchExpenses, fetchExpensesMonthly, syncExpenses } from './api.js';
-import { formatMoney, formatMonthLabel } from './dateUtils.js';
+import { formatMoney, formatMonthLabel, formatDateDMY } from './dateUtils.js';
 
 export default function Expenses({ password }) {
   const [expenses, setExpenses] = useState([]);
   const [months, setMonths] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
@@ -12,6 +13,7 @@ export default function Expenses({ password }) {
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [monthFilter, setMonthFilter] = useState('');
 
   function loadData() {
     setLoading(true);
@@ -20,6 +22,7 @@ export default function Expenses({ password }) {
       .then(([expRes, monthsRes]) => {
         setExpenses(expRes.expenses);
         setMonths(monthsRes.months);
+        setCategories(monthsRes.categories);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -43,15 +46,20 @@ export default function Expenses({ password }) {
       .finally(() => setSyncing(false));
   }
 
-  const categories = useMemo(() => {
+  const listCategories = useMemo(() => {
     return Array.from(new Set(expenses.map((e) => e.category).filter(Boolean))).sort();
+  }, [expenses]);
+
+  const availableMonths = useMemo(() => {
+    return Array.from(new Set(expenses.map((e) => (e.expense_date || '').slice(0, 7)).filter(Boolean))).sort().reverse();
   }, [expenses]);
 
   const filtered = useMemo(() => {
     return expenses
       .filter((e) => !search || (e.name || '').toLowerCase().includes(search.toLowerCase()))
-      .filter((e) => !categoryFilter || e.category === categoryFilter);
-  }, [expenses, search, categoryFilter]);
+      .filter((e) => !categoryFilter || e.category === categoryFilter)
+      .filter((e) => !monthFilter || (e.expense_date || '').slice(0, 7) === monthFilter);
+  }, [expenses, search, categoryFilter, monthFilter]);
 
   const totalFiltered = filtered.reduce((sum, e) => sum + Number(e.amount), 0);
 
@@ -89,16 +97,20 @@ export default function Expenses({ password }) {
               <thead>
                 <tr>
                   <th>Месяц</th>
-                  <th className="num">Сумма расходов</th>
-                  <th className="num">Записей</th>
+                  {categories.map((c) => (
+                    <th key={c} className="num">{c}</th>
+                  ))}
+                  <th className="num">СУММА РАСХОДОВ</th>
                 </tr>
               </thead>
               <tbody>
                 {months.map((m) => (
                   <tr key={m.month}>
                     <td>{formatMonthLabel(m.month)}</td>
-                    <td className="num">{formatMoney(m.total)}</td>
-                    <td className="num">{m.records_count}</td>
+                    {categories.map((c) => (
+                      <td key={c} className="num">{m.byCategory[c] ? formatMoney(m.byCategory[c]) : '—'}</td>
+                    ))}
+                    <td className="num expenses-total-cell">{formatMoney(m.total)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -122,8 +134,18 @@ export default function Expenses({ password }) {
           onChange={(e) => setCategoryFilter(e.target.value)}
         >
           <option value="">Все категории</option>
-          {categories.map((c) => (
+          {listCategories.map((c) => (
             <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+        <select
+          className="toolbar-select"
+          value={monthFilter}
+          onChange={(e) => setMonthFilter(e.target.value)}
+        >
+          <option value="">Все месяцы</option>
+          {availableMonths.map((m) => (
+            <option key={m} value={m}>{formatMonthLabel(m)}</option>
           ))}
         </select>
       </div>
@@ -150,7 +172,7 @@ export default function Expenses({ password }) {
                 <tbody>
                   {filtered.map((e) => (
                     <tr key={e.id}>
-                      <td>{e.expense_date || '—'}</td>
+                      <td>{formatDateDMY(e.expense_date)}</td>
                       <td>{e.name || '—'}</td>
                       <td>{e.category || '—'}</td>
                       <td>{e.source || '—'}</td>

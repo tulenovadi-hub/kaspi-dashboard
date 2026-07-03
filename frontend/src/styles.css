@@ -1057,6 +1057,11 @@ select:focus-visible {
   font-family: var(--font-mono);
 }
 
+.expenses-total-cell {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
 /* ===== Warehouse (Склад) ===== */
 .warehouse-warning {
   display: block;
