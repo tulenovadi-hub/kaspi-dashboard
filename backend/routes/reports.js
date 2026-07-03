@@ -263,15 +263,54 @@ async function aggregateKaspiPayMonthly(warehouses) {
   });
 }
 
+// Категория "Прочие затраты" из гугл-таблицы расходов — операционные расходы (реклама, зарплата,
+// доставка и т.д.). "Товар" сюда не включаем — это уже учтено через себестоимость (FIFO по партиям).
+// "Вывод" тоже не включаем — это выводы/дивиденды собственника, а не расход бизнеса.
+const OTHER_EXPENSES_CATEGORY = 'Прочие затраты';
+
+async function fetchOtherExpensesByMonth() {
+  const result = await pool.query(
+    `SELECT to_char(expense_date, 'YYYY-MM') AS month, SUM(amount) AS total
+     FROM expenses
+     WHERE category = $1 AND expense_date IS NOT NULL
+     GROUP BY month`,
+    [OTHER_EXPENSES_CATEGORY]
+  );
+  const map = {};
+  for (const row of result.rows) {
+    map[row.month] = Number(row.total);
+  }
+  return map;
+}
+
 router.get('/monthly', async (req, res) => {
   try {
-    const [months, monthsMainCities, monthsSelfBuyCities] = await Promise.all([
+    const [months, monthsMainCities, monthsSelfBuyCities, otherExpensesByMonth] = await Promise.all([
       aggregateKaspiPayMonthly(),
       aggregateKaspiPayMonthly(MAIN_CITIES),
       aggregateKaspiPayMonthly(SELF_BUY_CITIES),
+      fetchOtherExpensesByMonth(),
     ]);
 
-    res.json({ months, monthsMainCities, monthsSelfBuyCities });
+    // В "Основной отчёт" (Алматы+Астана) подмешиваем прочие расходы из "Расходов" и пересчитываем
+    // чистую прибыль/маржу/ROI с их учётом — в остальных двух таблицах эта колонка не нужна.
+    const monthsMainCitiesWithExpenses = monthsMainCities.map((row) => {
+      const otherExpenses = otherExpensesByMonth[row.month] || 0;
+      const netProfit = row.net_profit - otherExpenses;
+      const totalExpenses = row.cost_of_goods + row.commission + row.delivery + row.taxes + otherExpenses;
+      const margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
+      const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
+
+      return {
+        ...row,
+        other_expenses: otherExpenses,
+        net_profit: netProfit,
+        margin,
+        roi,
+      };
+    });
+
+    res.json({ months, monthsMainCities: monthsMainCitiesWithExpenses, monthsSelfBuyCities });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить отчёт' });
