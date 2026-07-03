@@ -134,13 +134,34 @@ router.get('/', async (req, res) => {
 router.get('/monthly', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT to_char(expense_date, 'YYYY-MM') AS month, SUM(amount) AS total, COUNT(*) AS records_count
+      SELECT to_char(expense_date, 'YYYY-MM') AS month, category, SUM(amount) AS total, COUNT(*) AS records_count
       FROM expenses
       WHERE expense_date IS NOT NULL
-      GROUP BY month
+      GROUP BY month, category
       ORDER BY month DESC
     `);
-    res.json({ months: result.rows.map((r) => ({ month: r.month, total: Number(r.total), records_count: Number(r.records_count) })) });
+
+    const monthsMap = new Map();
+    const categoriesSet = new Set();
+
+    for (const row of result.rows) {
+      const category = row.category || 'Без категории';
+      categoriesSet.add(category);
+
+      if (!monthsMap.has(row.month)) {
+        monthsMap.set(row.month, { month: row.month, total: 0, records_count: 0, byCategory: {} });
+      }
+      const monthEntry = monthsMap.get(row.month);
+      const amount = Number(row.total);
+      monthEntry.byCategory[category] = (monthEntry.byCategory[category] || 0) + amount;
+      monthEntry.total += amount;
+      monthEntry.records_count += Number(row.records_count);
+    }
+
+    const months = Array.from(monthsMap.values()).sort((a, b) => (a.month < b.month ? 1 : -1));
+    const categories = Array.from(categoriesSet).sort();
+
+    res.json({ months, categories });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить расходы по месяцам' });
