@@ -27,6 +27,7 @@ body {
   font-family: var(--font-display);
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  touch-action: manipulation;
 }
 
 button {
@@ -839,6 +840,14 @@ select:focus-visible {
     display: none;
   }
 
+  /* Safari на iOS автоматически увеличивает страницу при фокусе на поле ввода, если у него
+     шрифт меньше 16px — это единственный надёжный способ такое предотвратить. */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
   .mobile-topbar {
     display: flex;
     align-items: center;
@@ -849,6 +858,10 @@ select:focus-visible {
     background: var(--bg-card);
     border-bottom: 1px solid var(--border);
     padding: 12px 16px;
+    /* Когда сайт установлен как PWA на iOS, у него нет строки браузера — контент рискует
+       залезать под системные часы/иконки в статус-баре. env(safe-area-inset-top) добавляет
+       ровно столько отступа, сколько нужно под "чёлку"/статус-бар на конкретном iPhone. */
+    padding-top: calc(12px + env(safe-area-inset-top));
   }
 
   .mobile-menu-btn {
@@ -905,6 +918,7 @@ select:focus-visible {
     background: var(--bg-card);
     border-right: 1px solid var(--border);
     padding: 16px;
+    padding-top: calc(16px + env(safe-area-inset-top));
     display: flex;
     flex-direction: column;
     gap: 4px;
