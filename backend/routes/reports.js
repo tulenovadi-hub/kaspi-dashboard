@@ -147,11 +147,15 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
 const TAX_RATE = 0.03; // 3% с оборота (упрощённый режим ИП)
 
-// Заказы, которые реально считаются продажей — для остатков на "Складе" берём и незавершённые
-// тоже (товар физически уже уехал), но для ЭТОГО отчёта себестоимость нужно сравнивать с выручкой
-// из Kaspi Pay, а туда заказы в рассрочку попадают только после полного завершения (COMPLETED).
-// Поэтому здесь статус строже, чем на "Складе" — иначе получается "себестоимость есть, а выручки под неё ещё нет".
-const COGS_VALID_STATUSES = ['COMPLETED'];
+// Заказы, которые реально считаются продажей — для остатков на "Складе" берём все статусы
+// (товар физически уже уехал), но для ЭТОГО отчёта себестоимость нужно сравнивать с выручкой
+// из Kaspi Pay. Деньги там появляются: для предоплаты (PREPAID) — сразу, для рассрочки
+// (PAY_WITH_CREDIT) — только когда заказ дошёл до статуса COMPLETED. Поэтому фильтр строим
+// по комбинации статус+способ оплаты, а не просто по одному статусу.
+const COGS_ORDER_FILTER_SQL = `(
+  o.status = 'COMPLETED'
+  OR (o.status = ANY(ARRAY['ACCEPTED_BY_MERCHANT', 'APPROVED_BY_BANK']) AND o.raw_data->'attributes'->>'paymentMode' = 'PREPAID')
+)`;
 // Партии на "Поставках" вводятся как остаток на 1 июня — себестоимость считаем только
 // для продаж с этой даты, чтобы не задваивать со старыми продажами (та же логика, что на "Складе").
 const STOCK_CUTOFF_DATE = '2026-06-01';
@@ -180,13 +184,13 @@ async function computeMonthlyCogs(warehouses) {
             to_char(oi.creation_date + interval '5 hours', 'YYYY-MM') AS month
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
-     WHERE o.status = ANY($1::text[])
+     WHERE ${COGS_ORDER_FILTER_SQL}
        AND o.origin_city IS NOT NULL
-       AND o.creation_date >= $2::date
-       AND o.creation_date < $3::date + interval '1 day'
-       ${warehouses ? 'AND o.origin_city = ANY($4::text[])' : ''}
+       AND o.creation_date >= $1::date
+       AND o.creation_date < $2::date + interval '1 day'
+       ${warehouses ? 'AND o.origin_city = ANY($3::text[])' : ''}
      ORDER BY oi.product_id, o.origin_city, oi.creation_date ASC`,
-    warehouses ? [COGS_VALID_STATUSES, STOCK_CUTOFF_DATE, maxDate, warehouses] : [COGS_VALID_STATUSES, STOCK_CUTOFF_DATE, maxDate]
+    warehouses ? [STOCK_CUTOFF_DATE, maxDate, warehouses] : [STOCK_CUTOFF_DATE, maxDate]
   );
 
   const batchesByKey = new Map();
