@@ -12,6 +12,7 @@ const reportsRoutes = require('./routes/reports');
 const warehouseRoutes = require('./routes/warehouse');
 const debugRoutes = require('./routes/debug');
 const imagesRoutes = require('./routes/images');
+const expensesRoutes = require('./routes/expenses');
 
 const app = express();
 app.use(cors());
@@ -33,6 +34,7 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/warehouse', warehouseRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api/product-images', imagesRoutes);
+app.use('/api/expenses', expensesRoutes);
 
 // Эндпоинт, чтобы вручную запустить синхронизацию из дашборда (кнопка "Обновить сейчас").
 // Можно передать { "days": 150 } в теле запроса, чтобы сделать разовую глубокую синхронизацию

@@ -131,7 +131,25 @@ async function initDb() {
     );
   `);
 
-  console.log('База данных готова: таблицы orders, order_items, product_batches, kaspi_pay_transactions и product_images на месте.');
+  // Расходы, синхронизируемые из гугл-таблицы (лист "Расход"). При каждой синхронизации
+  // таблица полностью перезаписывается свежими данными из Google Sheets — так проще и надёжнее,
+  // чем пытаться сопоставлять строки, если в таблице что-то поменяли местами или удалили.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS expenses (
+      id SERIAL PRIMARY KEY,
+      expense_date DATE,
+      name TEXT,
+      category TEXT,
+      source TEXT,
+      amount NUMERIC NOT NULL DEFAULT 0,
+      comment TEXT,
+      row_index INTEGER,
+      synced_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);`);
+
+  console.log('База данных готова: таблицы orders, order_items, product_batches, kaspi_pay_transactions, product_images и expenses на месте.');
 }
 
 module.exports = { pool, initDb };
