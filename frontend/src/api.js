@@ -89,3 +89,15 @@ export function fetchProductImages(password, productIds) {
     body: JSON.stringify({ product_ids: productIds }),
   });
 }
+
+export function fetchExpenses(password) {
+  return apiRequest('/api/expenses', password);
+}
+
+export function fetchExpensesMonthly(password) {
+  return apiRequest('/api/expenses/monthly', password);
+}
+
+export function syncExpenses(password) {
+  return apiRequest('/api/expenses/sync', password, { method: 'POST' });
+}

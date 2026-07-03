@@ -1042,6 +1042,21 @@ select:focus-visible {
   padding: 4px;
 }
 
+.expenses-total {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.expenses-total strong {
+  color: var(--accent-brand);
+  font-family: var(--font-mono);
+}
+
 /* ===== Warehouse (Склад) ===== */
 .warehouse-warning {
   display: block;

@@ -4,10 +4,10 @@ import SalesView from './SalesView.jsx';
 import Batches from './Batches.jsx';
 import Report from './Report.jsx';
 import Warehouse from './Warehouse.jsx';
+import Expenses from './Expenses.jsx';
 import ComingSoon from './ComingSoon.jsx';
 
 const SECTION_TITLES = {
-  expenses: 'Расходы',
   marketing: 'Маркетинг',
 };
 
@@ -34,6 +34,10 @@ export default function Dashboard({ password, onLogout }) {
 
     if (view === 'warehouse') {
       return <Warehouse password={password} />;
+    }
+
+    if (view === 'expenses') {
+      return <Expenses password={password} />;
     }
 
     if (view === 'selfbuy') {
