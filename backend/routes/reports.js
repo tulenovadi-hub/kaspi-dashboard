@@ -147,8 +147,11 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
 const TAX_RATE = 0.03; // 3% с оборота (упрощённый режим ИП)
 
-// Заказы, которые реально считаются продажей (совпадает с логикой в warehouse.js/stats.js)
-const VALID_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK'];
+// Заказы, которые реально считаются продажей — для остатков на "Складе" берём и незавершённые
+// тоже (товар физически уже уехал), но для ЭТОГО отчёта себестоимость нужно сравнивать с выручкой
+// из Kaspi Pay, а туда заказы в рассрочку попадают только после полного завершения (COMPLETED).
+// Поэтому здесь статус строже, чем на "Складе" — иначе получается "себестоимость есть, а выручки под неё ещё нет".
+const COGS_VALID_STATUSES = ['COMPLETED'];
 // Партии на "Поставках" вводятся как остаток на 1 июня — себестоимость считаем только
 // для продаж с этой даты, чтобы не задваивать со старыми продажами (та же логика, что на "Складе").
 const STOCK_CUTOFF_DATE = '2026-06-01';
@@ -183,7 +186,7 @@ async function computeMonthlyCogs(warehouses) {
        AND o.creation_date < $3::date + interval '1 day'
        ${warehouses ? 'AND o.origin_city = ANY($4::text[])' : ''}
      ORDER BY oi.product_id, o.origin_city, oi.creation_date ASC`,
-    warehouses ? [VALID_STATUSES, STOCK_CUTOFF_DATE, maxDate, warehouses] : [VALID_STATUSES, STOCK_CUTOFF_DATE, maxDate]
+    warehouses ? [COGS_VALID_STATUSES, STOCK_CUTOFF_DATE, maxDate, warehouses] : [COGS_VALID_STATUSES, STOCK_CUTOFF_DATE, maxDate]
   );
 
   const batchesByKey = new Map();
