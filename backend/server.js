@@ -15,6 +15,7 @@ const warehouseRoutes = require('./routes/warehouse');
 const debugRoutes = require('./routes/debug');
 const imagesRoutes = require('./routes/images');
 const expensesRoutes = require('./routes/expenses');
+const ordersRoutes = require('./routes/orders');
 
 const app = express();
 app.use(cors());
@@ -69,6 +70,7 @@ app.use('/api/users', requireRole('admin'), usersRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/warehouse', warehouseRoutes);
 app.use('/api/product-images', imagesRoutes);
+app.use('/api/orders', ordersRoutes);
 
 // Поставки, Отчёт, Расходы — только для админа (у менеджера/маркетолога этих разделов нет в меню)
 app.use('/api/batches', requireRole('admin'), batchesRoutes);
