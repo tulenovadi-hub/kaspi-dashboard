@@ -43,7 +43,9 @@ async function syncRecentOrders(daysBack = 3) {
       );
       totalOrders += 1;
 
-      const meaningfulStatuses = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK'];
+      // RETURNED — нужен отдельно: без этого статуса не подтягивался бы состав возвращённых
+      // заказов, а без него нельзя посчитать даже приближённую себестоимость возвратов в отчёте.
+      const meaningfulStatuses = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK', 'RETURNED'];
       if (!meaningfulStatuses.includes(attrs.status)) continue;
 
       try {
