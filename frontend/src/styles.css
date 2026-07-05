@@ -344,6 +344,91 @@ select:focus-visible {
   border-bottom: 1px solid var(--border);
 }
 
+/* Закреплённая шапка таблицы при прокрутке (как "закрепить строку" в Google Sheets) */
+.product-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-card);
+  vertical-align: top;
+  /* inset box-shadow вместо border-bottom — с sticky+border-collapse обычный border
+     иногда "пропадает" при скролле в некоторых браузерах */
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+@media (max-width: 780px) {
+  /* На мобильном под шапкой есть ещё свой sticky mobile-topbar — сдвигаем ниже него */
+  .product-table thead th {
+    top: 56px;
+  }
+}
+
+/* Строка фильтров внутри шапки (под названием столбца) */
+.th-label {
+  margin-bottom: 6px;
+}
+
+.th-filter-input,
+.th-filter select,
+.th-filter input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  padding: 4px 6px;
+}
+
+.th-filter-input:focus,
+.th-filter select:focus,
+.th-filter input:focus {
+  outline: 1px solid var(--accent-brand);
+  outline-offset: 0;
+}
+
+.th-filter-range {
+  display: flex;
+  gap: 4px;
+}
+
+.th-filter-range input {
+  min-width: 0;
+}
+
+.orders-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.orders-toolbar-count {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.orders-toolbar-reset {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.orders-toolbar-reset:hover {
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+}
+
 .product-table td {
   padding: 10px 10px;
   border-bottom: 1px solid var(--border);
