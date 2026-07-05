@@ -1,6 +1,44 @@
 import React, { useEffect, useState } from 'react';
-import { fetchWarehouse, fetchProductImages } from './api.js';
+import { fetchWarehouse, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
 import { formatMoney, formatNumber, WAREHOUSES } from './dateUtils.js';
+
+// Сжимаем картинку на клиенте перед отправкой — это просто маленькая иконка-превью на
+// "Складе", полное разрешение исходного фото не нужно, а без сжатия загрузка была бы
+// заметно медленнее (и тяжелее для базы, где картинки хранятся как data URL).
+function resizeImageFile(file, maxDim = 320, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Не удалось обработать изображение'));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDim) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else if (height > maxDim) {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('Не удалось обработать изображение'));
+            return;
+          }
+          resolve(new File([blob], 'product.jpg', { type: 'image/jpeg' }));
+        }, 'image/jpeg', quality);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function Warehouse({ password }) {
   const [products, setProducts] = useState([]);
@@ -10,6 +48,7 @@ export default function Warehouse({ password }) {
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(null);
   const [warehouseFilter, setWarehouseFilter] = useState('');
+  const [imageBusy, setImageBusy] = useState(null); // product_id, который сейчас загружается/удаляется
 
   useEffect(() => {
     setLoading(true);
@@ -34,7 +73,45 @@ export default function Warehouse({ password }) {
     setExpanded((prev) => (prev === key ? null : key));
   }
 
+  async function handleImageChange(productId, e) {
+    const file = e.target.files[0];
+    e.target.value = ''; // чтобы можно было выбрать тот же файл ещё раз
+    if (!file) return;
+
+    setImageBusy(productId);
+    setError('');
+    try {
+      const resized = await resizeImageFile(file);
+      const res = await uploadProductImage(password, productId, resized);
+      setImages((prev) => ({ ...prev, [productId]: res.image_url }));
+    } catch (err) {
+      setError(err.message || 'Не удалось загрузить картинку');
+    } finally {
+      setImageBusy(null);
+    }
+  }
+
+  async function handleImageRemove(productId, e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setImageBusy(productId);
+    setError('');
+    try {
+      await deleteProductImage(password, productId);
+      setImages((prev) => {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
+    } catch (err) {
+      setError(err.message || 'Не удалось удалить картинку');
+    } finally {
+      setImageBusy(null);
+    }
+  }
+
   const filtered = warehouseFilter ? products.filter((p) => p.warehouse === warehouseFilter) : products;
+  const totalRemainingValue = filtered.reduce((sum, p) => sum + Number(p.remaining_value || 0), 0);
 
   return (
     <div>
@@ -79,16 +156,43 @@ export default function Warehouse({ password }) {
               <tbody>
                 {filtered.map((p) => {
                   const rowKey = `${p.product_id}::${p.warehouse}`;
+                  const busy = imageBusy === p.product_id;
                   return (
                     <React.Fragment key={rowKey}>
                       <tr onClick={() => toggleExpand(rowKey)}>
                         <td>
                           <div className="warehouse-product-cell">
-                            {images[p.product_id] ? (
-                              <img className="warehouse-thumb" src={images[p.product_id]} alt={p.product_name} />
-                            ) : (
-                              <div className="warehouse-thumb warehouse-thumb-empty" />
-                            )}
+                            <label
+                              className="warehouse-thumb-wrap"
+                              onClick={(e) => e.stopPropagation()}
+                              title="Нажмите, чтобы загрузить свою картинку"
+                            >
+                              {images[p.product_id] ? (
+                                <img className="warehouse-thumb" src={images[p.product_id]} alt={p.product_name} />
+                              ) : (
+                                <div className="warehouse-thumb warehouse-thumb-empty" />
+                              )}
+                              <div className="warehouse-thumb-overlay">
+                                {busy ? '…' : '✎'}
+                              </div>
+                              {images[p.product_id] && !busy && (
+                                <button
+                                  type="button"
+                                  className="warehouse-thumb-remove"
+                                  title="Удалить картинку"
+                                  onClick={(e) => handleImageRemove(p.product_id, e)}
+                                >
+                                  ×
+                                </button>
+                              )}
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="warehouse-thumb-input"
+                                disabled={busy}
+                                onChange={(e) => handleImageChange(p.product_id, e)}
+                              />
+                            </label>
                             <div>
                               {p.product_name}
                               {p.oversold_qty > 0 && (
@@ -137,6 +241,12 @@ export default function Warehouse({ password }) {
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr className="warehouse-total-row">
+                  <td colSpan={7} className="num">Итого:</td>
+                  <td className="num">{formatMoney(totalRemainingValue)}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}
@@ -146,6 +256,7 @@ export default function Warehouse({ password }) {
         Остаток считается по методу FIFO отдельно для каждого склада, и учитывает только заказы {cutoffDate ? `с ${cutoffDate} и позже` : 'после даты отсечки'} —
         так партии, введённые с учётом остатков на эту дату, не задваиваются со старыми продажами. «Продано» — завершённые заказы (COMPLETED), «В обработке» —
         заказы, которые уже приняты в работу, но ещё не завершены (актуально для рассрочки). Нажмите на строку товара, чтобы увидеть разбивку по партиям.
+        Наведите на картинку товара, чтобы загрузить свою (или удалить уже загруженную) — иначе она подтягивается автоматически со страницы товара на kaspi.kz.
       </div>
     </div>
   );

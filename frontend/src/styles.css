@@ -1421,3 +1421,74 @@ select:focus-visible {
 .warehouse-thumb-empty {
   background: var(--bg-card-hover);
 }
+
+/* Обёртка-label поверх превью товара — клик открывает системный выбор файла */
+.warehouse-thumb-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.warehouse-thumb-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Иконка-карандаш поверх картинки — подсказывает, что можно кликнуть и загрузить свою */
+.warehouse-thumb-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(14, 20, 32, 0.55);
+  color: var(--text-primary);
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.warehouse-thumb-wrap:hover .warehouse-thumb-overlay {
+  opacity: 1;
+}
+
+/* Крестик-удаление в углу превью — виден только при наведении, если картинка уже есть */
+.warehouse-thumb-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-down);
+  color: #fff;
+  border: none;
+  font-size: 11px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.warehouse-thumb-wrap:hover .warehouse-thumb-remove {
+  opacity: 1;
+}
+
+/* Итоговая строка внизу таблицы "Склад" — сумма по столбцу "Стоимость остатка" */
+.warehouse-total-row td {
+  border-bottom: none;
+  border-top: 2px solid var(--border);
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+}

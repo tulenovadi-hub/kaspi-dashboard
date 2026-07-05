@@ -138,6 +138,17 @@ export function fetchProductImages(password, productIds) {
   });
 }
 
+export function uploadProductImage(password, productId, file) {
+  const formData = new FormData();
+  formData.append('product_id', productId);
+  formData.append('image', file);
+  return apiRequest('/api/product-images/upload', password, { method: 'POST', body: formData });
+}
+
+export function deleteProductImage(password, productId) {
+  return apiRequest(`/api/product-images/${encodeURIComponent(productId)}`, password, { method: 'DELETE' });
+}
+
 export function fetchExpenses(password) {
   return apiRequest('/api/expenses', password);
 }
