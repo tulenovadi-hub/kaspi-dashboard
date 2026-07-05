@@ -21,17 +21,27 @@ async function computeCosts(warehouses) {
     ORDER BY product_id, warehouse, received_date, id
   `);
 
+  // Важно: у одного заказа может быть НЕСКОЛЬКО строк в Excel-отчёте Kaspi Pay (например,
+  // если в заказе несколько разных товаров). Если сначала join'ить kaspi_pay_transactions
+  // с order_items напрямую, а у заказа и то, и другое больше одной строки — строки перемножатся
+  // (2 строки в Excel × 2 товара = 4 вместо 2), и себестоимость задвоится. Поэтому сначала
+  // схлопываем Excel-строки по номеру заказа в один "агрегат", и только потом соединяем с товарами.
   const soldResult = await pool.query(
-    `SELECT oi.product_id, o.origin_city AS warehouse, oi.quantity, kpt.order_number,
-            to_char(kpt.operation_date, 'YYYY-MM') AS month,
-            kpt.operation_date, kpt.operation_type
-     FROM kaspi_pay_transactions kpt
-     JOIN orders o ON o.code = kpt.order_number
+    `WITH kpt_agg AS (
+       SELECT order_number, MIN(operation_date) AS operation_date, BOOL_OR(operation_type = 'Возврат') AS has_return
+       FROM kaspi_pay_transactions
+       WHERE operation_type IN ('Покупка', 'Возврат')
+       GROUP BY order_number
+     )
+     SELECT oi.product_id, o.origin_city AS warehouse, oi.quantity, ka.order_number,
+            to_char(ka.operation_date, 'YYYY-MM') AS month, ka.operation_date,
+            CASE WHEN ka.has_return THEN 'Возврат' ELSE 'Покупка' END AS operation_type
+     FROM kpt_agg ka
+     JOIN orders o ON o.code = ka.order_number
      JOIN order_items oi ON oi.order_id = o.id
-     WHERE kpt.operation_type IN ('Покупка', 'Возврат')
-       AND o.origin_city IS NOT NULL
+     WHERE o.origin_city IS NOT NULL
        ${warehouses ? 'AND o.origin_city = ANY($1::text[])' : ''}
-     ORDER BY oi.product_id, o.origin_city, kpt.operation_date ASC`,
+     ORDER BY oi.product_id, o.origin_city, ka.operation_date ASC`,
     warehouses ? [warehouses] : []
   );
 
