@@ -179,7 +179,7 @@ export default function Orders({ password }) {
           <div className="empty-state">Ничего не найдено — убедитесь, что загружен отчёт Kaspi Pay на странице «Отчёт»</div>
         ) : (
           <div className="table-scroll">
-            <table className="product-table">
+            <table className="product-table orders-table">
               <thead>
                 <tr>
                   <th>

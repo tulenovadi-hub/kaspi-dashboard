@@ -1187,6 +1187,15 @@ select:focus-visible {
   min-width: 480px;
 }
 
+/* Последний столбец (Статус) браузер сжимает первым, если не хватает общей ширины —
+   фиксируем ему минимум, чтобы текст и бейдж не обрезались. Остальное отдаём горизонтальному
+   скроллу контейнера, а не "порче" содержимого. */
+.orders-table th:last-child,
+.orders-table td:last-child {
+  min-width: 150px;
+  white-space: nowrap;
+}
+
 @media (max-width: 780px) {
   .table-scroll {
     max-height: 65vh;
