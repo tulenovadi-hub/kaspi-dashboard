@@ -4,12 +4,12 @@ const { computeCosts } = require('../costEngine');
 
 const router = express.Router();
 
-// Важно: у одного заказа может быть НЕСКОЛЬКО строк в Excel-отчёте Kaspi Pay (например,
-// если в заказе несколько разных товаров — каждая позиция может идти отдельной строкой
-// со своей долей суммы/комиссии/доставки). Поэтому сначала агрегируем kaspi_pay_transactions
-// и order_items КАЖДОЕ ОТДЕЛЬНО по order_number/order_id (через CTE), и только потом соединяем
-// готовые агрегаты — если сначала сделать один большой JOIN и потом group by, строки
-// перемножатся и всё задвоится (именно так и было раньше).
+// Важно: у одного заказа может быть НЕСКОЛЬКО строк в Excel-отчёте Kaspi Pay — например,
+// если в заказе несколько товаров (несколько строк "Покупка"), либо если товар купили и потом
+// вернули (строка "Покупка" и строка "Возврат" с тем же номером заказа). Группируем по
+// (номер заказа, тип операции): несколько строк одного типа схлопываются в одну (чтобы не
+// перемножались при join с order_items), а покупка и возврат остаются двумя отдельными строками,
+// чтобы оба события были видны, а не гасили друг друга в одну "пустую" запись.
 router.get('/', async (req, res) => {
   try {
     const costData = await computeCosts();
@@ -23,23 +23,23 @@ router.get('/', async (req, res) => {
       kpt_agg AS (
         SELECT
           order_number,
+          operation_type,
           MIN(operation_date) AS operation_date,
           SUM(amount) AS amount,
           SUM(commission_total) AS commission_total,
-          SUM(delivery_cost) AS delivery_cost,
-          BOOL_OR(operation_type = 'Возврат') AS has_return
+          SUM(delivery_cost) AS delivery_cost
         FROM kaspi_pay_transactions
-        GROUP BY order_number
+        GROUP BY order_number, operation_type
       )
       SELECT
         o.code AS order_number,
         o.origin_city AS warehouse,
         o.status AS order_status,
+        ka.operation_type,
         ka.operation_date,
         ka.amount,
         ka.commission_total,
         ka.delivery_cost,
-        ka.has_return,
         ia.product_names,
         COALESCE(ia.quantity, 0) AS quantity
       FROM kpt_agg ka
@@ -52,7 +52,7 @@ router.get('/', async (req, res) => {
       const amount = Number(row.amount);
       const commission = -Number(row.commission_total); // положительное число — расход
       const delivery = -Number(row.delivery_cost); // положительное число — расход
-      const cost = costData.byOrderNumber[row.order_number] || 0;
+      const cost = costData.byOrderKey[`${row.order_number}::${row.operation_type}`] || 0;
       const netAmount = amount - cost - commission - delivery;
       const margin = amount !== 0 ? (netAmount / amount) * 100 : null;
 
@@ -61,7 +61,7 @@ router.get('/', async (req, res) => {
         date: row.operation_date,
         warehouse: row.warehouse,
         status: row.order_status,
-        operation_type: row.has_return ? 'Возврат' : 'Покупка',
+        operation_type: row.operation_type,
         product_name: row.product_names || '—',
         quantity: Number(row.quantity),
         cost,
