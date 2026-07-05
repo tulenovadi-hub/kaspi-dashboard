@@ -130,6 +130,10 @@ async function initDb() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  // is_manual = true — картинку загрузили вручную на странице "Склад". Такие картинки
+  // никогда не перезаписываются автоматическим скрейпингом с kaspi.kz (в отличие от обычного
+  // кэша, у которого раз в 30 дней проверяется свежесть).
+  await pool.query(`ALTER TABLE product_images ADD COLUMN IF NOT EXISTS is_manual BOOLEAN NOT NULL DEFAULT false;`);
 
   // Расходы, синхронизируемые из гугл-таблицы (лист "Расход"). При каждой синхронизации
   // таблица полностью перезаписывается свежими данными из Google Sheets — так проще и надёжнее,
