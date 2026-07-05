@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchOrders } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, formatPercent } from './dateUtils.js';
 
@@ -14,32 +14,73 @@ function getStatusLabel(o) {
   return o.operation_type === 'Возврат' ? 'Возврат' : (STATUS_LABELS[o.status] || o.status || '—');
 }
 
-const EMPTY_FILTERS = {
-  dateFrom: '',
-  dateTo: '',
-  orderNumber: '',
-  productName: '',
-  warehouse: '',
-  qtyMin: '',
-  qtyMax: '',
-  costMin: '',
-  costMax: '',
-  deliveryMin: '',
-  deliveryMax: '',
-  commissionMin: '',
-  commissionMax: '',
-  amountMin: '',
-  amountMax: '',
-  marginMin: '',
-  marginMax: '',
-  status: '',
-};
+function createEmptyFilters() {
+  return {
+    dateFrom: '',
+    dateTo: '',
+    orderNumber: '',
+    productName: '',
+    warehouseExcluded: new Set(),
+    qtyMin: '',
+    qtyMax: '',
+    costMin: '',
+    costMax: '',
+    deliveryMin: '',
+    deliveryMax: '',
+    commissionMin: '',
+    commissionMax: '',
+    amountMin: '',
+    amountMax: '',
+    marginMin: '',
+    marginMax: '',
+    statusExcluded: new Set(),
+  };
+}
+
+// Кнопка-заголовок столбца с иконкой воронки + выпадающая панель фильтра.
+// Открывается по клику, закрывается по клику снаружи — как автофильтр в Google Sheets/Excel.
+function FilterHeader({ label, active, align, children }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onDocClick(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  return (
+    <div className="th-filter-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className={`th-filter-btn${active ? ' th-filter-btn-active' : ''}`}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span>{label}</span>
+        <svg viewBox="0 0 20 20" width="11" height="11" fill="none">
+          <path d="M3 4h14l-5.5 6.5V16l-3 1.5v-7L3 4z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          className={`th-filter-popover${align === 'right' ? ' th-filter-popover-right' : ''}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Orders({ password }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [filters, setFilters] = useState(createEmptyFilters);
 
   useEffect(() => {
     setLoading(true);
@@ -51,7 +92,7 @@ export default function Orders({ password }) {
   }, [password]);
 
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
-  const resetFilters = () => setFilters(EMPTY_FILTERS);
+  const resetFilters = () => setFilters(createEmptyFilters());
 
   const warehouses = useMemo(() => {
     return Array.from(new Set(orders.map((o) => o.warehouse).filter(Boolean))).sort();
@@ -61,6 +102,17 @@ export default function Orders({ password }) {
     return Array.from(new Set(orders.map((o) => getStatusLabel(o)))).sort();
   }, [orders]);
 
+  const toggleSetValue = (key, value) => {
+    setFilters((f) => {
+      const next = new Set(f[key]);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return { ...f, [key]: next };
+    });
+  };
+  const selectAll = (key) => setFilters((f) => ({ ...f, [key]: new Set() }));
+  const selectNone = (key, allValues) => setFilters((f) => ({ ...f, [key]: new Set(allValues) }));
+
   const filtered = useMemo(() => {
     const num = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
     return orders.filter((o) => {
@@ -69,7 +121,7 @@ export default function Orders({ password }) {
       if (filters.dateTo && datePart > filters.dateTo) return false;
       if (filters.orderNumber && !String(o.order_number || '').includes(filters.orderNumber)) return false;
       if (filters.productName && !String(o.product_name || '').toLowerCase().includes(filters.productName.toLowerCase())) return false;
-      if (filters.warehouse && o.warehouse !== filters.warehouse) return false;
+      if (filters.warehouseExcluded.has(o.warehouse)) return false;
 
       const qtyMin = num(filters.qtyMin), qtyMax = num(filters.qtyMax);
       if (qtyMin !== null && Number(o.quantity) < qtyMin) return false;
@@ -95,13 +147,13 @@ export default function Orders({ password }) {
       if (marginMin !== null && Number(o.margin) < marginMin) return false;
       if (marginMax !== null && Number(o.margin) > marginMax) return false;
 
-      if (filters.status && getStatusLabel(o) !== filters.status) return false;
+      if (filters.statusExcluded.has(getStatusLabel(o))) return false;
 
       return true;
     });
   }, [orders, filters]);
 
-  const hasActiveFilters = Object.values(filters).some((v) => v !== '');
+  const hasActiveFilters = Object.entries(filters).some(([, v]) => (v instanceof Set ? v.size > 0 : v !== ''));
 
   return (
     <div>
@@ -131,99 +183,137 @@ export default function Orders({ password }) {
               <thead>
                 <tr>
                   <th>
-                    <div className="th-label">Дата</div>
-                    <div className="th-filter th-filter-range">
-                      <input type="date" value={filters.dateFrom} onChange={(e) => updateFilter('dateFrom', e.target.value)} title="С" />
-                      <input type="date" value={filters.dateTo} onChange={(e) => updateFilter('dateTo', e.target.value)} title="По" />
-                    </div>
+                    <FilterHeader label="Дата" active={!!(filters.dateFrom || filters.dateTo)}>
+                      <div className="filter-popover-row">
+                        <label>С</label>
+                        <input type="date" value={filters.dateFrom} onChange={(e) => updateFilter('dateFrom', e.target.value)} />
+                      </div>
+                      <div className="filter-popover-row">
+                        <label>По</label>
+                        <input type="date" value={filters.dateTo} onChange={(e) => updateFilter('dateTo', e.target.value)} />
+                      </div>
+                      <button className="filter-popover-clear" onClick={() => setFilters((f) => ({ ...f, dateFrom: '', dateTo: '' }))}>Очистить</button>
+                    </FilterHeader>
                   </th>
                   <th>
-                    <div className="th-label">№ заказа</div>
-                    <input
-                      className="th-filter-input"
-                      type="text"
-                      placeholder="Поиск..."
-                      value={filters.orderNumber}
-                      onChange={(e) => updateFilter('orderNumber', e.target.value)}
-                    />
+                    <FilterHeader label="№ заказа" active={!!filters.orderNumber}>
+                      <input
+                        className="filter-popover-input"
+                        type="text"
+                        placeholder="Поиск..."
+                        value={filters.orderNumber}
+                        onChange={(e) => updateFilter('orderNumber', e.target.value)}
+                        autoFocus
+                      />
+                      <button className="filter-popover-clear" onClick={() => updateFilter('orderNumber', '')}>Очистить</button>
+                    </FilterHeader>
                   </th>
                   <th>
-                    <div className="th-label">Товар</div>
-                    <input
-                      className="th-filter-input"
-                      type="text"
-                      placeholder="Поиск..."
-                      value={filters.productName}
-                      onChange={(e) => updateFilter('productName', e.target.value)}
-                    />
+                    <FilterHeader label="Товар" active={!!filters.productName}>
+                      <input
+                        className="filter-popover-input"
+                        type="text"
+                        placeholder="Поиск..."
+                        value={filters.productName}
+                        onChange={(e) => updateFilter('productName', e.target.value)}
+                        autoFocus
+                      />
+                      <button className="filter-popover-clear" onClick={() => updateFilter('productName', '')}>Очистить</button>
+                    </FilterHeader>
                   </th>
                   <th>
-                    <div className="th-label">Склад</div>
-                    <select
-                      className="th-filter-input"
-                      value={filters.warehouse}
-                      onChange={(e) => updateFilter('warehouse', e.target.value)}
-                    >
-                      <option value="">Все</option>
-                      {warehouses.map((w) => (
-                        <option key={w} value={w}>{w}</option>
-                      ))}
-                    </select>
+                    <FilterHeader label="Склад" active={filters.warehouseExcluded.size > 0}>
+                      <div className="filter-popover-list">
+                        {warehouses.map((w) => (
+                          <label key={w} className="filter-popover-checkbox">
+                            <input
+                              type="checkbox"
+                              checked={!filters.warehouseExcluded.has(w)}
+                              onChange={() => toggleSetValue('warehouseExcluded', w)}
+                            />
+                            <span>{w}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="filter-popover-actions">
+                        <button onClick={() => selectAll('warehouseExcluded')}>Все</button>
+                        <button onClick={() => selectNone('warehouseExcluded', warehouses)}>Ничего</button>
+                      </div>
+                    </FilterHeader>
                   </th>
                   <th className="num">
-                    <div className="th-label">Кол-во</div>
-                    <div className="th-filter th-filter-range">
-                      <input type="number" placeholder="от" value={filters.qtyMin} onChange={(e) => updateFilter('qtyMin', e.target.value)} />
-                      <input type="number" placeholder="до" value={filters.qtyMax} onChange={(e) => updateFilter('qtyMax', e.target.value)} />
-                    </div>
+                    <FilterHeader label="Кол-во" active={!!(filters.qtyMin || filters.qtyMax)} align="right">
+                      <div className="filter-popover-row">
+                        <input type="number" placeholder="от" value={filters.qtyMin} onChange={(e) => updateFilter('qtyMin', e.target.value)} />
+                        <input type="number" placeholder="до" value={filters.qtyMax} onChange={(e) => updateFilter('qtyMax', e.target.value)} />
+                      </div>
+                      <button className="filter-popover-clear" onClick={() => setFilters((f) => ({ ...f, qtyMin: '', qtyMax: '' }))}>Очистить</button>
+                    </FilterHeader>
                   </th>
                   <th className="num">
-                    <div className="th-label">Себестоимость</div>
-                    <div className="th-filter th-filter-range">
-                      <input type="number" placeholder="от" value={filters.costMin} onChange={(e) => updateFilter('costMin', e.target.value)} />
-                      <input type="number" placeholder="до" value={filters.costMax} onChange={(e) => updateFilter('costMax', e.target.value)} />
-                    </div>
+                    <FilterHeader label="Себестоимость" active={!!(filters.costMin || filters.costMax)} align="right">
+                      <div className="filter-popover-row">
+                        <input type="number" placeholder="от" value={filters.costMin} onChange={(e) => updateFilter('costMin', e.target.value)} />
+                        <input type="number" placeholder="до" value={filters.costMax} onChange={(e) => updateFilter('costMax', e.target.value)} />
+                      </div>
+                      <button className="filter-popover-clear" onClick={() => setFilters((f) => ({ ...f, costMin: '', costMax: '' }))}>Очистить</button>
+                    </FilterHeader>
                   </th>
                   <th className="num">
-                    <div className="th-label">Доставка</div>
-                    <div className="th-filter th-filter-range">
-                      <input type="number" placeholder="от" value={filters.deliveryMin} onChange={(e) => updateFilter('deliveryMin', e.target.value)} />
-                      <input type="number" placeholder="до" value={filters.deliveryMax} onChange={(e) => updateFilter('deliveryMax', e.target.value)} />
-                    </div>
+                    <FilterHeader label="Доставка" active={!!(filters.deliveryMin || filters.deliveryMax)} align="right">
+                      <div className="filter-popover-row">
+                        <input type="number" placeholder="от" value={filters.deliveryMin} onChange={(e) => updateFilter('deliveryMin', e.target.value)} />
+                        <input type="number" placeholder="до" value={filters.deliveryMax} onChange={(e) => updateFilter('deliveryMax', e.target.value)} />
+                      </div>
+                      <button className="filter-popover-clear" onClick={() => setFilters((f) => ({ ...f, deliveryMin: '', deliveryMax: '' }))}>Очистить</button>
+                    </FilterHeader>
                   </th>
                   <th className="num">
-                    <div className="th-label">Комиссия</div>
-                    <div className="th-filter th-filter-range">
-                      <input type="number" placeholder="от" value={filters.commissionMin} onChange={(e) => updateFilter('commissionMin', e.target.value)} />
-                      <input type="number" placeholder="до" value={filters.commissionMax} onChange={(e) => updateFilter('commissionMax', e.target.value)} />
-                    </div>
+                    <FilterHeader label="Комиссия" active={!!(filters.commissionMin || filters.commissionMax)} align="right">
+                      <div className="filter-popover-row">
+                        <input type="number" placeholder="от" value={filters.commissionMin} onChange={(e) => updateFilter('commissionMin', e.target.value)} />
+                        <input type="number" placeholder="до" value={filters.commissionMax} onChange={(e) => updateFilter('commissionMax', e.target.value)} />
+                      </div>
+                      <button className="filter-popover-clear" onClick={() => setFilters((f) => ({ ...f, commissionMin: '', commissionMax: '' }))}>Очистить</button>
+                    </FilterHeader>
                   </th>
                   <th className="num">
-                    <div className="th-label">Сумма</div>
-                    <div className="th-filter th-filter-range">
-                      <input type="number" placeholder="от" value={filters.amountMin} onChange={(e) => updateFilter('amountMin', e.target.value)} />
-                      <input type="number" placeholder="до" value={filters.amountMax} onChange={(e) => updateFilter('amountMax', e.target.value)} />
-                    </div>
+                    <FilterHeader label="Сумма" active={!!(filters.amountMin || filters.amountMax)} align="right">
+                      <div className="filter-popover-row">
+                        <input type="number" placeholder="от" value={filters.amountMin} onChange={(e) => updateFilter('amountMin', e.target.value)} />
+                        <input type="number" placeholder="до" value={filters.amountMax} onChange={(e) => updateFilter('amountMax', e.target.value)} />
+                      </div>
+                      <button className="filter-popover-clear" onClick={() => setFilters((f) => ({ ...f, amountMin: '', amountMax: '' }))}>Очистить</button>
+                    </FilterHeader>
                   </th>
                   <th className="num">
-                    <div className="th-label">Маржа</div>
-                    <div className="th-filter th-filter-range">
-                      <input type="number" placeholder="от" value={filters.marginMin} onChange={(e) => updateFilter('marginMin', e.target.value)} />
-                      <input type="number" placeholder="до" value={filters.marginMax} onChange={(e) => updateFilter('marginMax', e.target.value)} />
-                    </div>
+                    <FilterHeader label="Маржа" active={!!(filters.marginMin || filters.marginMax)} align="right">
+                      <div className="filter-popover-row">
+                        <input type="number" placeholder="от" value={filters.marginMin} onChange={(e) => updateFilter('marginMin', e.target.value)} />
+                        <input type="number" placeholder="до" value={filters.marginMax} onChange={(e) => updateFilter('marginMax', e.target.value)} />
+                      </div>
+                      <button className="filter-popover-clear" onClick={() => setFilters((f) => ({ ...f, marginMin: '', marginMax: '' }))}>Очистить</button>
+                    </FilterHeader>
                   </th>
                   <th>
-                    <div className="th-label">Статус</div>
-                    <select
-                      className="th-filter-input"
-                      value={filters.status}
-                      onChange={(e) => updateFilter('status', e.target.value)}
-                    >
-                      <option value="">Все</option>
-                      {statusOptions.map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
+                    <FilterHeader label="Статус" active={filters.statusExcluded.size > 0} align="right">
+                      <div className="filter-popover-list">
+                        {statusOptions.map((s) => (
+                          <label key={s} className="filter-popover-checkbox">
+                            <input
+                              type="checkbox"
+                              checked={!filters.statusExcluded.has(s)}
+                              onChange={() => toggleSetValue('statusExcluded', s)}
+                            />
+                            <span>{s}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="filter-popover-actions">
+                        <button onClick={() => selectAll('statusExcluded')}>Все</button>
+                        <button onClick={() => selectNone('statusExcluded', statusOptions)}>Ничего</button>
+                      </div>
+                    </FilterHeader>
                   </th>
                 </tr>
               </thead>

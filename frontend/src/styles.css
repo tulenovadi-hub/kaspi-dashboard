@@ -344,60 +344,190 @@ select:focus-visible {
   border-bottom: 1px solid var(--border);
 }
 
-/* Закреплённая шапка таблицы при прокрутке (как "закрепить строку" в Google Sheets) */
+/* Закреплённая шапка таблицы при прокрутке (как "закрепить строку" в Google Sheets).
+   Важно: sticky относительно окна работает ненадёжно, если таблица растягивает всю страницу
+   без собственного скролла — поэтому у .table-scroll ниже задана реальная max-height
+   с overflow-y: auto, и шапка "прилипает" именно внутри этого контейнера. */
 .product-table thead th {
   position: sticky;
   top: 0;
   z-index: 2;
   background: var(--bg-card);
-  vertical-align: top;
-  /* inset box-shadow вместо border-bottom — с sticky+border-collapse обычный border
-     иногда "пропадает" при скролле в некоторых браузерах */
+  vertical-align: middle;
   box-shadow: inset 0 -1px 0 var(--border);
 }
 
-@media (max-width: 780px) {
-  /* На мобильном под шапкой есть ещё свой sticky mobile-topbar — сдвигаем ниже него */
-  .product-table thead th {
-    top: 56px;
-  }
+/* Кнопка-заголовок столбца с иконкой фильтра */
+.th-filter-wrap {
+  position: relative;
+  display: inline-block;
+  width: 100%;
 }
 
-/* Строка фильтров внутри шапки (под названием столбца) */
-.th-label {
+.th-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.product-table th.num .th-filter-btn {
+  justify-content: flex-end;
+}
+
+.th-filter-btn:hover {
+  color: var(--text-primary);
+}
+
+.th-filter-btn svg {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.th-filter-btn-active {
+  color: var(--accent-brand);
+}
+
+.th-filter-btn-active svg {
+  opacity: 1;
+}
+
+/* Выпадающая панель фильтра — открывается по клику на заголовок столбца */
+.th-filter-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  min-width: 190px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  cursor: default;
+}
+
+.th-filter-popover-right {
+  left: auto;
+  right: 0;
+}
+
+.filter-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 6px;
 }
 
-.th-filter-input,
-.th-filter select,
-.th-filter input {
+.filter-popover-row:last-of-type {
+  margin-bottom: 8px;
+}
+
+.filter-popover-row label {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  width: 28px;
+}
+
+.filter-popover-input,
+.filter-popover-row input {
   width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: normal;
-  padding: 4px 6px;
+  font-size: 13px;
+  padding: 5px 7px;
 }
 
-.th-filter-input:focus,
-.th-filter select:focus,
-.th-filter input:focus {
+.filter-popover-input {
+  margin-bottom: 8px;
+}
+
+.filter-popover-input:focus,
+.filter-popover-row input:focus {
   outline: 1px solid var(--accent-brand);
   outline-offset: 0;
 }
 
-.th-filter-range {
+.filter-popover-list {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 8px;
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.th-filter-range input {
-  min-width: 0;
+.filter-popover-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text-primary);
+  padding: 4px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.filter-popover-checkbox:hover {
+  background: var(--bg-card-hover);
+}
+
+.filter-popover-checkbox input {
+  flex-shrink: 0;
+}
+
+.filter-popover-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.filter-popover-actions button {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.filter-popover-actions button:hover {
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+}
+
+.filter-popover-clear {
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--accent-down);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+  text-align: left;
+}
+
+.filter-popover-clear:hover {
+  text-decoration: underline;
 }
 
 .orders-toolbar {
@@ -1033,15 +1163,27 @@ select:focus-visible {
   }
 }
 
-/* ===== Table scroll wrapper (не даёт таблицам растягивать всю страницу) ===== */
+/* ===== Table scroll wrapper ===== */
+/* max-height + overflow-y: auto — это то, что делает sticky-шапку внутри надёжной
+   (не зависит от скролла всей страницы). Если строк мало и они помещаются — скролл
+   просто не появляется, ничего не обрезается. */
 .table-scroll {
   width: 100%;
+  max-height: 70vh;
   overflow-x: auto;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  border-radius: 8px;
 }
 
 .table-scroll .product-table {
   min-width: 480px;
+}
+
+@media (max-width: 780px) {
+  .table-scroll {
+    max-height: 65vh;
+  }
 }
 
 /* ===== Мобильная адаптация ===== */
