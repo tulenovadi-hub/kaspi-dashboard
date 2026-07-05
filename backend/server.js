@@ -4,8 +4,10 @@ const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
 
-const { initDb } = require('./db');
+const { initDb, pool } = require('./db');
 const { syncRecentOrders } = require('./syncJob');
+const authRoutes = require('./routes/auth');
+const usersRoutes = require('./routes/users');
 const statsRoutes = require('./routes/stats');
 const batchesRoutes = require('./routes/batches');
 const reportsRoutes = require('./routes/reports');
@@ -18,23 +20,61 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Простая защита паролем: фронтенд присылает пароль в заголовке X-Dashboard-Password
-// на каждый запрос к /api/*, сервер сверяет его со значением из переменной окружения.
-app.use('/api', (req, res, next) => {
-  const provided = req.header('X-Dashboard-Password');
-  if (!process.env.DASHBOARD_PASSWORD || provided !== process.env.DASHBOARD_PASSWORD) {
-    return res.status(401).json({ error: 'Неверный пароль' });
-  }
-  next();
-});
+// Авторизация по токену сессии: фронтенд присылает токен в заголовке X-Session-Token,
+// сервер проверяет его в базе и подставляет req.user = { id, username, role }.
+// /api/auth/login — единственный публичный роут (туда ещё нет токена, им только получают его).
+async function authMiddleware(req, res, next) {
+  if (req.path === '/auth/login') return next();
 
+  const token = req.header('X-Session-Token');
+  if (!token) {
+    return res.status(401).json({ error: 'Не авторизован' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.username, u.role
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.token = $1`,
+      [token]
+    );
+    if (result.rowCount === 0) {
+      return res.status(401).json({ error: 'Сессия истекла, войдите заново' });
+    }
+    req.user = result.rows[0];
+    next();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Ошибка проверки авторизации' });
+  }
+}
+
+// Ограничивает роут только перечисленными ролями (req.user уже должен быть заполнен authMiddleware)
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Недостаточно прав для этого действия' });
+    }
+    next();
+  };
+}
+
+app.use('/api', authMiddleware);
+
+app.use('/api/auth', authRoutes);
+app.use('/api/users', requireRole('admin'), usersRoutes);
+
+// Главная, Самовыкупы, Склад доступны всем ролям (admin, manager, marketer)
 app.use('/api/stats', statsRoutes);
-app.use('/api/batches', batchesRoutes);
-app.use('/api/reports', reportsRoutes);
 app.use('/api/warehouse', warehouseRoutes);
-app.use('/api/debug', debugRoutes);
 app.use('/api/product-images', imagesRoutes);
-app.use('/api/expenses', expensesRoutes);
+
+// Поставки, Отчёт, Расходы — только для админа (у менеджера/маркетолога этих разделов нет в меню)
+app.use('/api/batches', requireRole('admin'), batchesRoutes);
+app.use('/api/reports', requireRole('admin'), reportsRoutes);
+app.use('/api/expenses', requireRole('admin'), expensesRoutes);
+app.use('/api/debug', requireRole('admin'), debugRoutes);
 
 // Эндпоинт, чтобы вручную запустить синхронизацию из дашборда (кнопка "Обновить сейчас").
 // Можно передать { "days": 150 } в теле запроса, чтобы сделать разовую глубокую синхронизацию

@@ -149,7 +149,42 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);`);
 
-  console.log('База данных готова: таблицы orders, order_items, product_batches, kaspi_pay_transactions, product_images и expenses на месте.');
+  // Пользователи сайта с ролями. Раньше был один общий пароль на всех (DASHBOARD_PASSWORD) —
+  // теперь у каждого свой логин/пароль. role: 'admin' | 'manager' | 'marketer'.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('admin', 'manager', 'marketer')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  // Сессии — простой токен вместо пароля в каждом запросе. Выдаётся при входе, живёт,
+  // пока пользователь сам не выйдет (как и раньше с localStorage).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  // Миграция: если пользователей ещё нет вообще — создаём одного admin'а из старого общего
+  // пароля (DASHBOARD_PASSWORD), чтобы не потерять доступ к сайту после обновления.
+  const usersCount = await pool.query(`SELECT COUNT(*) AS count FROM users`);
+  if (Number(usersCount.rows[0].count) === 0 && process.env.DASHBOARD_PASSWORD) {
+    const bcrypt = require('bcryptjs');
+    const passwordHash = await bcrypt.hash(process.env.DASHBOARD_PASSWORD, 10);
+    await pool.query(
+      `INSERT INTO users (username, password_hash, role) VALUES ('admin', $1, 'admin')`,
+      [passwordHash]
+    );
+    console.log('Создан пользователь по умолчанию: admin / (старый общий пароль сайта). Обязательно смените его в Настройках!');
+  }
+
+  console.log('База данных готова: таблицы orders, order_items, product_batches, kaspi_pay_transactions, product_images, expenses, users и sessions на месте.');
 }
 
 module.exports = { pool, initDb };
