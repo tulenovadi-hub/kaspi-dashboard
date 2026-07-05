@@ -4,28 +4,48 @@ const { computeCosts } = require('../costEngine');
 
 const router = express.Router();
 
+// Важно: у одного заказа может быть НЕСКОЛЬКО строк в Excel-отчёте Kaspi Pay (например,
+// если в заказе несколько разных товаров — каждая позиция может идти отдельной строкой
+// со своей долей суммы/комиссии/доставки). Поэтому сначала агрегируем kaspi_pay_transactions
+// и order_items КАЖДОЕ ОТДЕЛЬНО по order_number/order_id (через CTE), и только потом соединяем
+// готовые агрегаты — если сначала сделать один большой JOIN и потом group by, строки
+// перемножатся и всё задвоится (именно так и было раньше).
 router.get('/', async (req, res) => {
   try {
     const costData = await computeCosts();
 
     const result = await pool.query(`
+      WITH item_agg AS (
+        SELECT order_id, STRING_AGG(DISTINCT product_name, ', ') AS product_names, SUM(quantity) AS quantity
+        FROM order_items
+        GROUP BY order_id
+      ),
+      kpt_agg AS (
+        SELECT
+          order_number,
+          MIN(operation_date) AS operation_date,
+          SUM(amount) AS amount,
+          SUM(commission_total) AS commission_total,
+          SUM(delivery_cost) AS delivery_cost,
+          BOOL_OR(operation_type = 'Возврат') AS has_return
+        FROM kaspi_pay_transactions
+        GROUP BY order_number
+      )
       SELECT
         o.code AS order_number,
-        o.creation_date,
         o.origin_city AS warehouse,
         o.status AS order_status,
-        kpt.operation_type,
-        kpt.operation_date,
-        kpt.amount,
-        kpt.commission_total,
-        kpt.delivery_cost,
-        STRING_AGG(DISTINCT oi.product_name, ', ') AS product_names,
-        COALESCE(SUM(oi.quantity), 0) AS quantity
-      FROM kaspi_pay_transactions kpt
-      JOIN orders o ON o.code = kpt.order_number
-      LEFT JOIN order_items oi ON oi.order_id = o.id
-      GROUP BY o.code, o.creation_date, o.origin_city, o.status, kpt.operation_type, kpt.operation_date, kpt.amount, kpt.commission_total, kpt.delivery_cost
-      ORDER BY kpt.operation_date DESC, o.creation_date DESC
+        ka.operation_date,
+        ka.amount,
+        ka.commission_total,
+        ka.delivery_cost,
+        ka.has_return,
+        ia.product_names,
+        COALESCE(ia.quantity, 0) AS quantity
+      FROM kpt_agg ka
+      JOIN orders o ON o.code = ka.order_number
+      LEFT JOIN item_agg ia ON ia.order_id = o.id
+      ORDER BY ka.operation_date DESC
     `);
 
     const orders = result.rows.map((row) => {
@@ -41,7 +61,7 @@ router.get('/', async (req, res) => {
         date: row.operation_date,
         warehouse: row.warehouse,
         status: row.order_status,
-        operation_type: row.operation_type,
+        operation_type: row.has_return ? 'Возврат' : 'Покупка',
         product_name: row.product_names || '—',
         quantity: Number(row.quantity),
         cost,
