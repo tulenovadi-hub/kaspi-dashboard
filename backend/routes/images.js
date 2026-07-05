@@ -39,7 +39,9 @@ async function scrapeImageUrl(masterProductCode) {
 }
 
 // Принимает список product_id (ваши коды предложений), возвращает картинку для каждого —
-// либо из кэша, либо свежую с публичной страницы kaspi.kz (и сразу кэширует на будущее).
+// сразу из кэша (даже если он "подсох" дольше CACHE_TTL_DAYS — лучше показать старую картинку
+// сразу, чем ничего не показывать 20 секунд). Устаревшие картинки обновляются в фоне отдельным
+// запросом к kaspi.kz — это не блокирует ответ странице "Склад".
 router.post('/', async (req, res) => {
   const { product_ids } = req.body;
   if (!Array.isArray(product_ids) || product_ids.length === 0) {
@@ -64,49 +66,58 @@ router.post('/', async (req, res) => {
     const cacheMap = new Map(cacheResult.rows.map((r) => [r.product_id, r]));
 
     const images = {};
-    const toFetch = [];
+    const toRefresh = [];
 
     for (const productId of product_ids) {
       const cached = cacheMap.get(productId);
       // Картинку, загруженную вручную, никогда не трогаем автоскрейпингом — она "вечно свежая",
       // пока пользователь сам её не заменит или не удалит.
-      const isFresh = cached && (cached.is_manual || (Date.now() - new Date(cached.updated_at).getTime()) < CACHE_TTL_DAYS * 24 * 60 * 60 * 1000);
-      if (isFresh) {
-        images[productId] = cached.image_url;
-      } else if (productToCode.has(productId)) {
-        toFetch.push(productId);
-      } else {
-        images[productId] = cached ? cached.image_url : null;
-      }
-    }
+      const isStale = !cached || (!cached.is_manual && (Date.now() - new Date(cached.updated_at).getTime()) >= CACHE_TTL_DAYS * 24 * 60 * 60 * 1000);
 
-    for (const productId of toFetch) {
-      const code = productToCode.get(productId);
-      try {
-        const imageUrl = await scrapeImageUrl(code);
-        images[productId] = imageUrl;
-        await pool.query(
-          `INSERT INTO product_images (product_id, master_product_code, image_url, updated_at)
-           VALUES ($1, $2, $3, now())
-           ON CONFLICT (product_id) DO UPDATE SET
-             master_product_code = EXCLUDED.master_product_code,
-             image_url = EXCLUDED.image_url,
-             updated_at = now()`,
-          [productId, code, imageUrl]
-        );
-      } catch (err) {
-        console.error(`Не удалось получить картинку для ${productId} (${code}):`, err.message);
-        images[productId] = null;
+      // Отдаём то, что есть прямо сейчас (даже подсохшее) — не ждём похода на kaspi.kz
+      images[productId] = cached ? cached.image_url : null;
+
+      if (isStale && productToCode.has(productId)) {
+        toRefresh.push(productId);
       }
-      await sleep(REQUEST_DELAY_MS);
     }
 
     res.json({ images });
+
+    // Дальше — уже после ответа пользователю: обновляем устаревшие/отсутствующие картинки
+    // в фоне. Следующая загрузка страницы "Склад" их подхватит из кэша.
+    if (toRefresh.length > 0) {
+      refreshImagesInBackground(toRefresh, productToCode).catch((err) => {
+        console.error('Фоновое обновление картинок товаров упало:', err);
+      });
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить картинки товаров' });
   }
 });
+
+async function refreshImagesInBackground(productIds, productToCode) {
+  for (const productId of productIds) {
+    const code = productToCode.get(productId);
+    try {
+      const imageUrl = await scrapeImageUrl(code);
+      await pool.query(
+        `INSERT INTO product_images (product_id, master_product_code, image_url, updated_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (product_id) DO UPDATE SET
+           master_product_code = EXCLUDED.master_product_code,
+           image_url = EXCLUDED.image_url,
+           updated_at = now()
+         WHERE product_images.is_manual = false`,
+        [productId, code, imageUrl]
+      );
+    } catch (err) {
+      console.error(`Не удалось получить картинку для ${productId} (${code}):`, err.message);
+    }
+    await sleep(REQUEST_DELAY_MS);
+  }
+}
 
 // Ручная загрузка картинки товара (кнопка на странице "Склад") — сохраняем файл прямо
 // в базу как data URL (в этом проекте нет отдельного файлового хранилища, а картинки
