@@ -4,7 +4,35 @@ import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
 
 // columns — массив { key, label }. key === 'month' форматируется отдельно (название месяца),
 // остальные — через formatMoney, кроме margin/roi (по имени колонки определяем формат).
-function MonthlyTable({ title, months, columns, className }) {
+// Столбцы, которые красим сплошным цветом в "Основном отчёте"
+const GREEN_KEYS = new Set(['revenue', 'net_profit']);
+const RED_KEYS = new Set(['cost_of_goods', 'returns', 'cost_of_returns', 'commission', 'delivery', 'taxes', 'other_expenses']);
+
+function hexToRgb(hex) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function mixColor(hexFrom, hexTo, t) {
+  const a = hexToRgb(hexFrom);
+  const b = hexToRgb(hexTo);
+  const r = Math.round(a.r + (b.r - a.r) * t);
+  const g = Math.round(a.g + (b.g - a.g) * t);
+  const bl = Math.round(a.b + (b.b - a.b) * t);
+  return `rgb(${r}, ${g}, ${bl})`;
+}
+
+// Градиент для Маржи/ROI: 0% и ниже — тёмно-красный, max% и выше — зелёный, между ними — линейно
+function gradientColor(value, max) {
+  if (value === null || value === undefined || Number.isNaN(value)) return undefined;
+  const t = Math.max(0, Math.min(1, value / max));
+  return mixColor('#7f1d1d', '#3ddc97', t);
+}
+
+// columns — массив { key, label }. key === 'month' форматируется отдельно (название месяца),
+// остальные — через formatMoney, кроме margin/roi (по имени колонки определяем формат).
+// colorize — включает раскраску выручки/расходов и градиент маржи/ROI (только для "Основного отчёта").
+function MonthlyTable({ title, months, columns, className, colorize }) {
   return (
     <div className={className}>
       <div className="section-title">{title}</div>
@@ -26,10 +54,17 @@ function MonthlyTable({ title, months, columns, className }) {
                   <tr key={m.month}>
                     {columns.map((col) => {
                       if (col.key === 'month') return <td key={col.key}>{formatMonthLabel(m.month)}</td>;
+
                       if (col.key === 'margin' || col.key === 'roi') {
-                        return <td key={col.key} className="num">{formatPercent(m[col.key])}</td>;
+                        const style = colorize ? { color: gradientColor(m[col.key], col.key === 'margin' ? 30 : 50) } : undefined;
+                        return <td key={col.key} className="num" style={style}>{formatPercent(m[col.key])}</td>;
                       }
-                      return <td key={col.key} className="num">{formatMoney(m[col.key])}</td>;
+
+                      let cellClassName = 'num';
+                      if (colorize && GREEN_KEYS.has(col.key)) cellClassName += ' report-cell-green';
+                      else if (colorize && RED_KEYS.has(col.key)) cellClassName += ' report-cell-red';
+
+                      return <td key={col.key} className={cellClassName}>{formatMoney(m[col.key])}</td>;
                     })}
                   </tr>
                 ))}
@@ -155,7 +190,7 @@ export default function Report({ password }) {
         <div className="empty-state">Загрузка...</div>
       ) : (
         <>
-          <MonthlyTable title="Основной отчёт (Алматы, Астана)" months={monthsMainCities} columns={MAIN_COLUMNS} />
+          <MonthlyTable title="Основной отчёт (Алматы, Астана)" months={monthsMainCities} columns={MAIN_COLUMNS} colorize />
           <div className="report-row">
             <MonthlyTable title="Общий отчёт" months={months} columns={GENERAL_COLUMNS} className="report-col" />
             <MonthlyTable title="Самовыкупы (Юбилейное, Талдыкорган)" months={monthsSelfBuyCities} columns={SELF_BUY_COLUMNS} className="report-col" />

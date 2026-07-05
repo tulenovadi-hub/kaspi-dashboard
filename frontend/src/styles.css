@@ -91,6 +91,14 @@ select:focus-visible {
   min-width: 0;
 }
 
+.report-cell-green {
+  color: var(--accent-up);
+}
+
+.report-cell-red {
+  color: var(--accent-down);
+}
+
 .app-header {
   display: flex;
   align-items: baseline;
