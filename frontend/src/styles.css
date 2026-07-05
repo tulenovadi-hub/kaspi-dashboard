@@ -72,6 +72,12 @@ select:focus-visible {
   margin: 0 auto;
 }
 
+/* Для страниц с "широкими" таблицами (много столбцов с числами) — используем весь
+   доступный экран вместо общего max-width: 1100px, чтобы столбцы не сжимались. */
+.app-wide {
+  max-width: none;
+}
+
 .app-header {
   display: flex;
   align-items: baseline;
@@ -1169,6 +1175,7 @@ select:focus-visible {
    просто не появляется, ничего не обрезается. */
 .table-scroll {
   width: 100%;
+  min-height: 220px;
   max-height: 70vh;
   overflow-x: auto;
   overflow-y: auto;

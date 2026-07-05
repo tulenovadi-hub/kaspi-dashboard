@@ -102,7 +102,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
         role={role}
       />
       <div className="main-content">
-        <div className="app">{renderContent()}</div>
+        <div className={`app${safeView === 'orders' ? ' app-wide' : ''}`}>{renderContent()}</div>
       </div>
     </div>
   );
