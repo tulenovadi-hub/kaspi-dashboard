@@ -78,6 +78,19 @@ select:focus-visible {
   max-width: none;
 }
 
+/* Страница "Отчёт": Общий отчёт + Самовыкупы стоят рядом в одну линию, каждая — половина ширины */
+.report-row {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.report-row .report-col {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+
 .app-header {
   display: flex;
   align-items: baseline;

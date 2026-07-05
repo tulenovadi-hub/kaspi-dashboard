@@ -4,9 +4,9 @@ import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
 
 // columns — массив { key, label }. key === 'month' форматируется отдельно (название месяца),
 // остальные — через formatMoney, кроме margin/roi (по имени колонки определяем формат).
-function MonthlyTable({ title, months, columns }) {
+function MonthlyTable({ title, months, columns, className }) {
   return (
-    <>
+    <div className={className}>
       <div className="section-title">{title}</div>
       <div className="card">
         {months.length === 0 ? (
@@ -38,7 +38,7 @@ function MonthlyTable({ title, months, columns }) {
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -155,9 +155,11 @@ export default function Report({ password }) {
         <div className="empty-state">Загрузка...</div>
       ) : (
         <>
-          <MonthlyTable title="Общий отчёт" months={months} columns={GENERAL_COLUMNS} />
           <MonthlyTable title="Основной отчёт (Алматы, Астана)" months={monthsMainCities} columns={MAIN_COLUMNS} />
-          <MonthlyTable title="Самовыкупы (Юбилейное, Талдыкорган)" months={monthsSelfBuyCities} columns={SELF_BUY_COLUMNS} />
+          <div className="report-row">
+            <MonthlyTable title="Общий отчёт" months={months} columns={GENERAL_COLUMNS} className="report-col" />
+            <MonthlyTable title="Самовыкупы (Юбилейное, Талдыкорган)" months={monthsSelfBuyCities} columns={SELF_BUY_COLUMNS} className="report-col" />
+          </div>
         </>
       )}
 
