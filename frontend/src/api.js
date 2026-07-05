@@ -146,6 +146,10 @@ export function fetchExpensesMonthly(password) {
   return apiRequest('/api/expenses/monthly', password);
 }
 
+export function fetchOrders(password) {
+  return apiRequest('/api/orders', password);
+}
+
 export function syncExpenses(password) {
   return apiRequest('/api/expenses/sync', password, { method: 'POST' });
 }

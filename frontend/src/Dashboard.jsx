@@ -5,6 +5,7 @@ import Batches from './Batches.jsx';
 import Report from './Report.jsx';
 import Warehouse from './Warehouse.jsx';
 import Expenses from './Expenses.jsx';
+import Orders from './Orders.jsx';
 import Settings from './Settings.jsx';
 import ComingSoon from './ComingSoon.jsx';
 
@@ -50,6 +51,10 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (safeView === 'expenses') {
       return <Expenses password={password} />;
+    }
+
+    if (safeView === 'orders') {
+      return <Orders password={password} />;
     }
 
     if (safeView === 'settings') {
