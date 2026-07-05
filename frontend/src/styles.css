@@ -1076,6 +1076,22 @@ select:focus-visible {
   color: var(--text-primary);
 }
 
+.users-password-cell {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.users-password-cell input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  width: 140px;
+}
+
 /* ===== Warehouse (Склад) ===== */
 .warehouse-warning {
   display: block;

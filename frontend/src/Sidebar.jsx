@@ -35,6 +35,16 @@ const icons = {
   close: (
     <svg viewBox="0 0 20 20" fill="none"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
   ),
+  settings: (
+    <svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="2.5" stroke="currentColor" strokeWidth="1.5"/><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4M15.3 15.3l-1.4-1.4M6.1 6.1L4.7 4.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+  ),
+};
+
+// Какие пункты меню видит каждая роль
+const ROLE_PAGES = {
+  admin: ['sales', 'report', 'selfbuy', 'expenses', 'batches', 'warehouse', 'marketing', 'settings'],
+  manager: ['sales', 'selfbuy', 'warehouse'],
+  marketer: ['sales', 'selfbuy', 'warehouse', 'marketing'],
 };
 
 const NAV_ITEMS = [
@@ -45,12 +55,16 @@ const NAV_ITEMS = [
   { key: 'batches', label: 'Поставки', icon: 'batches' },
   { key: 'warehouse', label: 'Склад', icon: 'warehouse' },
   { key: 'marketing', label: 'Маркетинг', icon: 'marketing' },
+  { key: 'settings', label: 'Настройки', icon: 'settings' },
 ];
 
-function NavList({ view, onSelect, collapsed }) {
+export { ROLE_PAGES };
+
+function NavList({ view, onSelect, collapsed, role }) {
+  const items = NAV_ITEMS.filter((item) => !role || (ROLE_PAGES[role] || []).includes(item.key));
   return (
     <nav className="sidebar-nav">
-      {NAV_ITEMS.map((item) => (
+      {items.map((item) => (
         <button
           key={item.key}
           className={`sidebar-item${view === item.key ? ' active' : ''}`}
@@ -65,7 +79,7 @@ function NavList({ view, onSelect, collapsed }) {
   );
 }
 
-export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, onLogout }) {
+export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, onLogout, role }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   function handleSelect(key) {
@@ -84,7 +98,7 @@ export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, o
           </button>
         </div>
 
-        <NavList view={view} onSelect={onSelect} collapsed={collapsed} />
+        <NavList view={view} onSelect={onSelect} collapsed={collapsed} role={role} />
 
         <button className="sidebar-item sidebar-logout" onClick={onLogout} title={collapsed ? 'Выйти' : undefined}>
           <span className="sidebar-item-icon">{icons.logout}</span>
@@ -112,7 +126,7 @@ export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, o
               </button>
             </div>
 
-            <NavList view={view} onSelect={handleSelect} collapsed={false} />
+            <NavList view={view} onSelect={handleSelect} collapsed={false} role={role} />
 
             <button className="sidebar-item sidebar-logout" onClick={onLogout}>
               <span className="sidebar-item-icon">{icons.logout}</span>

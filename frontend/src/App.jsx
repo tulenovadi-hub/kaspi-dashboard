@@ -1,26 +1,72 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Login from './Login.jsx';
 import Dashboard from './Dashboard.jsx';
+import { fetchMe, logout as apiLogout } from './api.js';
+
+function loadSession() {
+  const token = localStorage.getItem('auth_token');
+  const username = localStorage.getItem('auth_username');
+  const role = localStorage.getItem('auth_role');
+  if (token && username && role) return { token, username, role };
+  return null;
+}
 
 export default function App() {
-  // Пароль храним только в sessionStorage: он живёт пока открыта вкладка браузера,
-  // и пропадает при закрытии — так не нужно вводить пароль на каждое обновление страницы,
-  // но он не остаётся навсегда на чужом компьютере.
-  const [password, setPassword] = useState(() => sessionStorage.getItem('dashboard_password') || '');
+  const [session, setSession] = useState(loadSession);
+  const [checking, setChecking] = useState(Boolean(loadSession()));
 
-  function handleLogin(pw) {
-    sessionStorage.setItem('dashboard_password', pw);
-    setPassword(pw);
+  useEffect(() => {
+    const existing = loadSession();
+    if (!existing) {
+      setChecking(false);
+      return;
+    }
+    // Проверяем, что сохранённый токен ещё действителен (например, его не удалил админ) —
+    // без этого при недействительном токене все запросы просто будут молча падать с 401.
+    fetchMe(existing.token)
+      .catch(() => {
+        clearSession();
+        setSession(null);
+      })
+      .finally(() => setChecking(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function clearSession() {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_username');
+    localStorage.removeItem('auth_role');
+  }
+
+  function handleLogin({ token, username, role }) {
+    localStorage.setItem('auth_token', token);
+    localStorage.setItem('auth_username', username);
+    localStorage.setItem('auth_role', role);
+    setSession({ token, username, role });
   }
 
   function handleLogout() {
-    sessionStorage.removeItem('dashboard_password');
-    setPassword('');
+    if (session) {
+      apiLogout(session.token).catch(() => {});
+    }
+    clearSession();
+    setSession(null);
   }
 
-  if (!password) {
+  if (checking) {
+    return null; // короткая проверка токена при загрузке, без мигания экрана логина
+  }
+
+  if (!session) {
     return <Login onSuccess={handleLogin} />;
   }
 
-  return <Dashboard password={password} onLogout={handleLogout} />;
+  return (
+    <Dashboard
+      password={session.token}
+      username={session.username}
+      role={session.role}
+      onLogout={handleLogout}
+    />
+  );
 }

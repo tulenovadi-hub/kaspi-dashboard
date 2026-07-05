@@ -5,23 +5,71 @@
 // используется адрес локального сервера по умолчанию.
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-async function apiRequest(path, password, options = {}) {
+async function apiRequest(path, token, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       ...options.headers,
-      'X-Dashboard-Password': password,
+      'X-Session-Token': token,
     },
   });
 
   if (response.status === 401) {
     throw new Error('UNAUTHORIZED');
   }
+  if (response.status === 403) {
+    throw new Error('Недостаточно прав для этого действия');
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error || 'Ошибка запроса к серверу');
   }
   return response.json();
+}
+
+export async function login(username, password) {
+  const response = await fetch(`${API_URL}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || 'Не удалось войти');
+  }
+  return body; // { token, username, role }
+}
+
+export function logout(token) {
+  return apiRequest('/api/auth/logout', token, { method: 'POST' });
+}
+
+export function fetchMe(token) {
+  return apiRequest('/api/auth/me', token);
+}
+
+export function fetchUsers(token) {
+  return apiRequest('/api/users', token);
+}
+
+export function createUser(token, user) {
+  return apiRequest('/api/users', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(user),
+  });
+}
+
+export function updateUser(token, id, updates) {
+  return apiRequest(`/api/users/${id}`, token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+}
+
+export function deleteUser(token, id) {
+  return apiRequest(`/api/users/${id}`, token, { method: 'DELETE' });
 }
 
 export function fetchSummary(password, from, to, mode = 'main') {

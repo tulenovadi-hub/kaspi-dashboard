@@ -1,19 +1,31 @@
 import React, { useState } from 'react';
-import Sidebar from './Sidebar.jsx';
+import Sidebar, { ROLE_PAGES } from './Sidebar.jsx';
 import SalesView from './SalesView.jsx';
 import Batches from './Batches.jsx';
 import Report from './Report.jsx';
 import Warehouse from './Warehouse.jsx';
 import Expenses from './Expenses.jsx';
+import Settings from './Settings.jsx';
 import ComingSoon from './ComingSoon.jsx';
 
 const SECTION_TITLES = {
   marketing: 'Маркетинг',
 };
 
-export default function Dashboard({ password, onLogout }) {
-  const [view, setView] = useState('sales'); // 'sales' | 'report' | 'selfbuy' | 'expenses' | 'batches' | 'warehouse' | 'marketing'
+export default function Dashboard({ password, username, role, onLogout }) {
+  const allowedPages = ROLE_PAGES[role] || ROLE_PAGES.manager;
+  const [view, setView] = useState('sales'); // 'sales' | 'report' | 'selfbuy' | 'expenses' | 'batches' | 'warehouse' | 'marketing' | 'settings'
   const [collapsed, setCollapsed] = useState(() => sessionStorage.getItem('sidebar_collapsed') === '1');
+
+  // Защита на случай, если роль не даёт доступа к текущему разделу (например, роль сменили
+  // прямо во время работы, или view остался от предыдущей роли) — просто откатываемся на Главную.
+  const safeView = allowedPages.includes(view) ? view : 'sales';
+
+  function handleSelect(key) {
+    if (allowedPages.includes(key)) {
+      setView(key);
+    }
+  }
 
   function handleToggleCollapse() {
     setCollapsed((prev) => {
@@ -24,23 +36,27 @@ export default function Dashboard({ password, onLogout }) {
   }
 
   function renderContent() {
-    if (view === 'batches') {
+    if (safeView === 'batches') {
       return <Batches password={password} onClose={() => setView('sales')} />;
     }
 
-    if (view === 'report') {
+    if (safeView === 'report') {
       return <Report password={password} />;
     }
 
-    if (view === 'warehouse') {
+    if (safeView === 'warehouse') {
       return <Warehouse password={password} />;
     }
 
-    if (view === 'expenses') {
+    if (safeView === 'expenses') {
       return <Expenses password={password} />;
     }
 
-    if (view === 'selfbuy') {
+    if (safeView === 'settings') {
+      return <Settings password={password} username={username} />;
+    }
+
+    if (safeView === 'selfbuy') {
       return (
         <SalesView
           key="selfbuy"
@@ -53,11 +69,11 @@ export default function Dashboard({ password, onLogout }) {
       );
     }
 
-    if (SECTION_TITLES[view]) {
-      return <ComingSoon title={SECTION_TITLES[view]} />;
+    if (SECTION_TITLES[safeView]) {
+      return <ComingSoon title={SECTION_TITLES[safeView]} />;
     }
 
-    // view === 'sales'
+    // safeView === 'sales'
     return (
       <SalesView
         key="main"
@@ -73,11 +89,12 @@ export default function Dashboard({ password, onLogout }) {
   return (
     <div className="layout">
       <Sidebar
-        view={view}
-        onSelect={setView}
+        view={safeView}
+        onSelect={handleSelect}
         collapsed={collapsed}
         onToggleCollapse={handleToggleCollapse}
         onLogout={onLogout}
+        role={role}
       />
       <div className="main-content">
         <div className="app">{renderContent()}</div>
