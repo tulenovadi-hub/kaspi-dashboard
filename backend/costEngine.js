@@ -21,21 +21,22 @@ async function computeCosts(warehouses) {
     ORDER BY product_id, warehouse, received_date, id
   `);
 
-  // Важно: у одного заказа может быть НЕСКОЛЬКО строк в Excel-отчёте Kaspi Pay (например,
-  // если в заказе несколько разных товаров). Если сначала join'ить kaspi_pay_transactions
-  // с order_items напрямую, а у заказа и то, и другое больше одной строки — строки перемножатся
-  // (2 строки в Excel × 2 товара = 4 вместо 2), и себестоимость задвоится. Поэтому сначала
-  // схлопываем Excel-строки по номеру заказа в один "агрегат", и только потом соединяем с товарами.
+  // Важно: у одного заказа может быть НЕСКОЛЬКО строк в Excel-отчёте Kaspi Pay — например,
+  // если в заказе несколько разных товаров (тогда несколько строк "Покупка"), либо если товар
+  // купили и потом вернули (тогда одна строка "Покупка" и одна "Возврат" с тем же номером заказа).
+  // Группируем по (номер заказа, тип операции) — так покупка и возврат внутри одного заказа
+  // считаются раздельно (возврат не "перекрывает" покупку целиком), а несколько строк одного
+  // типа (несколько товаров в заказе) по-прежнему схлопываются в одну группу, чтобы не задваивать
+  // себестоимость при последующем join с order_items.
   const soldResult = await pool.query(
     `WITH kpt_agg AS (
-       SELECT order_number, MIN(operation_date) AS operation_date, BOOL_OR(operation_type = 'Возврат') AS has_return
+       SELECT order_number, operation_type, MIN(operation_date) AS operation_date
        FROM kaspi_pay_transactions
        WHERE operation_type IN ('Покупка', 'Возврат')
-       GROUP BY order_number
+       GROUP BY order_number, operation_type
      )
      SELECT oi.product_id, o.origin_city AS warehouse, oi.quantity, ka.order_number,
-            to_char(ka.operation_date, 'YYYY-MM') AS month, ka.operation_date,
-            CASE WHEN ka.has_return THEN 'Возврат' ELSE 'Покупка' END AS operation_type
+            to_char(ka.operation_date, 'YYYY-MM') AS month, ka.operation_date, ka.operation_type
      FROM kpt_agg ka
      JOIN orders o ON o.code = ka.order_number
      JOIN order_items oi ON oi.order_id = o.id
@@ -54,11 +55,11 @@ async function computeCosts(warehouses) {
 
   const cogsByMonth = {};
   const returnsCostByMonth = {};
-  const byOrderNumber = {}; // order_number -> { cost, type: 'Покупка' | 'Возврат' }
+  const byOrderKey = {}; // "order_number::operation_type" -> себестоимость
 
-  function addOrderCost(orderNumber, cost) {
-    if (!byOrderNumber[orderNumber]) byOrderNumber[orderNumber] = 0;
-    byOrderNumber[orderNumber] += cost;
+  function addOrderCost(orderNumber, operationType, cost) {
+    const key = `${orderNumber}::${operationType}`;
+    byOrderKey[key] = (byOrderKey[key] || 0) + cost;
   }
 
   for (const row of soldResult.rows) {
@@ -72,7 +73,7 @@ async function computeCosts(warehouses) {
       const activeBatch = batches.find((b) => b.remaining > 0) || batches[batches.length - 1];
       const cost = Number(row.quantity) * activeBatch.cost_price;
       returnsCostByMonth[row.month] = (returnsCostByMonth[row.month] || 0) + cost;
-      addOrderCost(row.order_number, cost);
+      addOrderCost(row.order_number, row.operation_type, cost);
       continue;
     }
 
@@ -86,12 +87,12 @@ async function computeCosts(warehouses) {
       qtyToConsume -= consume;
       const cost = consume * batch.cost_price;
       cogsByMonth[row.month] = (cogsByMonth[row.month] || 0) + cost;
-      addOrderCost(row.order_number, cost);
+      addOrderCost(row.order_number, row.operation_type, cost);
     }
     // если qtyToConsume всё ещё > 0 — партий не хватило (oversold), эта часть остаётся без себестоимости
   }
 
-  return { cogsByMonth, returnsCostByMonth, byOrderNumber };
+  return { cogsByMonth, returnsCostByMonth, byOrderKey };
 }
 
 module.exports = { computeCosts };
