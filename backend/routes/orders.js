@@ -54,7 +54,13 @@ router.get('/', async (req, res) => {
       const delivery = -Number(row.delivery_cost); // положительное число — расход
       const cost = costData.byOrderKey[`${row.order_number}::${row.operation_type}`] || 0;
       const netAmount = amount - cost - commission - delivery;
-      const margin = amount !== 0 ? (netAmount / amount) * 100 : null;
+      // Для возвратов amount отрицательный (деньги ушли клиенту обратно), а cost — справочная
+      // оценка себестоимости, которая не корректируется под возврат. При делении netAmount/amount
+      // получаются "проценты" вроде 146% — арифметически верно, но как % маржи не читается.
+      // Поэтому для возвратов % не считаем вовсе — на фронте это покажется как "—".
+      const margin = row.operation_type === 'Возврат'
+        ? null
+        : (amount !== 0 ? (netAmount / amount) * 100 : null);
 
       return {
         order_number: row.order_number,
