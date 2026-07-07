@@ -33,6 +33,12 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
   const daysCount = days.length || 1;
   const avgQtyPerDay = (totalQty / daysCount).toFixed(1);
 
+  // Сумма чистой прибыли за весь период — только по дням, где она вообще посчитана
+  // (для дней без данных из Excel-отчёта net_profit = null, их просто пропускаем при суммировании).
+  const knownProfitDays = days.filter((d) => d.net_profit !== null && d.net_profit !== undefined);
+  const totalNetProfit = knownProfitDays.reduce((sum, d) => sum + Number(d.net_profit), 0);
+  const hasMissingProfitDays = days.length > 0 && knownProfitDays.length < days.length;
+
   return (
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
@@ -40,6 +46,15 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
           <div className="section-title" style={{ margin: 0 }}>{product.product_name}</div>
           <div style={{ color: '#6b7690', fontSize: 13, marginTop: 4 }}>
             Продано за период: {formatNumber(product.total_quantity)} шт на {formatMoney(product.total_revenue)}
+            {' '}
+            (Чистая прибыль:{' '}
+            <span style={{ color: totalNetProfit < 0 ? '#ff6b6b' : '#3ddc97', fontWeight: 600 }}>
+              {formatMoney(totalNetProfit)}
+            </span>
+            {hasMissingProfitDays && (
+              <span title="Не по всем дням периода есть данные из Excel-отчёта Kaspi Pay — сумма посчитана только по дням, где они загружены"> *</span>
+            )}
+            )
           </div>
         </div>
         <button className="sync-button" onClick={onClose}>Назад к списку</button>
