@@ -9,7 +9,7 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="theme-color" content="#0b0f1a" />
+    <meta name="theme-color" content="#0e1420" />
 
     <!-- Позволяет открываться на весь экран без адресной строки Safari при установке на iOS -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -23,9 +23,65 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+
+    <!-- Экран загрузки — виден сразу, ещё до того, как подгрузится и запустится сам React.
+         Как только приложение смонтируется в #root, React (createRoot().render(...)) полностью
+         заменит содержимое этого div — экран загрузки исчезнет сам, без лишнего JS. -->
+    <style>
+      #boot-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        background: #0e1420;
+        font-family: 'Inter', system-ui, sans-serif;
+      }
+
+      #boot-loader .boot-spinner {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        border: 3px solid rgba(110, 139, 255, 0.2);
+        border-top-color: #6e8bff;
+        animation: boot-spin 0.8s linear infinite;
+      }
+
+      #boot-loader .boot-label {
+        color: #6e8bff;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-align: center;
+      }
+
+      #boot-loader .boot-sublabel {
+        margin-top: 4px;
+        color: #6b7690;
+        font-size: 13px;
+        font-weight: 400;
+        text-align: center;
+      }
+
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-loader">
+        <div class="boot-spinner"></div>
+        <div>
+          <div class="boot-label">Sabr🤌🏻</div>
+          <div class="boot-sublabel">Идёт загрузка...</div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
     <script>
       if ('serviceWorker' in navigator) {
