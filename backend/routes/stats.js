@@ -163,12 +163,18 @@ async function computeProductDailyKaspiPay(productId, mode) {
     const orderRevenue = Number(row.order_revenue);
     const share = orderRevenue > 0 ? Number(row.product_revenue) / orderRevenue : 0;
     const allocatedAmount = Number(row.amount) * share;
-    const allocatedCommission = Number(row.commission_total) * share;
-    const allocatedDelivery = Number(row.delivery_cost) * share;
+    // commission_total и delivery_cost в базе хранятся отрицательными (расход) — как и everywhere
+    // в приложении (reports.js, orders.js), переворачиваем в положительное число, чтобы дальше
+    // корректно ВЫЧИТАТЬ из прибыли, а не прибавлять к ней.
+    const allocatedCommission = -Number(row.commission_total) * share;
+    const allocatedDelivery = -Number(row.delivery_cost) * share;
 
     if (!byDay[row.day]) byDay[row.day] = { purchasesAmount: 0, returnsAmount: 0, commission: 0, delivery: 0 };
     if (row.operation_type === 'Возврат') {
-      byDay[row.day].returnsAmount += allocatedAmount;
+      // В kaspi_pay_transactions сумма возврата хранится отрицательной (как и в "Сумма" на
+      // странице "Заказы") — переворачиваем в положительное число, чтобы дальше корректно
+      // ВЫЧИТАТЬ её из выручки (netRevenue = purchasesAmount - returnsAmount), а не прибавлять.
+      byDay[row.day].returnsAmount += -allocatedAmount;
     } else {
       byDay[row.day].purchasesAmount += allocatedAmount;
     }
