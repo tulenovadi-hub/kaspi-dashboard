@@ -80,6 +80,10 @@ export function fetchProducts(password, from, to, mode = 'main') {
   return apiRequest(`/api/stats/products?from=${from}&to=${to}&mode=${mode}`, password);
 }
 
+export function fetchSummaryProfit(password, from, to, mode = 'main') {
+  return apiRequest(`/api/stats/summary-profit?from=${from}&to=${to}&mode=${mode}`, password);
+}
+
 export function fetchProductStats(password, productId, from, to, mode = 'main') {
   return apiRequest(`/api/stats/product/${encodeURIComponent(productId)}?from=${from}&to=${to}&mode=${mode}`, password);
 }

@@ -4,7 +4,7 @@ import TodayVsYesterday from './TodayVsYesterday.jsx';
 import SalesChart from './SalesChart.jsx';
 import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
-import { fetchSummary, fetchProducts, triggerSync } from './api.js';
+import { fetchSummary, fetchProducts, fetchSummaryProfit, triggerSync } from './api.js';
 import { toISODate, daysAgo, formatMoney, formatNumber } from './dateUtils.js';
 
 export default function SalesView({ password, onLogout, mode, title, showSync }) {
@@ -17,6 +17,8 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
   const [todayRevenue, setTodayRevenue] = useState(0);
   const [yesterdayRevenue, setYesterdayRevenue] = useState(0);
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [periodNetProfit, setPeriodNetProfit] = useState(0);
+  const [usedEstimate, setUsedEstimate] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -33,10 +35,13 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
       fetchSummary(password, from, to, mode),
       fetchProducts(password, from, to, mode),
       fetchSummary(password, yesterdayStr, todayStr, mode),
+      fetchSummaryProfit(password, from, to, mode),
     ])
-      .then(([summaryRes, productsRes, recentRes]) => {
+      .then(([summaryRes, productsRes, recentRes, profitRes]) => {
         setSummaryDays(summaryRes.days);
         setProducts(productsRes.products);
+        setPeriodNetProfit(Number(profitRes.net_profit) || 0);
+        setUsedEstimate(!!profitRes.used_estimate);
 
         // Если сейчас открыт конкретный товар — не выкидываем на список при смене периода,
         // а просто подтягиваем его актуальные "Продано за период" под новый диапазон дат
@@ -145,7 +150,20 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
               <div className="stat-label">Средний чек</div>
               <div className="stat-value">{formatMoney(avgOrder)}</div>
             </div>
+            <div className="stat-card">
+              <div className="stat-label">Чистая прибыль</div>
+              <div className="stat-value" style={{ color: periodNetProfit < 0 ? '#ff6b6b' : undefined }}>
+                {formatMoney(periodNetProfit)}
+              </div>
+            </div>
           </div>
+
+          {usedEstimate && (
+            <div style={{ color: '#6b7690', fontSize: 12, marginTop: -12, marginBottom: 16 }}>
+              Примечание: по части заказов ещё не загружен свежий Excel-отчёт Kaspi Pay — их чистая прибыль оценена
+              примерно, по среднему проценту прибыли уже посчитанных заказов с тем же товаром.
+            </div>
+          )}
 
           <div className="section-title">Динамика продаж</div>
           <div className="card">
