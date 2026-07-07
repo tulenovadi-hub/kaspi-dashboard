@@ -85,9 +85,16 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
         </div>
       </div>
 
-      {loading && <div className="empty-state">Загрузка...</div>}
       {error && <div className="error-banner">{error}</div>}
-      {!loading && !error && <SalesChart data={days} dataKey={metric} />}
+      {!error && (
+        <div style={{ opacity: loading ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+          {days.length === 0 && loading ? (
+            <div className="empty-state">Загрузка...</div>
+          ) : (
+            <SalesChart data={days} dataKey={metric} />
+          )}
+        </div>
+      )}
     </div>
   );
 }

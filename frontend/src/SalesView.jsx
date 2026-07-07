@@ -38,6 +38,15 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
         setSummaryDays(summaryRes.days);
         setProducts(productsRes.products);
 
+        // Если сейчас открыт конкретный товар — не выкидываем на список при смене периода,
+        // а просто подтягиваем его актуальные "Продано за период" под новый диапазон дат
+        // (сам график внутри ProductDetail перезапросится самостоятельно по своим from/to).
+        setSelectedProduct((prev) => {
+          if (!prev) return prev;
+          const fresh = productsRes.products.find((p) => p.product_id === prev.product_id);
+          return fresh || { ...prev, total_quantity: 0, total_revenue: 0 };
+        });
+
         const todayRow = recentRes.days.find((d) => toISODate(new Date(d.day)) === todayStr);
         const yesterdayRow = recentRes.days.find((d) => toISODate(new Date(d.day)) === yesterdayStr);
         setTodayRevenue(todayRow ? Number(todayRow.total_revenue) : 0);
@@ -62,7 +71,6 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
     setFrom(newFrom);
     setTo(newTo);
     setPresetKey(newPreset);
-    setSelectedProduct(null);
   }
 
   function handleManualSync() {
@@ -100,10 +108,17 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
 
       {error && <div className="error-banner">{error}</div>}
 
-      {loading ? (
+      {loading && summaryDays.length === 0 && products.length === 0 ? (
+        // Самая первая загрузка страницы — данных ещё вообще никаких нет, показать нечего
         <div className="empty-state">Загрузка данных...</div>
       ) : (
-        <>
+        <div
+          style={{
+            opacity: loading ? 0.55 : 1,
+            transition: 'opacity 0.25s ease',
+            pointerEvents: loading ? 'none' : 'auto',
+          }}
+        >
           <div className="stats-row">
             <div className="stat-card">
               <div className="stat-label">Сумма продаж за период</div>
@@ -154,7 +169,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
               </div>
             </>
           )}
-        </>
+        </div>
       )}
     </>
   );
