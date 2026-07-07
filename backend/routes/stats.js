@@ -1,5 +1,6 @@
 const express = require('express');
 const { pool } = require('../db');
+const { STOCK_CUTOFF_DATE } = require('../constants');
 
 const router = express.Router();
 
@@ -86,10 +87,12 @@ async function computeCostsByOrderItem(mode) {
     ORDER BY product_id, warehouse, received_date, id
   `);
   const batchesByKey = new Map();
+  const firstBatchPriceByKey = new Map(); // цена самой первой поставки — для заказов до даты отсечки
   for (const b of batchesResult.rows) {
     const key = `${b.product_id}::${b.warehouse}`;
     if (!batchesByKey.has(key)) batchesByKey.set(key, []);
     batchesByKey.get(key).push({ cost_price: Number(b.cost_price), remaining: Number(b.quantity) });
+    if (!firstBatchPriceByKey.has(key)) firstBatchPriceByKey.set(key, Number(b.cost_price));
   }
 
   const soldResult = await pool.query(
@@ -99,12 +102,13 @@ async function computeCostsByOrderItem(mode) {
        WHERE operation_type IN ('Покупка', 'Возврат')
        GROUP BY order_number, operation_type
      )
-     SELECT oi.product_id, o.origin_city AS warehouse, oi.quantity, ka.order_number, ka.operation_type
+     SELECT oi.product_id, o.origin_city AS warehouse, oi.quantity, ka.order_number, ka.operation_type,
+            o.creation_date
      FROM kpt_agg ka
      JOIN orders o ON o.code = ka.order_number
      JOIN order_items oi ON oi.order_id = o.id
      WHERE ${mode === 'selfbuy' ? 'o.origin_city = ANY($1::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($1::text[])))'}
-     ORDER BY o.origin_city, ka.operation_date ASC`,
+     ORDER BY o.origin_city, o.creation_date ASC`,
     [SELF_BUY_WAREHOUSES]
   );
 
@@ -118,6 +122,17 @@ async function computeCostsByOrderItem(mode) {
     if (row.operation_type === 'Возврат') continue;
 
     const key = `${row.product_id}::${row.warehouse}`;
+    const itemKey = `${row.order_number}::${row.product_id}`;
+
+    // Заказ старше даты отсечки остатков — не списываем партии на "Поставках" (это снимок
+    // остатков на дату отсечки), а оцениваем по цене самой первой поставки этого товара.
+    if (new Date(row.creation_date) < new Date(STOCK_CUTOFF_DATE)) {
+      const price = firstBatchPriceByKey.get(key);
+      if (price === undefined) continue;
+      costByOrderItem[itemKey] = (costByOrderItem[itemKey] || 0) + Number(row.quantity) * price;
+      continue;
+    }
+
     const batches = batchesByKey.get(key);
     if (!batches) continue; // партий для этого склада нет — себестоимость неизвестна, пропускаем
 
@@ -131,7 +146,6 @@ async function computeCostsByOrderItem(mode) {
       qty -= consume;
       cost += consume * batch.cost_price;
     }
-    const itemKey = `${row.order_number}::${row.product_id}`;
     costByOrderItem[itemKey] = (costByOrderItem[itemKey] || 0) + cost;
   }
 
@@ -275,9 +289,11 @@ async function computeProductDailyCost(productId, mode) {
     [productId]
   );
   const batchesByWarehouse = new Map();
+  const firstBatchPriceByWarehouse = new Map(); // цена самой первой поставки — для заказов до даты отсечки
   for (const b of batchesResult.rows) {
     if (!batchesByWarehouse.has(b.warehouse)) batchesByWarehouse.set(b.warehouse, []);
     batchesByWarehouse.get(b.warehouse).push({ cost_price: Number(b.cost_price), remaining: Number(b.quantity) });
+    if (!firstBatchPriceByWarehouse.has(b.warehouse)) firstBatchPriceByWarehouse.set(b.warehouse, Number(b.cost_price));
   }
 
   const soldResult = await pool.query(
@@ -287,7 +303,7 @@ async function computeProductDailyCost(productId, mode) {
        WHERE operation_type = 'Покупка'
        GROUP BY order_number
      )
-     SELECT oi.quantity, o.origin_city AS warehouse,
+     SELECT oi.quantity, o.origin_city AS warehouse, o.creation_date,
             to_char((o.creation_date + interval '5 hours')::date, 'YYYY-MM-DD') AS day
      FROM kpt_agg ka
      JOIN orders o ON o.code = ka.order_number
@@ -299,6 +315,15 @@ async function computeProductDailyCost(productId, mode) {
 
   const costByDay = {};
   for (const row of soldResult.rows) {
+    // Заказ старше даты отсечки остатков — партии на "Поставках" введены как снимок на эту дату,
+    // такие старые заказы их не списывают, а оцениваются по цене самой первой поставки.
+    if (new Date(row.creation_date) < new Date(STOCK_CUTOFF_DATE)) {
+      const price = firstBatchPriceByWarehouse.get(row.warehouse);
+      if (price === undefined) continue;
+      costByDay[row.day] = (costByDay[row.day] || 0) + Number(row.quantity) * price;
+      continue;
+    }
+
     const batches = batchesByWarehouse.get(row.warehouse);
     if (!batches) continue; // партий для этого склада нет — себестоимость неизвестна, пропускаем
     let qty = Number(row.quantity);

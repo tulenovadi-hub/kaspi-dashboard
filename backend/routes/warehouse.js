@@ -1,5 +1,6 @@
 const express = require('express');
 const { pool } = require('../db');
+const { STOCK_CUTOFF_DATE } = require('../constants');
 
 const router = express.Router();
 
@@ -12,10 +13,6 @@ const IN_PROGRESS_STATUSES = ['ACCEPTED_BY_MERCHANT', 'APPROVED_BY_BANK'];
 // (они самовыкупные/непрофильные, отслеживаются на других страницах).
 const DISPLAY_WAREHOUSES = ['Алматы', 'Астана'];
 const WAREHOUSE_SORT_ORDER = { 'Алматы': 0, 'Астана': 1 };
-
-// Заказы до этой даты не учитываем на Складе — остатки на 1 июня вводятся вручную через
-// партии на странице "Поставки", поэтому продажи до этой даты не должны их списывать ещё раз.
-const STOCK_CUTOFF_DATE = '2026-06-01';
 
 // Считает остатки по методу FIFO отдельно для каждого склада (города):
 // партии одного города списываются только продажами, отгруженными с этого же города
