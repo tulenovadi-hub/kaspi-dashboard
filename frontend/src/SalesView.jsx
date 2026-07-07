@@ -152,7 +152,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
             </div>
             <div className="stat-card">
               <div className="stat-label">Чистая прибыль</div>
-              <div className="stat-value" style={{ color: periodNetProfit < 0 ? '#ff6b6b' : undefined }}>
+              <div className="stat-value" style={{ color: periodNetProfit < 0 ? '#ff6b6b' : '#3ddc97' }}>
                 {formatMoney(periodNetProfit)}
               </div>
             </div>

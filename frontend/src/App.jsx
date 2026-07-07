@@ -54,7 +54,19 @@ export default function App() {
   }
 
   if (checking) {
-    return null; // короткая проверка токена при загрузке, без мигания экрана логина
+    // Раньше здесь был return null — при "холодном" старте бэкенда (например, Render после
+    // долгой паузы просыпается по 10-30 секунд) это превращалось в пустой тёмный экран без
+    // всякой обратной связи. Показываем тот же спиннер, что и на самом первом экране загрузки
+    // (до подключения React), чтобы не было ощущения, что сайт завис.
+    return (
+      <div className="boot-loader-fallback">
+        <div className="boot-spinner" />
+        <div>
+          <div className="boot-label">Sabr🤌🏻</div>
+          <div className="boot-sublabel">Идёт загрузка...</div>
+        </div>
+      </div>
+    );
   }
 
   if (!session) {
