@@ -74,8 +74,10 @@ const TAX_RATE = 0.03;
 
 // Возвращает {день -> себестоимость проданного (FIFO)} для конкретного товара. Логика та же,
 // что в costEngine.computeCosts, но: а) только для одного товара, б) с группировкой по дню
-// (а не по месяцу), в) фильтр по городам — как в остальных ручках этого файла (mode selfbuy/main),
-// а не через список конкретных городов, чтобы точно совпадало с тем, как считается выручка.
+// (а не по месяцу) — причём по дате ЗАКАЗА (как и выручка), а не по дате операции в Excel-отчёте
+// Kaspi Pay (эти две даты не всегда совпадают день в день — иначе выручка и прибыль одного и того
+// же заказа "разъезжались" бы по разным дням на графике), в) фильтр по городам — как в остальных
+// ручках этого файла (mode selfbuy/main), а не через список конкретных городов.
 async function computeProductDailyCost(productId, mode) {
   const batchesResult = await pool.query(
     `SELECT warehouse, cost_price, quantity FROM product_batches WHERE product_id = $1 ORDER BY warehouse, received_date, id`,
@@ -94,12 +96,13 @@ async function computeProductDailyCost(productId, mode) {
        WHERE operation_type = 'Покупка'
        GROUP BY order_number
      )
-     SELECT oi.quantity, o.origin_city AS warehouse, to_char(ka.operation_date, 'YYYY-MM-DD') AS day
+     SELECT oi.quantity, o.origin_city AS warehouse,
+            to_char((o.creation_date + interval '5 hours')::date, 'YYYY-MM-DD') AS day
      FROM kpt_agg ka
      JOIN orders o ON o.code = ka.order_number
      JOIN order_items oi ON oi.order_id = o.id AND oi.product_id = $1
      WHERE ${mode === 'selfbuy' ? 'o.origin_city = ANY($2::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($2::text[])))'}
-     ORDER BY o.origin_city, ka.operation_date ASC`,
+     ORDER BY o.origin_city, o.creation_date ASC`,
     [productId, SELF_BUY_WAREHOUSES]
   );
 
@@ -139,7 +142,7 @@ async function computeProductDailyKaspiPay(productId, mode) {
        GROUP BY order_id
      )
      SELECT
-       to_char(ka.operation_date, 'YYYY-MM-DD') AS day,
+       to_char((o.creation_date + interval '5 hours')::date, 'YYYY-MM-DD') AS day,
        ka.operation_type,
        ka.amount,
        ka.commission_total,
@@ -151,7 +154,7 @@ async function computeProductDailyKaspiPay(productId, mode) {
      JOIN order_items oi ON oi.order_id = o.id AND oi.product_id = $1
      JOIN order_totals ot ON ot.order_id = o.id
      WHERE ${mode === 'selfbuy' ? 'o.origin_city = ANY($2::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($2::text[])))'}
-     ORDER BY ka.operation_date`,
+     ORDER BY o.creation_date`,
     [productId, SELF_BUY_WAREHOUSES]
   );
 
