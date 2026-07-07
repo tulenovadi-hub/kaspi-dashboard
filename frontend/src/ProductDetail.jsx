@@ -59,6 +59,12 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
         >
           Количество продаж
         </button>
+        <button
+          className={`period-chip ${metric === 'net_profit' ? 'active' : ''}`}
+          onClick={() => setMetric('net_profit')}
+        >
+          Чистая прибыль
+        </button>
       </div>
 
       <div style={{ display: 'flex', gap: 24, marginBottom: 16, flexWrap: 'wrap' }}>
