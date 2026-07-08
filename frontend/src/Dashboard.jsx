@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar, { ROLE_PAGES } from './Sidebar.jsx';
 import SalesView from './SalesView.jsx';
 import Batches from './Batches.jsx';
@@ -22,6 +22,22 @@ export default function Dashboard({ password, username, role, onLogout }) {
   // прямо во время работы, или view остался от предыдущей роли) — просто откатываемся на Главную.
   const safeView = allowedPages.includes(view) ? view : 'sales';
 
+  // Раньше renderContent() каждый раз возвращал только ТЕКУЩИЙ раздел — при переходе на другую
+  // страницу и возврате обратно React видел в этом месте дерева совсем другой компонент и полностью
+  // пересоздавал его с нуля (все загруденные данные терялись, страница грузилась заново). Теперь
+  // держим уже открывавшиеся разделы смонтированными и просто прячем неактивные через display:none —
+  // так их состояние (и загруженные данные) не пропадает при переключении между разделами.
+  const [visited, setVisited] = useState(() => new Set(['sales']));
+
+  useEffect(() => {
+    setVisited((prev) => {
+      if (prev.has(safeView)) return prev;
+      const next = new Set(prev);
+      next.add(safeView);
+      return next;
+    });
+  }, [safeView]);
+
   function handleSelect(key) {
     if (allowedPages.includes(key)) {
       setView(key);
@@ -36,58 +52,90 @@ export default function Dashboard({ password, username, role, onLogout }) {
     });
   }
 
-  function renderContent() {
-    if (safeView === 'batches') {
-      return <Batches password={password} onClose={() => setView('sales')} />;
-    }
+  function renderPage(key) {
+    const style = key === safeView ? undefined : { display: 'none' };
 
-    if (safeView === 'report') {
-      return <Report password={password} />;
-    }
-
-    if (safeView === 'warehouse') {
-      return <Warehouse password={password} />;
-    }
-
-    if (safeView === 'expenses') {
-      return <Expenses password={password} />;
-    }
-
-    if (safeView === 'orders') {
-      return <Orders password={password} />;
-    }
-
-    if (safeView === 'settings') {
-      return <Settings password={password} username={username} />;
-    }
-
-    if (safeView === 'selfbuy') {
+    if (key === 'batches') {
       return (
-        <SalesView
-          key="selfbuy"
-          password={password}
-          onLogout={onLogout}
-          mode="selfbuy"
-          title={<>Самовыкупы <span>(Талдыкорган + Юбилейное)</span></>}
-          showSync={false}
-        />
+        <div key={key} style={style}>
+          <Batches password={password} onClose={() => setView('sales')} />
+        </div>
       );
     }
 
-    if (SECTION_TITLES[safeView]) {
-      return <ComingSoon title={SECTION_TITLES[safeView]} />;
+    if (key === 'report') {
+      return (
+        <div key={key} style={style}>
+          <Report password={password} />
+        </div>
+      );
     }
 
-    // safeView === 'sales'
+    if (key === 'warehouse') {
+      return (
+        <div key={key} style={style}>
+          <Warehouse password={password} />
+        </div>
+      );
+    }
+
+    if (key === 'expenses') {
+      return (
+        <div key={key} style={style}>
+          <Expenses password={password} />
+        </div>
+      );
+    }
+
+    if (key === 'orders') {
+      return (
+        <div key={key} style={style}>
+          <Orders password={password} />
+        </div>
+      );
+    }
+
+    if (key === 'settings') {
+      return (
+        <div key={key} style={style}>
+          <Settings password={password} username={username} />
+        </div>
+      );
+    }
+
+    if (key === 'selfbuy') {
+      return (
+        <div key={key} style={style}>
+          <SalesView
+            password={password}
+            onLogout={onLogout}
+            mode="selfbuy"
+            title={<>Самовыкупы <span>(Талдыкорган + Юбилейное)</span></>}
+            showSync={false}
+          />
+        </div>
+      );
+    }
+
+    if (SECTION_TITLES[key]) {
+      return (
+        <div key={key} style={style}>
+          <ComingSoon title={SECTION_TITLES[key]} />
+        </div>
+      );
+    }
+
+    // key === 'sales'
     return (
-      <SalesView
-        key="main"
-        password={password}
-        onLogout={onLogout}
-        mode="main"
-        title={<>Продажи <span>Kaspi</span></>}
-        showSync
-      />
+      <div key={key} style={style}>
+        <SalesView
+          password={password}
+          onLogout={onLogout}
+          mode="main"
+          title={<>Продажи <span>Kaspi</span></>}
+          showSync
+        />
+      </div>
     );
   }
 
@@ -102,7 +150,9 @@ export default function Dashboard({ password, username, role, onLogout }) {
         role={role}
       />
       <div className="main-content">
-        <div className={`app${(safeView === 'orders' || safeView === 'report') ? ' app-wide' : ''}`}>{renderContent()}</div>
+        <div className={`app${(safeView === 'orders' || safeView === 'report') ? ' app-wide' : ''}`}>
+          {Array.from(visited).map((key) => renderPage(key))}
+        </div>
       </div>
     </div>
   );
