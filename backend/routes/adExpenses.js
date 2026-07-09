@@ -54,30 +54,34 @@ function isValidDate(str) {
 }
 
 // Данные для дашборда на странице "Маркетинг" — общая сумма за период, разбивка по дням
-// (для графика) и по кампаниям (для таблицы).
+// (для графика) и по кампаниям (для таблицы). Если передан campaign_id — всё считается
+// только по этой одной кампании (для дашборда конкретного товара).
 router.get('/', async (req, res) => {
-  const { from, to } = req.query;
+  const { from, to, campaign_id: campaignId } = req.query;
   if (!isValidDate(from) || !isValidDate(to)) {
     return res.status(400).json({ error: 'Параметры from и to обязательны, формат: YYYY-MM-DD' });
   }
 
   try {
+    const params = campaignId ? [from, to, campaignId] : [from, to];
+    const campaignFilter = campaignId ? 'AND campaign_id = $3' : '';
+
     const [byDayResult, byCampaignResult] = await Promise.all([
       pool.query(
         `SELECT to_char(expense_date, 'YYYY-MM-DD') AS day, SUM(cost) AS cost
          FROM ad_expenses
-         WHERE expense_date BETWEEN $1 AND $2
+         WHERE expense_date BETWEEN $1 AND $2 ${campaignFilter}
          GROUP BY day
          ORDER BY day`,
-        [from, to]
+        params
       ),
       pool.query(
         `SELECT campaign_id, campaign_name, SUM(cost) AS cost
          FROM ad_expenses
-         WHERE expense_date BETWEEN $1 AND $2
+         WHERE expense_date BETWEEN $1 AND $2 ${campaignFilter}
          GROUP BY campaign_id, campaign_name
          ORDER BY cost DESC`,
-        [from, to]
+        params
       ),
     ]);
 
