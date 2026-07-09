@@ -152,6 +152,70 @@ async function computeCostsByOrderItem(mode) {
   return { costByOrderItem, knownOrders };
 }
 
+function addDays(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// Считает средний % чистой прибыли от выручки по уже известным (есть в Excel-отчёте) продажам
+// за произвольное окно дат — используется как запасной вариант, когда в самом запрошенном
+// периоде известных продаж нет вообще (см. computeSummaryNetProfit). kptByOrder и costData
+// переиспользуются из основного расчёта — они и так покрывают всю историю, а не только период,
+// так что дополнительно запрашивать их снова не нужно, только order_items за новое окно дат.
+async function computeKnownProfitRatio(from, to, mode, kptByOrder, costData) {
+  const itemsResult = await pool.query(
+    `SELECT oi.product_id, oi.total_price, o.code AS order_number, o.id AS order_id
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     WHERE oi.creation_date >= $1::timestamp - interval '5 hours'
+       AND oi.creation_date < $2::timestamp - interval '5 hours' + interval '1 day'
+       AND o.status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
+       AND ${mode === 'selfbuy' ? 'o.origin_city = ANY($3::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($3::text[])))'}`,
+    [from, to, SELF_BUY_WAREHOUSES]
+  );
+
+  const orderRevenueMap = new Map();
+  for (const it of itemsResult.rows) {
+    orderRevenueMap.set(it.order_id, (orderRevenueMap.get(it.order_id) || 0) + Number(it.total_price));
+  }
+
+  let knownNetProfit = 0;
+  let knownNetRevenue = 0;
+
+  for (const it of itemsResult.rows) {
+    const kptRows = kptByOrder.get(it.order_number);
+    const hasPurchase = kptRows && kptRows.some((r) => r.operation_type === 'Покупка');
+    if (!hasPurchase) continue;
+
+    const orderRevenue = orderRevenueMap.get(it.order_id) || 0;
+    const share = orderRevenue > 0 ? Number(it.total_price) / orderRevenue : 0;
+
+    let purchases = 0;
+    let returns = 0;
+    let commission = 0;
+    let delivery = 0;
+    for (const row of kptRows) {
+      const allocatedAmount = Number(row.amount) * share;
+      commission += -Number(row.commission_total) * share;
+      delivery += -Number(row.delivery_cost) * share;
+      if (row.operation_type === 'Возврат') {
+        returns += -allocatedAmount;
+      } else {
+        purchases += allocatedAmount;
+      }
+    }
+
+    const netRevenueItem = purchases - returns;
+    const cost = costData.costByOrderItem[`${it.order_number}::${it.product_id}`] || 0;
+    const taxes = netRevenueItem > 0 ? netRevenueItem * TAX_RATE : 0;
+    knownNetProfit += netRevenueItem - cost - commission - delivery - taxes;
+    knownNetRevenue += netRevenueItem;
+  }
+
+  return knownNetRevenue > 0 ? knownNetProfit / knownNetRevenue : null;
+}
+
 // Считает суммарную чистую прибыль по ВСЕМ товарам за период (для карточки на Главной).
 //
 // Ключевое отличие от расчёта по одному товару: если по какому-то заказу ещё не загружен
@@ -246,7 +310,19 @@ async function computeSummaryNetProfit(from, to, mode) {
 
   // Общий % прибыли по всем известным продажам за период — запасной вариант для товаров,
   // у которых вообще нет ни одной известной продажи в этом периоде.
-  const overallRatio = knownNetRevenue > 0 ? knownNetProfit / knownNetRevenue : 0;
+  let overallRatio = knownNetRevenue > 0 ? knownNetProfit / knownNetRevenue : null;
+
+  // А если известных продаж нет вообще ЗА ВЕСЬ ПЕРИОД целиком (типичный случай — период
+  // "Сегодня"/"Вчера": Excel-отчёт по свежим дням физически ещё не может быть загружен) —
+  // посчитать overallRatio не от чего, и без этого блока вся оценка молча превратилась бы в 0,
+  // хотя реальная выручка есть. Вместо этого берём более широкое окно — последние 60 дней
+  // перед концом периода — и считаем средний % прибыли по нему.
+  if (overallRatio === null) {
+    const fallbackFrom = addDays(to, -60);
+    const fallbackStats = await computeKnownProfitRatio(fallbackFrom, to, mode, kptByOrder, costData);
+    overallRatio = fallbackStats; // если и там ничего не нашлось (null) — используем 0 дальше
+  }
+  if (overallRatio === null) overallRatio = 0;
 
   let estimatedNetProfit = 0;
   for (const it of unknownItems) {
