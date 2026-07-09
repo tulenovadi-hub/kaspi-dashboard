@@ -170,6 +170,19 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_ad_expenses_date ON ad_expenses(expense_date);`);
 
+  // Привязка рекламной кампании к конкретным товарам — по merchantSku (= ваш собственный код
+  // товара, тот же самый product_id, что используется везде в дашборде: Склад, Заказы, Поставки).
+  // Точная привязка вместо угадывания по названию кампании (Kaspi даёт кампаниям своё, часто
+  // сокращённое название, не совпадающее с названием товара в каталоге).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ad_campaign_products (
+      campaign_id TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (campaign_id, product_id)
+    );
+  `);
+
   // Пользователи сайта с ролями. Раньше был один общий пароль на всех (DASHBOARD_PASSWORD) —
   // теперь у каждого свой логин/пароль. role: 'admin' | 'manager' | 'marketer'.
   await pool.query(`
