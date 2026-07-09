@@ -390,6 +390,43 @@ select:focus-visible {
   }
 }
 
+/* Вариант с широкой первой карточкой (Сумма продаж: Общие/По рекламе) + 3 обычными —
+   страница "Маркетинг" */
+.stats-row-5 {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stats-row-5 .stat-card-wide {
+  grid-column: span 2;
+}
+
+@media (max-width: 900px) {
+  .stats-row-5 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stats-row-5 .stat-card-wide {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .stats-row-5 {
+    grid-template-columns: 1fr;
+  }
+  .stats-row-5 .stat-card-wide {
+    grid-column: span 1;
+  }
+}
+
+.stat-sublabel {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
 .stat-card {
   background: var(--bg-card);
   border: 1px solid var(--border);

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { fetchAdExpenses, fetchSummary, fetchProducts } from './api.js';
 import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './dateUtils.js';
 import PeriodSelector from './PeriodSelector.jsx';
-import SalesChart from './SalesChart.jsx';
+import MarketingChart from './MarketingChart.jsx';
 
 // Считает суммарную выручку товаров, привязанных к кампании (по её product_ids, полученным
 // от Tampermonkey-скрипта через merchantSku) — точное совпадение, без угадывания по названию.
@@ -13,12 +13,46 @@ function getMatchedRevenue(products, productIds) {
   return matched.reduce((sum, p) => sum + Number(p.total_revenue || 0), 0);
 }
 
-function DrrCard({ cost, revenue }) {
+function RevenueCard({ totalRevenue, adRevenue }) {
+  return (
+    <div className="stat-card stat-card-wide">
+      <div className="stat-label">Сумма продаж за период</div>
+      <div style={{ display: 'flex', gap: 28, marginTop: 4 }}>
+        <div>
+          <div className="stat-sublabel">Общие</div>
+          <div className="stat-value" style={{ fontSize: 22 }}>{formatMoney(totalRevenue)}</div>
+        </div>
+        <div>
+          <div className="stat-sublabel">По рекламе</div>
+          <div className="stat-value" style={{ fontSize: 22, color: '#3ddc97' }}>{formatMoney(adRevenue)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DrrCard({ cost, revenue, adRevenue }) {
   const drr = revenue > 0 ? (cost / revenue) * 100 : null;
+  const drrFact = adRevenue > 0 ? (cost / adRevenue) * 100 : null;
   return (
     <div className="stat-card">
       <div className="stat-label">ДРР за период</div>
-      <div className="stat-value">{drr !== null ? `${drr.toFixed(1)}%` : '—'}</div>
+      <div className="stat-value">
+        {drr !== null ? `${drr.toFixed(1)}%` : '—'}
+        {drrFact !== null && (
+          <span style={{ fontSize: 14, color: '#6b7690', fontWeight: 400 }}> ({drrFact.toFixed(1)}% факт.)</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AdRevenueShareCard({ adRevenue, totalRevenue }) {
+  const share = totalRevenue > 0 ? (adRevenue / totalRevenue) * 100 : null;
+  return (
+    <div className="stat-card">
+      <div className="stat-label">Доля выручки по рекламе</div>
+      <div className="stat-value">{share !== null ? `${share.toFixed(1)}%` : '—'}</div>
     </div>
   );
 }
@@ -27,11 +61,11 @@ export default function Marketing({ password }) {
   const [from, setFrom] = useState(() => toISODate(startOfMonth()));
   const [to, setTo] = useState(() => toISODate(daysAgo(0)));
   const [presetKey, setPresetKey] = useState('month');
-  const [data, setData] = useState({ totalCost: 0, byDay: [], byCampaign: [] });
+  const [data, setData] = useState({ totalCost: 0, totalAdRevenue: 0, byDay: [], byCampaign: [] });
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [products, setProducts] = useState([]);
-  const [selectedCampaign, setSelectedCampaign] = useState(null); // { campaign_id, campaign_name }
-  const [campaignData, setCampaignData] = useState({ totalCost: 0, byDay: [] });
+  const [selectedCampaign, setSelectedCampaign] = useState(null); // { campaign_id, campaign_name, product_ids }
+  const [campaignData, setCampaignData] = useState({ totalCost: 0, totalAdRevenue: 0, byDay: [], byCampaign: [] });
   const [loading, setLoading] = useState(true);
   const [campaignLoading, setCampaignLoading] = useState(false);
   const [error, setError] = useState('');
@@ -91,21 +125,19 @@ export default function Marketing({ password }) {
           pointerEvents: loading ? 'none' : 'auto',
         }}
       >
-        <div className="stats-row-3">
-          <div className="stat-card">
-            <div className="stat-label">Сумма продаж за период</div>
-            <div className="stat-value">{formatMoney(totalRevenue)}</div>
-          </div>
+        <div className="stats-row-5">
+          <RevenueCard totalRevenue={totalRevenue} adRevenue={data.totalAdRevenue} />
           <div className="stat-card">
             <div className="stat-label">Расходы на рекламу за период</div>
             <div className="stat-value" style={{ color: '#ff6b6b' }}>{formatMoney(data.totalCost)}</div>
           </div>
-          <DrrCard cost={data.totalCost} revenue={totalRevenue} />
+          <DrrCard cost={data.totalCost} revenue={totalRevenue} adRevenue={data.totalAdRevenue} />
+          <AdRevenueShareCard adRevenue={data.totalAdRevenue} totalRevenue={totalRevenue} />
         </div>
 
-        <div className="section-title">Динамика расходов по дням</div>
+        <div className="section-title">Динамика по дням</div>
         <div className="card">
-          <SalesChart data={data.byDay} dataKey="cost" />
+          <MarketingChart data={data.byDay} />
         </div>
 
         {selectedCampaign ? (
@@ -121,16 +153,14 @@ export default function Marketing({ password }) {
                   transition: 'opacity 0.25s ease',
                 }}
               >
-                <div className="stats-row-3" style={{ marginBottom: 20 }}>
-                  <div className="stat-card">
-                    <div className="stat-label">Сумма продаж за период</div>
-                    <div className="stat-value">{matchedRevenue !== null ? formatMoney(matchedRevenue) : '—'}</div>
-                  </div>
+                <div className="stats-row-5" style={{ marginBottom: 20 }}>
+                  <RevenueCard totalRevenue={matchedRevenue || 0} adRevenue={campaignData.totalAdRevenue} />
                   <div className="stat-card">
                     <div className="stat-label">Расходы на рекламу за период</div>
                     <div className="stat-value" style={{ color: '#ff6b6b' }}>{formatMoney(campaignData.totalCost)}</div>
                   </div>
-                  <DrrCard cost={campaignData.totalCost} revenue={matchedRevenue || 0} />
+                  <DrrCard cost={campaignData.totalCost} revenue={matchedRevenue || 0} adRevenue={campaignData.totalAdRevenue} />
+                  <AdRevenueShareCard adRevenue={campaignData.totalAdRevenue} totalRevenue={matchedRevenue || 0} />
                 </div>
                 {matchedRevenue === null && (
                   <div style={{ color: '#6b7690', fontSize: 12, marginBottom: 12 }}>
@@ -138,7 +168,7 @@ export default function Marketing({ password }) {
                     передаёт merchantSku) и заново нажмите «Выгрузить расходы в дашборд».
                   </div>
                 )}
-                <SalesChart data={campaignData.byDay} dataKey="cost" />
+                <MarketingChart data={campaignData.byDay} />
               </div>
             </div>
           </>
@@ -157,6 +187,7 @@ export default function Marketing({ password }) {
                       <tr>
                         <th>Кампания</th>
                         <th className="num">Расход за период</th>
+                        <th className="num">Продажи по рекламе</th>
                         <th className="num">Доля от общих расходов</th>
                       </tr>
                     </thead>
@@ -169,6 +200,7 @@ export default function Marketing({ password }) {
                         >
                           <td>{c.campaign_name || c.campaign_id}</td>
                           <td className="num">{formatMoney(c.cost)}</td>
+                          <td className="num">{formatMoney(c.gmv)}</td>
                           <td className="num">
                             {data.totalCost > 0 ? formatNumber(((c.cost / data.totalCost) * 100).toFixed(1)) : '0'}%
                           </td>
@@ -188,7 +220,8 @@ export default function Marketing({ password }) {
         официального API для расходов на рекламу у Kaspi нет. Эти цифры пока нигде больше на сайте не используются
         (не влияют на «Прочие расходы» в Отчёте и на «Чистую прибыль») — это отдельная, самостоятельная сводка.
         Привязка кампании к товару — точная, по merchantSku (вашему коду товара), а не по названию кампании.
-        Нажмите на строку кампании, чтобы увидеть график расходов именно по этому товару.
+        «Продажи по рекламе» (gmv) и расходы считаются по дням — работают для любого выбранного здесь периода.
+        Нажмите на строку кампании, чтобы увидеть данные именно по этому товару.
       </div>
     </div>
   );
