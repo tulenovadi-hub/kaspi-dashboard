@@ -725,6 +725,23 @@ select:focus-visible {
   cursor: pointer;
 }
 
+.login-show-password {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+  margin: -4px 0 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.login-show-password input {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
 /* ===== Batches (Поставки) ===== */
 .batch-form-row {
   display: grid;

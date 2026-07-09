@@ -4,6 +4,7 @@ import { login } from './api.js';
 export default function Login({ onSuccess }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -36,11 +37,19 @@ export default function Login({ onSuccess }) {
           autoCorrect="off"
         />
         <input
-          type="password"
+          type={showPassword ? 'text' : 'password'}
           placeholder="Пароль"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
+        <label className="login-show-password">
+          <input
+            type="checkbox"
+            checked={showPassword}
+            onChange={(e) => setShowPassword(e.target.checked)}
+          />
+          <span>Показать пароль</span>
+        </label>
         {error && <p style={{ color: '#ff6b6b', fontSize: 13, marginBottom: 12 }}>{error}</p>}
         <button type="submit" disabled={loading}>{loading ? 'Входим...' : 'Войти'}</button>
       </form>
