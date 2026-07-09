@@ -5,10 +5,12 @@ const router = express.Router();
 
 // Принимает пачку данных по расходам на рекламу сразу по нескольким кампаниям —
 // именно так их и присылает Tampermonkey-скрипт (обходит все кампании за раз).
-// Формат: { campaigns: [ { id, name, days: [{ date, cost }, ...], product_ids: [...] }, ... ] }
-// product_ids — это merchantSku товаров в этой кампании (= ваш собственный product_id,
-// тот же самый, что используется везде в дашборде) — нужен для точной привязки кампании
-// к товару вместо угадывания по названию.
+// Формат: { campaigns: [ { id, name, days: [{date,cost}], revenue_days: [{date,gmv,transactions}],
+//           product_ids: [...] }, ... ] }
+// days — расходы по дням, revenue_days — выручка "по рекламе" и число заказов по дням
+// (оба через один и тот же тип "дневного" эндпоинта Kaspi, просто разные метрики).
+// product_ids — merchantSku товаров в кампании (= ваш product_id) — для точной привязки
+// кампании к товару вместо угадывания по названию.
 router.post('/upload', async (req, res) => {
   const { campaigns } = req.body;
   if (!Array.isArray(campaigns) || campaigns.length === 0) {
@@ -24,6 +26,7 @@ router.post('/upload', async (req, res) => {
       const campaignId = String(campaign.id || '').trim();
       const campaignName = campaign.name || null;
       const days = Array.isArray(campaign.days) ? campaign.days : [];
+      const revenueDays = Array.isArray(campaign.revenue_days) ? campaign.revenue_days : [];
       const productIds = Array.isArray(campaign.product_ids)
         ? campaign.product_ids.map((id) => String(id).trim()).filter(Boolean)
         : [];
@@ -41,6 +44,20 @@ router.post('/upload', async (req, res) => {
           [day.date, campaignId, campaignName, Number(day.cost) || 0]
         );
         rowsUpserted += 1;
+      }
+
+      for (const day of revenueDays) {
+        if (!day || !day.date) continue;
+        await client.query(
+          `INSERT INTO ad_expenses (expense_date, campaign_id, campaign_name, gmv, transactions, uploaded_at)
+           VALUES ($1, $2, $3, $4, $5, now())
+           ON CONFLICT (expense_date, campaign_id) DO UPDATE SET
+             campaign_name = EXCLUDED.campaign_name,
+             gmv = EXCLUDED.gmv,
+             transactions = EXCLUDED.transactions,
+             uploaded_at = now()`,
+          [day.date, campaignId, campaignName, Number(day.gmv) || 0, Number(day.transactions) || 0]
+        );
       }
 
       // Привязку товаров к кампании держим свежей — стираем старую и записываем то, что
@@ -71,10 +88,10 @@ function isValidDate(str) {
   return /^\d{4}-\d{2}-\d{2}$/.test(str);
 }
 
-// Данные для дашборда на странице "Маркетинг" — общая сумма за период, разбивка по дням
-// (для графика) и по кампаниям (для таблицы, вместе с привязанными к ним товарами).
-// Если передан campaign_id — всё считается только по этой одной кампании (для дашборда
-// конкретного товара).
+// Данные для дашборда на странице "Маркетинг" — общие суммы за период, разбивка по дням
+// (для графика — расходы и выручка по рекламе вместе) и по кампаниям (для таблицы, вместе
+// с привязанными к ним товарами). Если передан campaign_id — всё считается только по этой
+// одной кампании (для дашборда конкретного товара).
 router.get('/', async (req, res) => {
   const { from, to, campaign_id: campaignId } = req.query;
   if (!isValidDate(from) || !isValidDate(to)) {
@@ -87,7 +104,7 @@ router.get('/', async (req, res) => {
 
     const [byDayResult, byCampaignResult, productsResult] = await Promise.all([
       pool.query(
-        `SELECT to_char(expense_date, 'YYYY-MM-DD') AS day, SUM(cost) AS cost
+        `SELECT to_char(expense_date, 'YYYY-MM-DD') AS day, SUM(cost) AS cost, SUM(gmv) AS gmv
          FROM ad_expenses
          WHERE expense_date BETWEEN $1 AND $2 ${campaignFilter}
          GROUP BY day
@@ -95,7 +112,7 @@ router.get('/', async (req, res) => {
         params
       ),
       pool.query(
-        `SELECT campaign_id, campaign_name, SUM(cost) AS cost
+        `SELECT campaign_id, campaign_name, SUM(cost) AS cost, SUM(gmv) AS gmv, SUM(transactions) AS transactions
          FROM ad_expenses
          WHERE expense_date BETWEEN $1 AND $2 ${campaignFilter}
          GROUP BY campaign_id, campaign_name
@@ -111,16 +128,19 @@ router.get('/', async (req, res) => {
       productIdsByCampaign.get(row.campaign_id).push(row.product_id);
     }
 
-    const byDay = byDayResult.rows.map((r) => ({ day: r.day, cost: Number(r.cost) }));
+    const byDay = byDayResult.rows.map((r) => ({ day: r.day, cost: Number(r.cost), gmv: Number(r.gmv) }));
     const byCampaign = byCampaignResult.rows.map((r) => ({
       campaign_id: r.campaign_id,
       campaign_name: r.campaign_name,
       cost: Number(r.cost),
+      gmv: Number(r.gmv),
+      transactions: Number(r.transactions),
       product_ids: productIdsByCampaign.get(r.campaign_id) || [],
     }));
     const totalCost = byCampaign.reduce((sum, c) => sum + c.cost, 0);
+    const totalAdRevenue = byCampaign.reduce((sum, c) => sum + c.gmv, 0);
 
-    res.json({ totalCost, byDay, byCampaign });
+    res.json({ totalCost, totalAdRevenue, byDay, byCampaign });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить данные по рекламным расходам' });
@@ -132,7 +152,7 @@ router.get('/summary', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT campaign_id, campaign_name, MIN(expense_date) AS from_date, MAX(expense_date) AS to_date,
-              SUM(cost) AS total_cost, COUNT(*) AS days_count
+              SUM(cost) AS total_cost, SUM(gmv) AS total_gmv, COUNT(*) AS days_count
        FROM ad_expenses
        GROUP BY campaign_id, campaign_name
        ORDER BY campaign_name`
