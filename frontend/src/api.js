@@ -84,6 +84,10 @@ export function fetchSummaryProfit(password, from, to, mode = 'main') {
   return apiRequest(`/api/stats/summary-profit?from=${from}&to=${to}&mode=${mode}`, password);
 }
 
+export function fetchAdExpenses(password, from, to) {
+  return apiRequest(`/api/ad-expenses?from=${from}&to=${to}`, password);
+}
+
 export function fetchProductStats(password, productId, from, to, mode = 'main') {
   return apiRequest(`/api/stats/product/${encodeURIComponent(productId)}?from=${from}&to=${to}&mode=${mode}`, password);
 }

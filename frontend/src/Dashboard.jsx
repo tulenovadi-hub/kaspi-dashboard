@@ -7,11 +7,10 @@ import Warehouse from './Warehouse.jsx';
 import Expenses from './Expenses.jsx';
 import Orders from './Orders.jsx';
 import Settings from './Settings.jsx';
+import Marketing from './Marketing.jsx';
 import ComingSoon from './ComingSoon.jsx';
 
-const SECTION_TITLES = {
-  marketing: 'Маркетинг',
-};
+const SECTION_TITLES = {};
 
 export default function Dashboard({ password, username, role, onLogout }) {
   const allowedPages = ROLE_PAGES[role] || ROLE_PAGES.manager;
@@ -99,6 +98,14 @@ export default function Dashboard({ password, username, role, onLogout }) {
       return (
         <div key={key} style={style}>
           <Settings password={password} username={username} />
+        </div>
+      );
+    }
+
+    if (key === 'marketing') {
+      return (
+        <div key={key} style={style}>
+          <Marketing password={password} />
         </div>
       );
     }
