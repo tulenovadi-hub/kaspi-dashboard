@@ -153,6 +153,23 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);`);
 
+  // Расходы на рекламу (сервис "Маркетинг" в Kaspi Pay) — по дням и по конкретным рекламным
+  // кампаниям (кампания = один товар). Официального API для этого нет, данные заливаются либо
+  // вручную, либо через пользовательский скрипт (Tampermonkey), который дёргает внутренний,
+  // недокументированный эндпоинт marketing.kaspi.kz от имени залогиненного пользователя в браузере.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ad_expenses (
+      id SERIAL PRIMARY KEY,
+      expense_date DATE NOT NULL,
+      campaign_id TEXT NOT NULL,
+      campaign_name TEXT,
+      cost NUMERIC NOT NULL DEFAULT 0,
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (expense_date, campaign_id)
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ad_expenses_date ON ad_expenses(expense_date);`);
+
   // Пользователи сайта с ролями. Раньше был один общий пароль на всех (DASHBOARD_PASSWORD) —
   // теперь у каждого свой логин/пароль. role: 'admin' | 'manager' | 'marketer'.
   await pool.query(`
@@ -188,7 +205,7 @@ async function initDb() {
     console.log('Создан пользователь по умолчанию: admin / (старый общий пароль сайта). Обязательно смените его в Настройках!');
   }
 
-  console.log('База данных готова: таблицы orders, order_items, product_batches, kaspi_pay_transactions, product_images, expenses, users и sessions на месте.');
+  console.log('База данных готова: таблицы orders, order_items, product_batches, kaspi_pay_transactions, product_images, expenses, ad_expenses, users и sessions на месте.');
 }
 
 module.exports = { pool, initDb };
