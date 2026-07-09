@@ -14,6 +14,16 @@ export function daysAgo(n) {
   return new Date(almatyNow.getTime() - ALMATY_OFFSET);
 }
 
+// 1-е число текущего месяца (по алматинскому времени) — используется как дефолтное начало
+// периода на Главной и Маркетинге: "с начала месяца по сегодня".
+export function startOfMonth() {
+  const now = new Date();
+  const almatyNow = new Date(now.getTime() + ALMATY_OFFSET);
+  almatyNow.setUTCDate(1);
+  almatyNow.setUTCHours(0, 0, 0, 0);
+  return new Date(almatyNow.getTime() - ALMATY_OFFSET);
+}
+
 export function formatMoney(value) {
   const num = Number(value || 0);
   return new Intl.NumberFormat('ru-RU').format(Math.round(num)) + ' ₸';

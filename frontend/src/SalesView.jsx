@@ -5,12 +5,12 @@ import SalesChart from './SalesChart.jsx';
 import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
 import { fetchSummary, fetchProducts, fetchSummaryProfit, triggerSync } from './api.js';
-import { toISODate, daysAgo, formatMoney, formatNumber } from './dateUtils.js';
+import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber } from './dateUtils.js';
 
 export default function SalesView({ password, onLogout, mode, title, showSync }) {
-  const [from, setFrom] = useState(toISODate(daysAgo(6)));
+  const [from, setFrom] = useState(toISODate(startOfMonth()));
   const [to, setTo] = useState(toISODate(daysAgo(0)));
-  const [presetKey, setPresetKey] = useState('7days');
+  const [presetKey, setPresetKey] = useState('month');
 
   const [summaryDays, setSummaryDays] = useState([]);
   const [products, setProducts] = useState([]);

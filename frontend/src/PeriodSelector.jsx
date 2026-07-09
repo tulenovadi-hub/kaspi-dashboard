@@ -1,5 +1,5 @@
 import React from 'react';
-import { toISODate, daysAgo } from './dateUtils.js';
+import { toISODate, daysAgo, startOfMonth } from './dateUtils.js';
 
 const PRESETS = [
   { key: 'today', label: 'Сегодня', from: () => daysAgo(0), to: () => daysAgo(0) },
@@ -7,6 +7,7 @@ const PRESETS = [
   { key: '7days', label: '7 дней', from: () => daysAgo(6), to: () => daysAgo(0) },
   { key: '14days', label: '14 дней', from: () => daysAgo(13), to: () => daysAgo(0) },
   { key: '30days', label: '30 дней', from: () => daysAgo(29), to: () => daysAgo(0) },
+  { key: 'month', label: 'С начала месяца', from: () => startOfMonth(), to: () => daysAgo(0) },
 ];
 
 export default function PeriodSelector({ from, to, activePreset, onChange }) {

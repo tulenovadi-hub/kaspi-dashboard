@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchAdExpenses, fetchSummary, fetchProducts } from './api.js';
-import { formatMoney, formatNumber, toISODate, daysAgo } from './dateUtils.js';
+import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './dateUtils.js';
 import PeriodSelector from './PeriodSelector.jsx';
 import SalesChart from './SalesChart.jsx';
 
@@ -24,9 +24,9 @@ function DrrCard({ cost, revenue }) {
 }
 
 export default function Marketing({ password }) {
-  const [from, setFrom] = useState(() => toISODate(daysAgo(29)));
+  const [from, setFrom] = useState(() => toISODate(startOfMonth()));
   const [to, setTo] = useState(() => toISODate(daysAgo(0)));
-  const [presetKey, setPresetKey] = useState('30days');
+  const [presetKey, setPresetKey] = useState('month');
   const [data, setData] = useState({ totalCost: 0, byDay: [], byCampaign: [] });
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [products, setProducts] = useState([]);
