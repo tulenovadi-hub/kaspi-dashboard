@@ -4,19 +4,13 @@ import { formatMoney, formatNumber, toISODate, daysAgo } from './dateUtils.js';
 import PeriodSelector from './PeriodSelector.jsx';
 import SalesChart from './SalesChart.jsx';
 
-// Ищем товар, соответствующий названию рекламной кампании — точного совпадения кода товара
-// у нас нет (Kaspi даёт кампаниям своё, часто сокращённое название), поэтому сопоставляем
-// по вхождению строки в любую сторону. Если совпадений несколько или нет вовсе — вернём null,
-// и ДРР по этому товару просто не покажем (лучше честно показать "—", чем взять не тот товар).
-function findMatchingProduct(products, campaignName) {
-  if (!campaignName) return null;
-  const needle = campaignName.trim().toLowerCase();
-  if (!needle) return null;
-  const matches = products.filter((p) => {
-    const name = (p.product_name || '').toLowerCase();
-    return name.includes(needle) || needle.includes(name);
-  });
-  return matches.length === 1 ? matches[0] : null;
+// Считает суммарную выручку товаров, привязанных к кампании (по её product_ids, полученным
+// от Tampermonkey-скрипта через merchantSku) — точное совпадение, без угадывания по названию.
+function getMatchedRevenue(products, productIds) {
+  if (!productIds || productIds.length === 0) return null;
+  const matched = products.filter((p) => productIds.includes(p.product_id));
+  if (matched.length === 0) return null;
+  return matched.reduce((sum, p) => sum + Number(p.total_revenue || 0), 0);
 }
 
 function DrrCard({ cost, revenue }) {
@@ -78,7 +72,7 @@ export default function Marketing({ password }) {
   }
 
   const hasData = data.byCampaign.length > 0;
-  const matchedProduct = selectedCampaign ? findMatchingProduct(products, selectedCampaign.campaign_name) : null;
+  const matchedRevenue = selectedCampaign ? getMatchedRevenue(products, selectedCampaign.product_ids) : null;
 
   return (
     <div>
@@ -130,17 +124,18 @@ export default function Marketing({ password }) {
                 <div className="stats-row-3" style={{ marginBottom: 20 }}>
                   <div className="stat-card">
                     <div className="stat-label">Сумма продаж за период</div>
-                    <div className="stat-value">{matchedProduct ? formatMoney(matchedProduct.total_revenue) : '—'}</div>
+                    <div className="stat-value">{matchedRevenue !== null ? formatMoney(matchedRevenue) : '—'}</div>
                   </div>
                   <div className="stat-card">
                     <div className="stat-label">Расходы на рекламу за период</div>
                     <div className="stat-value" style={{ color: '#ff6b6b' }}>{formatMoney(campaignData.totalCost)}</div>
                   </div>
-                  <DrrCard cost={campaignData.totalCost} revenue={matchedProduct ? matchedProduct.total_revenue : 0} />
+                  <DrrCard cost={campaignData.totalCost} revenue={matchedRevenue || 0} />
                 </div>
-                {!matchedProduct && (
+                {matchedRevenue === null && (
                   <div style={{ color: '#6b7690', fontSize: 12, marginBottom: 12 }}>
-                    Не удалось однозначно сопоставить название кампании с товаром в каталоге — «Сумма продаж» и «ДРР» для этого товара не показаны.
+                    Для этой кампании ещё нет привязки к товару — переустановите Tampermonkey-скрипт (обновлённая версия
+                    передаёт merchantSku) и заново нажмите «Выгрузить расходы в дашборд».
                   </div>
                 )}
                 <SalesChart data={campaignData.byDay} dataKey="cost" />
@@ -170,7 +165,7 @@ export default function Marketing({ password }) {
                         <tr
                           key={c.campaign_id}
                           className="batch-row"
-                          onClick={() => setSelectedCampaign({ campaign_id: c.campaign_id, campaign_name: c.campaign_name })}
+                          onClick={() => setSelectedCampaign({ campaign_id: c.campaign_id, campaign_name: c.campaign_name, product_ids: c.product_ids })}
                         >
                           <td>{c.campaign_name || c.campaign_id}</td>
                           <td className="num">{formatMoney(c.cost)}</td>
@@ -192,8 +187,7 @@ export default function Marketing({ password }) {
         Данные заливаются вручную через Tampermonkey-скрипт со страницы кампаний Kaspi Pay (marketing.kaspi.kz) —
         официального API для расходов на рекламу у Kaspi нет. Эти цифры пока нигде больше на сайте не используются
         (не влияют на «Прочие расходы» в Отчёте и на «Чистую прибыль») — это отдельная, самостоятельная сводка.
-        ДРР по конкретному товару считается только если название рекламной кампании однозначно совпало с названием
-        товара в каталоге — Kaspi даёт кампаниям своё, часто сокращённое название, так что совпадает не всегда.
+        Привязка кампании к товару — точная, по merchantSku (вашему коду товара), а не по названию кампании.
         Нажмите на строку кампании, чтобы увидеть график расходов именно по этому товару.
       </div>
     </div>
