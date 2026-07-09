@@ -169,6 +169,12 @@ async function initDb() {
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_ad_expenses_date ON ad_expenses(expense_date);`);
+  // Выручка "по рекламе" (gmv) и число заказов — теперь по дням (как и cost), через тот же
+  // недокументированный "дневной" эндпоинт Kaspi (.../overview/daily/{id}/transactions).
+  // Раньше это можно было получить только суммой за весь период (см. ad_campaign_period_stats
+  // ниже — она больше не используется, но оставлена в базе, ничего страшного).
+  await pool.query(`ALTER TABLE ad_expenses ADD COLUMN IF NOT EXISTS gmv NUMERIC NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE ad_expenses ADD COLUMN IF NOT EXISTS transactions INTEGER NOT NULL DEFAULT 0;`);
 
   // Привязка рекламной кампании к конкретным товарам — по merchantSku (= ваш собственный код
   // товара, тот же самый product_id, что используется везде в дашборде: Склад, Заказы, Поставки).
@@ -180,6 +186,27 @@ async function initDb() {
       product_id TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (campaign_id, product_id)
+    );
+  `);
+
+  // Выручка "по рекламе" (gmv) и число заказов по кампании — Kaspi отдаёт это только
+  // суммой за весь период целиком (не по дням, в отличие от cost), поэтому храним привязанной
+  // к конкретному периоду выгрузки. На странице "Маркетинг" эти цифры показываются, только
+  // если выбранный там период ТОЧНО совпадает с периодом, за который данные выгружались —
+  // иначе честно показываем "—" (не пытаемся домысливать за произвольный период).
+  //
+  // УСТАРЕЛО: нашёлся дневной эндпоинт для transactions/gmv (аналог cost) — теперь эти данные
+  // хранятся по дням прямо в ad_expenses (колонки gmv, transactions). Таблицу оставляем в базе
+  // (вдруг ещё пригодится), но больше никуда не пишем и не читаем из неё.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ad_campaign_period_stats (
+      campaign_id TEXT NOT NULL,
+      period_from DATE NOT NULL,
+      period_to DATE NOT NULL,
+      gmv NUMERIC NOT NULL DEFAULT 0,
+      transactions INTEGER NOT NULL DEFAULT 0,
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (campaign_id, period_from, period_to)
     );
   `);
 
