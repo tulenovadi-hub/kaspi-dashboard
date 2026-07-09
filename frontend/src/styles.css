@@ -376,6 +376,20 @@ select:focus-visible {
   }
 }
 
+/* Вариант с тремя карточками (страница "Маркетинг") — на мобильном тоже схлопывается в одну колонку */
+.stats-row-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 900px) {
+  .stats-row-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
 .stat-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
