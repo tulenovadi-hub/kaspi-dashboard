@@ -88,7 +88,13 @@ export default function Analyst({ password }) {
     setError('');
     setReport('');
     fetchAnalystReport(password, from, to)
-      .then((res) => setReport(res.report))
+      .then((res) => {
+        if (!res.report) {
+          setError('AI вернул пустой ответ. Попробуйте сформировать отчёт ещё раз.');
+        } else {
+          setReport(res.report);
+        }
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }

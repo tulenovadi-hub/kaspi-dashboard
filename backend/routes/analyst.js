@@ -117,7 +117,8 @@ async function getMarketingText(from, to) {
      FROM ad_expenses
      WHERE expense_date BETWEEN $1 AND $2
      GROUP BY campaign_name
-     ORDER BY cost DESC`,
+     ORDER BY cost DESC
+     LIMIT 25`,
     [from, to]
   );
   if (result.rows.length === 0) return 'Данные по рекламе не загружены за этот период.';
@@ -204,7 +205,7 @@ ${expenses}`;
       'https://api.anthropic.com/v1/messages',
       {
         model: 'claude-sonnet-5',
-        max_tokens: 2000,
+        max_tokens: 8192,
         messages: [{ role: 'user', content: prompt }],
       },
       {
@@ -213,7 +214,7 @@ ${expenses}`;
           'anthropic-version': '2023-06-01',
           'Content-Type': 'application/json',
         },
-        timeout: 60000,
+        timeout: 120000,
       }
     );
 
