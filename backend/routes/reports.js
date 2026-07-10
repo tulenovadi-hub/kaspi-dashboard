@@ -265,3 +265,7 @@ router.get('/monthly', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.aggregateKaspiPayMonthly = aggregateKaspiPayMonthly;
+module.exports.fetchOtherExpensesByMonth = fetchOtherExpensesByMonth;
+module.exports.MAIN_CITIES = MAIN_CITIES;
+module.exports.SELF_BUY_CITIES = SELF_BUY_CITIES;
