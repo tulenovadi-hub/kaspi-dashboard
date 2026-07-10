@@ -8,6 +8,7 @@ import Expenses from './Expenses.jsx';
 import Orders from './Orders.jsx';
 import Settings from './Settings.jsx';
 import Marketing from './Marketing.jsx';
+import Analyst from './Analyst.jsx';
 import ComingSoon from './ComingSoon.jsx';
 
 const SECTION_TITLES = {};
@@ -106,6 +107,14 @@ export default function Dashboard({ password, username, role, onLogout }) {
       return (
         <div key={key} style={style}>
           <Marketing password={password} />
+        </div>
+      );
+    }
+
+    if (key === 'analyst') {
+      return (
+        <div key={key} style={style}>
+          <Analyst password={password} />
         </div>
       );
     }

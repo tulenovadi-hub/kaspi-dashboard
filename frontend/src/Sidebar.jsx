@@ -41,11 +41,14 @@ const icons = {
   orders: (
     <svg viewBox="0 0 20 20" fill="none"><rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M6.5 7.5h7M6.5 10.5h7M6.5 13.5h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
   ),
+  analyst: (
+    <svg viewBox="0 0 20 20" fill="none"><path d="M10 2.5a5.5 5.5 0 013 10.1V14a1 1 0 01-1 1H8a1 1 0 01-1-1v-1.4A5.5 5.5 0 0110 2.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M8.5 17h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M9 8.5l1 1.5 2-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+  ),
 };
 
 // Какие пункты меню видит каждая роль
 const ROLE_PAGES = {
-  admin: ['sales', 'report', 'selfbuy', 'orders', 'expenses', 'batches', 'warehouse', 'marketing', 'settings'],
+  admin: ['sales', 'report', 'selfbuy', 'orders', 'expenses', 'batches', 'warehouse', 'marketing', 'analyst', 'settings'],
   manager: ['sales', 'selfbuy', 'orders', 'warehouse'],
   marketer: ['sales', 'selfbuy', 'orders', 'warehouse', 'marketing'],
 };
@@ -59,6 +62,7 @@ const NAV_ITEMS = [
   { key: 'batches', label: 'Поставки', icon: 'batches' },
   { key: 'warehouse', label: 'Склад', icon: 'warehouse' },
   { key: 'marketing', label: 'Маркетинг', icon: 'marketing' },
+  { key: 'analyst', label: 'AI Финансист', icon: 'analyst' },
   { key: 'settings', label: 'Настройки', icon: 'settings' },
 ];
 
