@@ -17,12 +17,22 @@ router.post('/upload', async (req, res) => {
     return res.status(400).json({ error: 'Нужен непустой список campaigns' });
   }
 
+  // Если клиент оборвал соединение (например, обновил страницу, не дождавшись ответа), Node сам
+  // по себе НЕ прерывает уже начатую обработку запроса — цикл ниже продолжил бы дозаписывать все
+  // оставшиеся строки впустую, попутно держа занятым одно из немногих соединений к базе (пул общий
+  // на весь дашборд). Поэтому сами следим за обрывом и прерываем работу при первой возможности.
+  let aborted = false;
+  res.on('close', () => {
+    if (!res.writableEnded) aborted = true;
+  });
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     let rowsUpserted = 0;
 
     for (const campaign of campaigns) {
+      if (aborted) break;
       const campaignId = String(campaign.id || '').trim();
       const campaignName = campaign.name || null;
       const days = Array.isArray(campaign.days) ? campaign.days : [];
@@ -33,6 +43,7 @@ router.post('/upload', async (req, res) => {
       if (!campaignId) continue;
 
       for (const day of days) {
+        if (aborted) break;
         if (!day || !day.date) continue;
         await client.query(
           `INSERT INTO ad_expenses (expense_date, campaign_id, campaign_name, cost, uploaded_at)
@@ -47,6 +58,7 @@ router.post('/upload', async (req, res) => {
       }
 
       for (const day of revenueDays) {
+        if (aborted) break;
         if (!day || !day.date) continue;
         await client.query(
           `INSERT INTO ad_expenses (expense_date, campaign_id, campaign_name, gmv, transactions, uploaded_at)
@@ -71,6 +83,11 @@ router.post('/upload', async (req, res) => {
           [campaignId, productId]
         );
       }
+    }
+
+    if (aborted) {
+      await client.query('ROLLBACK');
+      return; // клиента уже нет — отправлять ответ некому
     }
 
     await client.query('COMMIT');
