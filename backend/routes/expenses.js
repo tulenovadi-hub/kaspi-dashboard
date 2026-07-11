@@ -1,9 +1,12 @@
 const express = require('express');
 const axios = require('axios');
 const XLSX = require('xlsx');
+const multer = require('multer');
 const { pool } = require('../db');
+const { parseFFReport } = require('../ffExpenseParser');
 
 const router = express.Router();
+const uploadFF = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // Лист "Расход" в гугл-таблице владельца. Доступ открыт по ссылке ("Все у кого есть ссылка → Читатель"),
 // поэтому можно читать через публичный CSV-экспорт Google Sheets, без ключей и сервисных аккаунтов.
@@ -115,6 +118,90 @@ router.post('/sync', async (req, res) => {
   }
 
   res.json({ ok: true, processed: records.length });
+});
+
+// Загрузка PDF-отчёта от фулфилмент-центра — либо "ФФ услуга" (упаковка/обработка по заказам),
+// либо "Хранение" (аренда склада по дням). Тип определяется автоматически внутри parseFFReport.
+// Для строк "ФФ услуги" код заказа сопоставляется с orders.code, чтобы взять настоящую дату
+// заказа (а значит — правильный месяц); если заказ не нашёлся (не синхронизирован, самовыкуп,
+// либо в строке вообще не было кода заказа), расход относим на дату конца периода отчёта —
+// так сумма из отчёта не теряется, просто целиком уходит в последний месяц периода.
+router.post('/upload-ff', uploadFF.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Файл не загружен' });
+  }
+
+  let parsed;
+  try {
+    parsed = await parseFFReport(req.file.buffer);
+  } catch (err) {
+    console.error(err);
+    return res.status(400).json({ error: err.message || 'Не удалось прочитать PDF-отчёт' });
+  }
+
+  if (parsed.rows.length === 0) {
+    return res.status(400).json({ error: 'В файле не найдено ни одной строки с данными' });
+  }
+
+  let matchedOrders = 0;
+  let unmatchedOrders = 0;
+
+  if (parsed.type === 'packaging') {
+    const orderNumbers = Array.from(new Set(parsed.rows.map((r) => r.orderNumber).filter(Boolean)));
+    const ordersResult = orderNumbers.length > 0
+      ? await pool.query(`SELECT code, creation_date FROM orders WHERE code = ANY($1::text[])`, [orderNumbers])
+      : { rows: [] };
+    const dateByCode = new Map(ordersResult.rows.map((r) => [r.code, r.creation_date]));
+
+    for (const row of parsed.rows) {
+      const orderDate = row.orderNumber ? dateByCode.get(row.orderNumber) : null;
+      if (orderDate) {
+        row.expenseDate = new Date(orderDate).toISOString().slice(0, 10);
+        matchedOrders += 1;
+      } else {
+        row.expenseDate = parsed.periodTo;
+        unmatchedOrders += 1;
+      }
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    let totalAmount = 0;
+    for (const row of parsed.rows) {
+      if (!row.expenseDate) continue;
+      await client.query(
+        `INSERT INTO ff_expenses (row_key, type, expense_date, amount, order_number)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (row_key) DO UPDATE SET
+           expense_date = EXCLUDED.expense_date,
+           amount = EXCLUDED.amount,
+           order_number = EXCLUDED.order_number,
+           uploaded_at = now()`,
+        [row.rowKey, parsed.type, row.expenseDate, row.amount, row.orderNumber || null]
+      );
+      totalAmount += row.amount;
+    }
+    await client.query('COMMIT');
+
+    res.json({
+      ok: true,
+      type: parsed.type,
+      periodFrom: parsed.periodFrom,
+      periodTo: parsed.periodTo,
+      rowsProcessed: parsed.rows.length,
+      totalAmount,
+      matchedOrders: parsed.type === 'packaging' ? matchedOrders : null,
+      unmatchedOrders: parsed.type === 'packaging' ? unmatchedOrders : null,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось сохранить расходы в базу' });
+  } finally {
+    client.release();
+  }
 });
 
 router.get('/', async (req, res) => {

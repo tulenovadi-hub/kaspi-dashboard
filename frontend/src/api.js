@@ -135,6 +135,12 @@ export function uploadKaspiPayReport(password, file) {
   return apiRequest('/api/reports/upload', password, { method: 'POST', body: formData });
 }
 
+export function uploadFFReport(password, file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiRequest('/api/expenses/upload-ff', password, { method: 'POST', body: formData });
+}
+
 export function fetchMonthlyReport(password) {
   return apiRequest('/api/reports/monthly', password);
 }
