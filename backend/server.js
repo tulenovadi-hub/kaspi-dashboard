@@ -21,7 +21,9 @@ const analystRoutes = require('./routes/analyst');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// Лимит по умолчанию (100kb) слишком мал для выгрузки расходов на рекламу за длинные периоды —
+// Tampermonkey-скрипт может прислать десятки кампаний с ежедневными данными за много месяцев.
+app.use(express.json({ limit: '25mb' }));
 
 // Авторизация по токену сессии: фронтенд присылает токен в заголовке X-Session-Token,
 // сервер проверяет его в базе и подставляет req.user = { id, username, role }.
