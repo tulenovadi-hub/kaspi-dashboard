@@ -311,7 +311,9 @@ async function getProductBreakdownForMonth(month, warehouses) {
     const netRevenue = p.revenue - returns;
     const taxes = netRevenue > 0 ? netRevenue * TAX_RATE : 0;
     const netProfit = netRevenue - costOfGoods - commission - delivery - taxes - marketing;
-    const totalExpenses = costOfGoods + commission + delivery + taxes + marketing;
+    // ROI считается только от "вложений" в товар (себестоимость + маркетинг) — комиссия, доставка
+    // и налоги в знаменатель не входят, это не инвестиция, а транзакционные издержки Kaspi.
+    const totalExpenses = costOfGoods + marketing;
     const margin = netRevenue !== 0 ? (netProfit / netRevenue) * 100 : null;
     const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 
@@ -438,7 +440,10 @@ router.get('/monthly', async (req, res) => {
       const marketing = marketingByMonth[row.month] || 0;
       const ffServices = ffServicesByMonth[row.month] || 0;
       const netProfit = row.net_profit - otherExpenses - marketing - ffServices;
-      const totalExpenses = row.cost_of_goods + row.commission + row.delivery + row.taxes + marketing + ffServices + otherExpenses;
+      // ROI = чистая прибыль / (себестоимость + маркетинг + услуги ФФ + прочие расходы) —
+      // комиссия, доставка и налоги в знаменатель не входят, это не инвестиция, а транзакционные
+      // издержки Kaspi.
+      const totalExpenses = row.cost_of_goods + marketing + ffServices + otherExpenses;
       const margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
       const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 

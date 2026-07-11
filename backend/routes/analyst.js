@@ -37,7 +37,9 @@ async function getMonthlyReportText() {
     const marketing = marketingByMonth[row.month] || 0;
     const ffServices = ffServicesByMonth[row.month] || 0;
     const netProfit = row.net_profit - otherExpenses - marketing - ffServices;
-    const totalExpenses = row.cost_of_goods + row.commission + row.delivery + row.taxes + marketing + ffServices + otherExpenses;
+    // ROI = чистая прибыль / (себестоимость + маркетинг + услуги ФФ + прочие расходы) — та же
+    // формула, что и на странице "Отчёт" (комиссия/доставка/налоги в знаменатель не входят).
+    const totalExpenses = row.cost_of_goods + marketing + ffServices + otherExpenses;
     const margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
     const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
     return { ...row, marketing, ff_services: ffServices, other_expenses: otherExpenses, net_profit: netProfit, margin, roi };
