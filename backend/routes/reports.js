@@ -236,12 +236,15 @@ async function fetchOtherExpensesByMonth() {
 // возвратов в Excel-отчёте Kaspi Pay привязаны только к заказу целиком, а не к конкретному товару
 // внутри него — поэтому эти три величины распределяются между товарами заказа пропорционально их
 // доле в выручке заказа (сумме order_items.total_price). Для заказов с одним товаром это точно,
-// для заказов с несколькими товарами — обоснованная оценка. "Прочие расходы" на уровне товара
-// не считаем вообще (см. фронтенд) — эта категория расходов бизнеса, а не конкретного товара.
+// для заказов с несколькими товарами — обоснованная оценка. Маркетинг разносится по товарам через
+// привязку кампания→товар (ad_campaign_products) — точнее, чем проценты выше, но тоже поровну между
+// товарами одной кампании, если их несколько. "Прочие расходы" на уровне товара не считаем вообще
+// (см. фронтенд) — эта категория расходов бизнеса в целом, а не конкретного товара.
 async function getProductBreakdownForMonth(month, warehouses) {
   const { cogsByProductMonth, returnsCostByProductMonth } = await computeCosts(warehouses);
   const productCogs = cogsByProductMonth[month] || {};
   const productReturnsCost = returnsCostByProductMonth[month] || {};
+  const productMarketing = await getMarketingByProductForMonth(month);
 
   const ordersResult = await pool.query(
     `SELECT kpt.order_number,
@@ -301,13 +304,14 @@ async function getProductBreakdownForMonth(month, warehouses) {
   const rows = Array.from(products.values()).map((p) => {
     const costOfGoods = productCogs[p.product_id] || 0;
     const costOfReturns = productReturnsCost[p.product_id] || 0;
+    const marketing = productMarketing[p.product_id] || 0;
     const returns = -p.returnsRaw;
     const commission = -p.commissionRaw;
     const delivery = -p.deliveryRaw;
     const netRevenue = p.revenue - returns;
     const taxes = netRevenue > 0 ? netRevenue * TAX_RATE : 0;
-    const netProfit = netRevenue - costOfGoods - commission - delivery - taxes;
-    const totalExpenses = costOfGoods + commission + delivery + taxes;
+    const netProfit = netRevenue - costOfGoods - commission - delivery - taxes - marketing;
+    const totalExpenses = costOfGoods + commission + delivery + taxes + marketing;
     const margin = netRevenue !== 0 ? (netProfit / netRevenue) * 100 : null;
     const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 
@@ -321,6 +325,7 @@ async function getProductBreakdownForMonth(month, warehouses) {
       commission,
       delivery,
       taxes,
+      marketing,
       net_profit: netProfit,
       margin,
       roi,
@@ -329,6 +334,43 @@ async function getProductBreakdownForMonth(month, warehouses) {
 
   rows.sort((a, b) => b.revenue - a.revenue);
   return rows;
+}
+
+// Расходы на рекламу по товарам за месяц — сумма cost по каждой кампании из ad_expenses,
+// разнесённая по товарам через ad_campaign_products (кампания обычно привязана к одному товару,
+// но если к нескольким — делим расход поровну между ними). Кампании без сохранённой привязки
+// к товару в разбивку по товарам не попадают (их расход остаётся только в сумме по месяцу).
+async function getMarketingByProductForMonth(month) {
+  const costResult = await pool.query(
+    `SELECT campaign_id, SUM(cost) AS total_cost
+     FROM ad_expenses
+     WHERE to_char(expense_date, 'YYYY-MM') = $1
+     GROUP BY campaign_id`,
+    [month]
+  );
+  if (costResult.rows.length === 0) return {};
+
+  const campaignIds = costResult.rows.map((r) => r.campaign_id);
+  const productsResult = await pool.query(
+    `SELECT campaign_id, product_id FROM ad_campaign_products WHERE campaign_id = ANY($1::text[])`,
+    [campaignIds]
+  );
+  const productsByCampaign = new Map();
+  for (const row of productsResult.rows) {
+    if (!productsByCampaign.has(row.campaign_id)) productsByCampaign.set(row.campaign_id, []);
+    productsByCampaign.get(row.campaign_id).push(row.product_id);
+  }
+
+  const marketingByProduct = {};
+  for (const row of costResult.rows) {
+    const productIds = productsByCampaign.get(row.campaign_id) || [];
+    if (productIds.length === 0) continue;
+    const share = Number(row.total_cost) / productIds.length;
+    for (const productId of productIds) {
+      marketingByProduct[productId] = (marketingByProduct[productId] || 0) + share;
+    }
+  }
+  return marketingByProduct;
 }
 
 // Расходы на рекламу по месяцам (ad_expenses, заливается вручную через Tampermonkey-скрипт
