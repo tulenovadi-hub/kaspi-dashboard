@@ -94,6 +94,11 @@ export function fetchBonusExpenses(password, from, to, campaignId) {
   return apiRequest(`/api/bonus-expenses?from=${from}&to=${to}${campaignParam}`, password);
 }
 
+export function fetchReviewBonusExpenses(password, from, to, campaignId) {
+  const campaignParam = campaignId ? `&campaign_id=${encodeURIComponent(campaignId)}` : '';
+  return apiRequest(`/api/review-bonus-expenses?from=${from}&to=${to}${campaignParam}`, password);
+}
+
 export function fetchAnalystReport(password, from, to) {
   return apiRequest(`/api/analyst/report?from=${from}&to=${to}`, password);
 }

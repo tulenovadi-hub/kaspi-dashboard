@@ -4,7 +4,16 @@ import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './d
 import PeriodSelector from './PeriodSelector.jsx';
 import BonusChart from './BonusChart.jsx';
 
-export default function Bonuses({ password }) {
+// Одинаковая страница используется для двух разных программ бонусов Kaspi (от продавца и за
+// отзыв) — структура данных (расход по дням/по кампаниям, без выручки) у них идентична, разные
+// только источник данных (fetchExpenses) и подписи. fetchExpenses по умолчанию — "Бонусы от
+// продавца"; для "Бонусы за отзыв" достаточно передать другую функцию и подписи снаружи.
+export default function Bonuses({
+  password,
+  fetchExpenses = fetchBonusExpenses,
+  subtitle = 'от продавца',
+  pageLabel = '«Бонусы от продавца»',
+}) {
   const [from, setFrom] = useState(() => toISODate(startOfMonth()));
   const [to, setTo] = useState(() => toISODate(daysAgo(0)));
   const [presetKey, setPresetKey] = useState('month');
@@ -18,21 +27,21 @@ export default function Bonuses({ password }) {
   useEffect(() => {
     setLoading(true);
     setError('');
-    fetchBonusExpenses(password, from, to)
+    fetchExpenses(password, from, to)
       .then((res) => setData(res))
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [password, from, to]);
+  }, [password, from, to, fetchExpenses]);
 
   // Данные конкретной кампании — грузятся отдельно, только когда выбрана строка в таблице
   useEffect(() => {
     if (!selectedCampaign) return;
     setCampaignLoading(true);
-    fetchBonusExpenses(password, from, to, selectedCampaign.campaign_id)
+    fetchExpenses(password, from, to, selectedCampaign.campaign_id)
       .then((res) => setCampaignData(res))
       .catch((err) => setError(err.message))
       .finally(() => setCampaignLoading(false));
-  }, [password, from, to, selectedCampaign]);
+  }, [password, from, to, selectedCampaign, fetchExpenses]);
 
   function handlePeriodChange({ from: newFrom, to: newTo, presetKey: newPreset }) {
     setFrom(newFrom);
@@ -45,7 +54,7 @@ export default function Bonuses({ password }) {
   return (
     <div>
       <div className="app-header">
-        <h1 className="app-title">Бонусы <span>от продавца</span></h1>
+        <h1 className="app-title">Бонусы <span>{subtitle}</span></h1>
       </div>
 
       <PeriodSelector from={from} to={to} activePreset={presetKey} onChange={handlePeriodChange} />
@@ -91,7 +100,7 @@ export default function Bonuses({ password }) {
             <div className="card">
               {!hasData && !loading ? (
                 <div className="empty-state">
-                  Данных нет — загрузите расходы через Tampermonkey-скрипт на странице «Бонусы от продавца» Kaspi Pay
+                  Данных нет — загрузите расходы через Tampermonkey-скрипт на странице {pageLabel} Kaspi Pay
                 </div>
               ) : (
                 <div className="table-scroll">
@@ -127,7 +136,7 @@ export default function Bonuses({ password }) {
       </div>
 
       <div className="report-note">
-        Данные заливаются вручную через Tampermonkey-скрипт со страницы «Бонусы от продавца» (marketing.kaspi.kz) —
+        Данные заливаются вручную через Tampermonkey-скрипт со страницы {pageLabel} (marketing.kaspi.kz) —
         официального API для этого у Kaspi нет. Здесь показывается только расход (сумма бонусов, выплаченных
         покупателям) — выручку по этим акциям сознательно не считаем. Эти цифры пока нигде больше на сайте не
         используются (не влияют на «Прочие расходы»/«Упаковка» в Отчёте и на «Чистую прибыль») — отдельная

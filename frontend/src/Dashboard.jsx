@@ -9,6 +9,7 @@ import Orders from './Orders.jsx';
 import Settings from './Settings.jsx';
 import Marketing from './Marketing.jsx';
 import Bonuses from './Bonuses.jsx';
+import { fetchReviewBonusExpenses } from './api.js';
 import Analyst from './Analyst.jsx';
 import ComingSoon from './ComingSoon.jsx';
 
@@ -123,7 +124,12 @@ export default function Dashboard({ password, username, role, onLogout }) {
     if (key === 'marketing_reviews') {
       return (
         <div key={key} style={style}>
-          <ComingSoon title="Бонусы за отзыв" />
+          <Bonuses
+            password={password}
+            fetchExpenses={fetchReviewBonusExpenses}
+            subtitle="за отзыв"
+            pageLabel="«Бонусы за отзыв»"
+          />
         </div>
       );
     }
