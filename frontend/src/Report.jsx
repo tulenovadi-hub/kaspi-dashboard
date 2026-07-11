@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { uploadKaspiPayReport, fetchMonthlyReport } from './api.js';
+import { uploadKaspiPayReport, fetchMonthlyReport, fetchMonthProductBreakdown } from './api.js';
 import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
 
 // columns — массив { key, label }. key === 'month' форматируется отдельно (название месяца),
@@ -29,10 +29,37 @@ function gradientColor(value, max) {
   return mixColor('#7f1d1d', '#3ddc97', t);
 }
 
-// columns — массив { key, label }. key === 'month' форматируется отдельно (название месяца),
-// остальные — через formatMoney, кроме margin/roi (по имени колонки определяем формат).
+// columns — массив { key, label }. key === 'month'/'product_name' форматируется отдельно (название
+// месяца/товара), остальные — через formatMoney, кроме margin/roi (через formatPercent).
+// Значение undefined (например, "Прочие расходы" в разбивке по товарам, где эта колонка
+// принципиально не считается) всегда рисуется прочерком, а не "0 ₸".
+function renderRowCells(columns, row, colorize) {
+  return columns.map((col) => {
+    if (col.key === 'month') return <td key={col.key}>{formatMonthLabel(row.month)}</td>;
+    if (col.key === 'product_name') return <td key={col.key}>{row.product_name}</td>;
+
+    const value = row[col.key];
+
+    if (col.key === 'margin' || col.key === 'roi') {
+      const style = colorize ? { color: gradientColor(value, col.key === 'margin' ? 30 : 50) } : undefined;
+      return <td key={col.key} className="num" style={style}>{value === undefined ? '—' : formatPercent(value)}</td>;
+    }
+
+    let cellClassName = 'num';
+    if (colorize && GREEN_KEYS.has(col.key)) cellClassName += ' report-cell-green';
+    else if (colorize && RED_KEYS.has(col.key)) cellClassName += ' report-cell-red';
+
+    return <td key={col.key} className={cellClassName}>{value === undefined ? '—' : formatMoney(value)}</td>;
+  });
+}
+
 // colorize — включает раскраску выручки/расходов и градиент маржи/ROI (только для "Основного отчёта").
-function MonthlyTable({ title, months, columns, className, colorize }) {
+// expandable — если true, клик по строке месяца разворачивает под ней разбивку по товарам
+// (данные подгружаются лениво через onToggleMonth и кэшируются в productBreakdowns на уровне Report).
+function MonthlyTable({
+  title, months, columns, className, colorize,
+  expandable, expandedMonth, onToggleMonth, productBreakdowns, productLoading, productError,
+}) {
   return (
     <div className={className}>
       <div className="section-title">{title}</div>
@@ -51,22 +78,39 @@ function MonthlyTable({ title, months, columns, className, colorize }) {
               </thead>
               <tbody>
                 {months.map((m) => (
-                  <tr key={m.month}>
-                    {columns.map((col) => {
-                      if (col.key === 'month') return <td key={col.key}>{formatMonthLabel(m.month)}</td>;
-
-                      if (col.key === 'margin' || col.key === 'roi') {
-                        const style = colorize ? { color: gradientColor(m[col.key], col.key === 'margin' ? 30 : 50) } : undefined;
-                        return <td key={col.key} className="num" style={style}>{formatPercent(m[col.key])}</td>;
-                      }
-
-                      let cellClassName = 'num';
-                      if (colorize && GREEN_KEYS.has(col.key)) cellClassName += ' report-cell-green';
-                      else if (colorize && RED_KEYS.has(col.key)) cellClassName += ' report-cell-red';
-
-                      return <td key={col.key} className={cellClassName}>{formatMoney(m[col.key])}</td>;
-                    })}
-                  </tr>
+                  <React.Fragment key={m.month}>
+                    <tr onClick={expandable ? () => onToggleMonth(m.month) : undefined}>
+                      {renderRowCells(columns, m, colorize)}
+                    </tr>
+                    {expandable && expandedMonth === m.month && (
+                      <tr>
+                        <td colSpan={columns.length} className="warehouse-batches-cell">
+                          {productLoading[m.month] ? (
+                            <div className="empty-state">Загрузка...</div>
+                          ) : productError[m.month] ? (
+                            <div className="error-banner">{productError[m.month]}</div>
+                          ) : !productBreakdowns[m.month] || productBreakdowns[m.month].length === 0 ? (
+                            <div className="empty-state">Нет данных по товарам за этот месяц</div>
+                          ) : (
+                            <table className="product-table warehouse-sub-table">
+                              <thead>
+                                <tr>
+                                  {PRODUCT_COLUMNS.map((col) => (
+                                    <th key={col.key} className={col.key === 'product_name' ? '' : 'num'}>{col.label}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {productBreakdowns[m.month].map((p) => (
+                                  <tr key={p.product_id}>{renderRowCells(PRODUCT_COLUMNS, p, colorize)}</tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
@@ -98,6 +142,25 @@ const MAIN_COLUMNS = [
   { key: 'roi', label: 'ROI' },
 ];
 
+// Разбивка по товарам внутри развёрнутого месяца "Основного отчёта" — те же колонки, что в
+// MAIN_COLUMNS, только вместо "Месяц" — товар. "Прочие расходы" на уровне товара не считается
+// (это расход всего бизнеса, а не конкретного товара) — renderRowCells сам покажет прочерк,
+// раз в объектах товаров нет поля other_expenses.
+const PRODUCT_COLUMNS = [
+  { key: 'product_name', label: 'Товар' },
+  { key: 'revenue', label: 'Выручка' },
+  { key: 'cost_of_goods', label: 'Себестоимость' },
+  { key: 'returns', label: 'Возвраты' },
+  { key: 'cost_of_returns', label: 'Себестоимость возвратов' },
+  { key: 'commission', label: 'Комиссия' },
+  { key: 'delivery', label: 'Доставка' },
+  { key: 'taxes', label: 'Налоги (3%)' },
+  { key: 'other_expenses', label: 'Прочие расходы' },
+  { key: 'net_profit', label: 'Чистая прибыль' },
+  { key: 'margin', label: 'Маржа' },
+  { key: 'roi', label: 'ROI' },
+];
+
 const SELF_BUY_COLUMNS = [
   { key: 'month', label: 'Месяц' },
   { key: 'revenue', label: 'Выручка' },
@@ -115,6 +178,24 @@ export default function Report({ password }) {
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState('');
   const fileInputRef = useRef(null);
+
+  const [expandedMonth, setExpandedMonth] = useState(null);
+  const [productBreakdowns, setProductBreakdowns] = useState({});
+  const [productLoading, setProductLoading] = useState({});
+  const [productError, setProductError] = useState({});
+
+  function handleToggleMonth(month) {
+    const opening = expandedMonth !== month;
+    setExpandedMonth(opening ? month : null);
+    if (!opening || productBreakdowns[month] || productLoading[month]) return;
+
+    setProductLoading((prev) => ({ ...prev, [month]: true }));
+    setProductError((prev) => ({ ...prev, [month]: '' }));
+    fetchMonthProductBreakdown(password, month)
+      .then((res) => setProductBreakdowns((prev) => ({ ...prev, [month]: res.products })))
+      .catch((err) => setProductError((prev) => ({ ...prev, [month]: err.message })))
+      .finally(() => setProductLoading((prev) => ({ ...prev, [month]: false })));
+  }
 
   function loadReport() {
     setLoading(true);
@@ -190,7 +271,18 @@ export default function Report({ password }) {
         <div className="empty-state">Загрузка...</div>
       ) : (
         <>
-          <MonthlyTable title="Основной отчёт (Алматы, Астана)" months={monthsMainCities} columns={MAIN_COLUMNS} colorize />
+          <MonthlyTable
+            title="Основной отчёт (Алматы, Астана)"
+            months={monthsMainCities}
+            columns={MAIN_COLUMNS}
+            colorize
+            expandable
+            expandedMonth={expandedMonth}
+            onToggleMonth={handleToggleMonth}
+            productBreakdowns={productBreakdowns}
+            productLoading={productLoading}
+            productError={productError}
+          />
           <div className="report-row">
             <MonthlyTable title="Общий отчёт" months={months} columns={GENERAL_COLUMNS} className="report-col" />
             <MonthlyTable title="Самовыкупы (Юбилейное, Талдыкорган)" months={monthsSelfBuyCities} columns={SELF_BUY_COLUMNS} className="report-col" />
@@ -205,6 +297,9 @@ export default function Report({ password }) {
         разово списана в момент продажи и повторно не вычитается. «Прочие расходы» в основном отчёте — это сумма категории «Прочие затраты» из раздела
         «Расходы» (Google Таблица) за тот же месяц; категория «Товар» туда не входит — она уже учтена через себестоимость, а «Вывод» не входит, так как это
         не операционный расход бизнеса. Таблицы по городам определяются по номеру заказа: он совпадает и в Excel-отчёте Kaspi Pay, и в данных заказов Kaspi.
+        Клик по строке месяца в «Основном отчёте» разворачивает разбивку по товарам: себестоимость там точная (та же FIFO), а комиссия, доставка и сумма
+        возвратов у Kaspi Pay привязаны только к заказу целиком — если в заказе несколько разных товаров, эти три величины делятся между ними пропорционально
+        выручке. «Прочие расходы» на уровне товара не считаются — это расход всего бизнеса, а не конкретного товара, поэтому в разбивке там прочерк.
       </div>
     </div>
   );

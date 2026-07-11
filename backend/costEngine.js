@@ -22,7 +22,9 @@ const { STOCK_CUTOFF_DATE } = require('./constants');
 // Остаток на складе при этом не трогаем — товар уже был списан один раз при продаже.
 //
 // Дополнительно возвращает byOrderNumber — себестоимость по каждому конкретному заказу
-// (нужно для постраничного списка заказов, а не только для сводки по месяцам).
+// (нужно для постраничного списка заказов, а не только для сводки по месяцам), и
+// cogsByProductMonth/returnsCostByProductMonth — та же себестоимость, но разбитая ещё и по
+// товару (нужно для разворачиваемого списка товаров на странице "Отчёт").
 async function computeCosts(warehouses) {
   const batchesResult = await pool.query(`
     SELECT product_id, warehouse, cost_price, quantity, received_date
@@ -71,11 +73,19 @@ async function computeCosts(warehouses) {
 
   const cogsByMonth = {};
   const returnsCostByMonth = {};
+  const cogsByProductMonth = {}; // month -> { product_id: cost }
+  const returnsCostByProductMonth = {};
   const byOrderKey = {}; // "order_number::operation_type" -> себестоимость
 
   function addOrderCost(orderNumber, operationType, cost) {
     const key = `${orderNumber}::${operationType}`;
     byOrderKey[key] = (byOrderKey[key] || 0) + cost;
+  }
+
+  function addProductCost(dict, month, productId, cost) {
+    if (!productId) return;
+    if (!dict[month]) dict[month] = {};
+    dict[month][productId] = (dict[month][productId] || 0) + cost;
   }
 
   for (const row of soldResult.rows) {
@@ -90,8 +100,10 @@ async function computeCosts(warehouses) {
       const cost = Number(row.quantity) * price;
       if (row.operation_type === 'Возврат') {
         returnsCostByMonth[row.month] = (returnsCostByMonth[row.month] || 0) + cost;
+        addProductCost(returnsCostByProductMonth, row.month, row.product_id, cost);
       } else {
         cogsByMonth[row.month] = (cogsByMonth[row.month] || 0) + cost;
+        addProductCost(cogsByProductMonth, row.month, row.product_id, cost);
       }
       addOrderCost(row.order_number, row.operation_type, cost);
       continue;
@@ -106,6 +118,7 @@ async function computeCosts(warehouses) {
       const activeBatch = batches.find((b) => b.remaining > 0) || batches[batches.length - 1];
       const cost = Number(row.quantity) * activeBatch.cost_price;
       returnsCostByMonth[row.month] = (returnsCostByMonth[row.month] || 0) + cost;
+      addProductCost(returnsCostByProductMonth, row.month, row.product_id, cost);
       addOrderCost(row.order_number, row.operation_type, cost);
       continue;
     }
@@ -120,12 +133,13 @@ async function computeCosts(warehouses) {
       qtyToConsume -= consume;
       const cost = consume * batch.cost_price;
       cogsByMonth[row.month] = (cogsByMonth[row.month] || 0) + cost;
+      addProductCost(cogsByProductMonth, row.month, row.product_id, cost);
       addOrderCost(row.order_number, row.operation_type, cost);
     }
     // если qtyToConsume всё ещё > 0 — партий не хватило (oversold), эта часть остаётся без себестоимости
   }
 
-  return { cogsByMonth, returnsCostByMonth, byOrderKey };
+  return { cogsByMonth, returnsCostByMonth, cogsByProductMonth, returnsCostByProductMonth, byOrderKey };
 }
 
 module.exports = { computeCosts };

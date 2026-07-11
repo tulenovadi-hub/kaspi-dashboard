@@ -139,6 +139,10 @@ export function fetchMonthlyReport(password) {
   return apiRequest('/api/reports/monthly', password);
 }
 
+export function fetchMonthProductBreakdown(password, month) {
+  return apiRequest(`/api/reports/monthly/${month}/products`, password);
+}
+
 export function fetchWarehouse(password) {
   return apiRequest('/api/warehouse', password);
 }

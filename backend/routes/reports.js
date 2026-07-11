@@ -230,6 +230,121 @@ async function fetchOtherExpensesByMonth() {
   return map;
 }
 
+// Разбивка "Основного отчёта" по товарам за конкретный месяц — то же самое, что строка месяца
+// в MAIN_COLUMNS, только на уровне каждого товара. Себестоимость (и её версия для возвратов)
+// берётся из computeCosts напрямую по товару — она точная (FIFO). А вот комиссия, доставка и сумма
+// возвратов в Excel-отчёте Kaspi Pay привязаны только к заказу целиком, а не к конкретному товару
+// внутри него — поэтому эти три величины распределяются между товарами заказа пропорционально их
+// доле в выручке заказа (сумме order_items.total_price). Для заказов с одним товаром это точно,
+// для заказов с несколькими товарами — обоснованная оценка. "Прочие расходы" на уровне товара
+// не считаем вообще (см. фронтенд) — эта категория расходов бизнеса, а не конкретного товара.
+async function getProductBreakdownForMonth(month, warehouses) {
+  const { cogsByProductMonth, returnsCostByProductMonth } = await computeCosts(warehouses);
+  const productCogs = cogsByProductMonth[month] || {};
+  const productReturnsCost = returnsCostByProductMonth[month] || {};
+
+  const ordersResult = await pool.query(
+    `SELECT kpt.order_number,
+       SUM(CASE WHEN kpt.operation_type = 'Возврат' THEN kpt.amount ELSE 0 END) AS returns_amount,
+       SUM(kpt.commission_total) AS commission_total,
+       SUM(kpt.delivery_cost) AS delivery_total
+     FROM kaspi_pay_transactions kpt
+     JOIN orders o ON o.code = kpt.order_number
+     WHERE to_char(kpt.operation_date, 'YYYY-MM') = $1
+       AND o.origin_city = ANY($2::text[])
+     GROUP BY kpt.order_number`,
+    [month, warehouses]
+  );
+
+  if (ordersResult.rows.length === 0) return [];
+
+  const orderNumbers = ordersResult.rows.map((r) => r.order_number);
+  const itemsResult = await pool.query(
+    `SELECT o.code AS order_number, oi.product_id, oi.product_name, oi.total_price
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     WHERE o.code = ANY($1::text[])`,
+    [orderNumbers]
+  );
+
+  const itemsByOrder = new Map();
+  for (const item of itemsResult.rows) {
+    if (!itemsByOrder.has(item.order_number)) itemsByOrder.set(item.order_number, []);
+    itemsByOrder.get(item.order_number).push(item);
+  }
+
+  const products = new Map(); // key -> накопитель
+
+  function getProduct(key, name) {
+    if (!products.has(key)) {
+      products.set(key, { product_id: key, product_name: name, revenue: 0, returnsRaw: 0, commissionRaw: 0, deliveryRaw: 0 });
+    }
+    return products.get(key);
+  }
+
+  for (const order of ordersResult.rows) {
+    const items = itemsByOrder.get(order.order_number) || [];
+    if (items.length === 0) continue;
+    const itemsTotal = items.reduce((sum, it) => sum + Number(it.total_price), 0);
+
+    for (const item of items) {
+      const key = item.product_id || `name:${item.product_name}`;
+      const share = itemsTotal > 0 ? Number(item.total_price) / itemsTotal : 1 / items.length;
+      const p = getProduct(key, item.product_name);
+      p.revenue += Number(item.total_price);
+      p.returnsRaw += Number(order.returns_amount) * share;
+      p.commissionRaw += Number(order.commission_total) * share;
+      p.deliveryRaw += Number(order.delivery_total) * share;
+    }
+  }
+
+  const rows = Array.from(products.values()).map((p) => {
+    const costOfGoods = productCogs[p.product_id] || 0;
+    const costOfReturns = productReturnsCost[p.product_id] || 0;
+    const returns = -p.returnsRaw;
+    const commission = -p.commissionRaw;
+    const delivery = -p.deliveryRaw;
+    const netRevenue = p.revenue - returns;
+    const taxes = netRevenue > 0 ? netRevenue * TAX_RATE : 0;
+    const netProfit = netRevenue - costOfGoods - commission - delivery - taxes;
+    const totalExpenses = costOfGoods + commission + delivery + taxes;
+    const margin = netRevenue !== 0 ? (netProfit / netRevenue) * 100 : null;
+    const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
+
+    return {
+      product_id: p.product_id,
+      product_name: p.product_name || '(без названия)',
+      revenue: p.revenue,
+      cost_of_goods: costOfGoods,
+      returns,
+      cost_of_returns: costOfReturns,
+      commission,
+      delivery,
+      taxes,
+      net_profit: netProfit,
+      margin,
+      roi,
+    };
+  });
+
+  rows.sort((a, b) => b.revenue - a.revenue);
+  return rows;
+}
+
+router.get('/monthly/:month/products', async (req, res) => {
+  const { month } = req.params;
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return res.status(400).json({ error: 'Параметр month обязателен, формат: YYYY-MM' });
+  }
+  try {
+    const products = await getProductBreakdownForMonth(month, MAIN_CITIES);
+    res.json({ products });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось получить разбивку по товарам' });
+  }
+});
+
 router.get('/monthly', async (req, res) => {
   try {
     const [months, monthsMainCities, monthsSelfBuyCities, otherExpensesByMonth] = await Promise.all([
