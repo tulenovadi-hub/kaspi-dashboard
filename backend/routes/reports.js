@@ -257,15 +257,18 @@ async function fetchPackagingExpensesByMonth() {
 // возвратов в Excel-отчёте Kaspi Pay привязаны только к заказу целиком, а не к конкретному товару
 // внутри него — поэтому эти три величины распределяются между товарами заказа пропорционально их
 // доле в выручке заказа (сумме order_items.total_price). Для заказов с одним товаром это точно,
-// для заказов с несколькими товарами — обоснованная оценка. Маркетинг разносится по товарам через
-// привязку кампания→товар (ad_campaign_products) — точнее, чем проценты выше, но тоже поровну между
-// товарами одной кампании, если их несколько. "Прочие расходы" на уровне товара не считаем вообще
-// (см. фронтенд) — эта категория расходов бизнеса в целом, а не конкретного товара.
+// для заказов с несколькими товарами — обоснованная оценка. Реклама и бонусы от продавца разносятся
+// по товарам через привязку кампания→товар — точнее, чем проценты выше, но тоже поровну между
+// товарами одной кампании, если их несколько. "Прочие расходы" и "Бонусы за отзыв" на уровне товара
+// не считаем вообще (см. фронтенд) — первое расход бизнеса в целом, для второго нет привязки к товару.
 async function getProductBreakdownForMonth(month, warehouses) {
   const { cogsByProductMonth, returnsCostByProductMonth } = await computeCosts(warehouses);
   const productCogs = cogsByProductMonth[month] || {};
   const productReturnsCost = returnsCostByProductMonth[month] || {};
-  const productMarketing = await getMarketingByProductForMonth(month);
+  const [productAdMarketing, productBonusMarketing] = await Promise.all([
+    getAdMarketingByProductForMonth(month),
+    getBonusMarketingByProductForMonth(month),
+  ]);
 
   const ordersResult = await pool.query(
     `SELECT kpt.order_number,
@@ -325,16 +328,18 @@ async function getProductBreakdownForMonth(month, warehouses) {
   const rows = Array.from(products.values()).map((p) => {
     const costOfGoods = productCogs[p.product_id] || 0;
     const costOfReturns = productReturnsCost[p.product_id] || 0;
-    const marketing = productMarketing[p.product_id] || 0;
+    const marketingAds = productAdMarketing[p.product_id] || 0;
+    const marketingBonuses = productBonusMarketing[p.product_id] || 0;
     const returns = -p.returnsRaw;
     const commission = -p.commissionRaw;
     const delivery = -p.deliveryRaw;
     const netRevenue = p.revenue - returns;
     const taxes = netRevenue > 0 ? netRevenue * TAX_RATE : 0;
-    const netProfit = netRevenue - costOfGoods - commission - delivery - taxes - marketing;
-    // ROI считается только от "вложений" в товар (себестоимость + маркетинг) — комиссия, доставка
-    // и налоги в знаменатель не входят, это не инвестиция, а транзакционные издержки Kaspi.
-    const totalExpenses = costOfGoods + marketing;
+    const netProfit = netRevenue - costOfGoods - commission - delivery - taxes - marketingAds - marketingBonuses;
+    // ROI считается только от "вложений" в товар (себестоимость + реклама + бонусы от продавца) —
+    // комиссия, доставка и налоги в знаменатель не входят, это не инвестиция, а транзакционные
+    // издержки Kaspi. "Бонусы за отзыв" тут нет — их не с чем связать на уровне товара.
+    const totalExpenses = costOfGoods + marketingAds + marketingBonuses;
     const margin = netRevenue !== 0 ? (netProfit / netRevenue) * 100 : null;
     const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 
@@ -348,7 +353,8 @@ async function getProductBreakdownForMonth(month, warehouses) {
       commission,
       delivery,
       taxes,
-      marketing,
+      marketing_ads: marketingAds,
+      marketing_bonuses: marketingBonuses,
       net_profit: netProfit,
       margin,
       roi,
@@ -359,14 +365,14 @@ async function getProductBreakdownForMonth(month, warehouses) {
   return rows;
 }
 
-// Расходы на рекламу по товарам за месяц — сумма cost по каждой кампании из ad_expenses,
-// разнесённая по товарам через ad_campaign_products (кампания обычно привязана к одному товару,
-// но если к нескольким — делим расход поровну между ними). Кампании без сохранённой привязки
-// к товару в разбивку по товарам не попадают (их расход остаётся только в сумме по месяцу).
-async function getMarketingByProductForMonth(month) {
+// Общий шаблон для "разнести расход по кампаниям на конкретный товар через таблицу привязки" —
+// используется и для рекламы (ad_expenses/ad_campaign_products), и для бонусов от продавца
+// (bonus_expenses/bonus_campaign_products). Кампания без сохранённой привязки к товару в
+// разбивку по товарам не попадает (её расход остаётся только в сумме по месяцу).
+async function getCampaignCostByProductForMonth(month, costTable, costColumn, linkTable) {
   const costResult = await pool.query(
-    `SELECT campaign_id, SUM(cost) AS total_cost
-     FROM ad_expenses
+    `SELECT campaign_id, SUM(${costColumn}) AS total_cost
+     FROM ${costTable}
      WHERE to_char(expense_date, 'YYYY-MM') = $1
      GROUP BY campaign_id`,
     [month]
@@ -375,7 +381,7 @@ async function getMarketingByProductForMonth(month) {
 
   const campaignIds = costResult.rows.map((r) => r.campaign_id);
   const productsResult = await pool.query(
-    `SELECT campaign_id, product_id FROM ad_campaign_products WHERE campaign_id = ANY($1::text[])`,
+    `SELECT campaign_id, product_id FROM ${linkTable} WHERE campaign_id = ANY($1::text[])`,
     [campaignIds]
   );
   const productsByCampaign = new Map();
@@ -384,30 +390,58 @@ async function getMarketingByProductForMonth(month) {
     productsByCampaign.get(row.campaign_id).push(row.product_id);
   }
 
-  const marketingByProduct = {};
+  const costByProduct = {};
   for (const row of costResult.rows) {
     const productIds = productsByCampaign.get(row.campaign_id) || [];
     if (productIds.length === 0) continue;
     const share = Number(row.total_cost) / productIds.length;
     for (const productId of productIds) {
-      marketingByProduct[productId] = (marketingByProduct[productId] || 0) + share;
+      costByProduct[productId] = (costByProduct[productId] || 0) + share;
     }
   }
-  return marketingByProduct;
+  return costByProduct;
 }
 
-// Расходы на рекламу по месяцам (ad_expenses, заливается вручную через Tampermonkey-скрипт
-// со страницы "Маркетинг" Kaspi Pay) — не привязаны к конкретному городу отгрузки, поэтому
-// считаются целиком по всему магазину и подмешиваются только в "Основной отчёт".
-async function fetchMarketingByMonth() {
+function getAdMarketingByProductForMonth(month) {
+  return getCampaignCostByProductForMonth(month, 'ad_expenses', 'cost', 'ad_campaign_products');
+}
+
+function getBonusMarketingByProductForMonth(month) {
+  return getCampaignCostByProductForMonth(month, 'bonus_expenses', 'bonus_amount', 'bonus_campaign_products');
+}
+
+// "Бонусы за отзыв" сюда сознательно не входят — для них нет привязки кампания→товар
+// (эндпоинт со списком товаров акции пока не найден), поэтому на уровне товара их разнести
+// нечем — как и "Прочие расходы", там будет прочерк.
+
+// Общий шаблон "сумма расхода по месяцам" — используется для рекламы, бонусов от продавца и
+// бонусов за отзыв: у всех трёх одна и та же форма (expense_date + сумма), просто разные таблицы/колонки.
+async function fetchExpenseByMonth(table, column) {
   const result = await pool.query(
-    `SELECT to_char(expense_date, 'YYYY-MM') AS month, SUM(cost) AS total
-     FROM ad_expenses
+    `SELECT to_char(expense_date, 'YYYY-MM') AS month, SUM(${column}) AS total
+     FROM ${table}
      GROUP BY month`
   );
   const map = {};
   for (const row of result.rows) {
     map[row.month] = Number(row.total);
+  }
+  return map;
+}
+
+// "Маркетинг" в Основном отчёте — сумма всех трёх источников продвижения товара: реклама
+// (ad_expenses), бонусы от продавца (bonus_expenses) и бонусы за отзыв (review_bonus_expenses).
+// Ни один из них не привязан к городу отгрузки, поэтому считаются по всему магазину целиком.
+async function fetchMarketingByMonth() {
+  const [ads, bonuses, reviews] = await Promise.all([
+    fetchExpenseByMonth('ad_expenses', 'cost'),
+    fetchExpenseByMonth('bonus_expenses', 'bonus_amount'),
+    fetchExpenseByMonth('review_bonus_expenses', 'bonus_amount'),
+  ]);
+  const months = new Set([...Object.keys(ads), ...Object.keys(bonuses), ...Object.keys(reviews)]);
+  const map = {};
+  for (const month of months) {
+    map[month] = (ads[month] || 0) + (bonuses[month] || 0) + (reviews[month] || 0);
   }
   return map;
 }
