@@ -4,8 +4,8 @@ const { pool } = require('../db');
 const router = express.Router();
 
 // "Бонусы за отзыв" — тот же принцип, что и bonus-expenses (только расход по дням/кампаниям,
-// без выручки), просто другая программа Kaspi и без привязки к товару.
-// Формат: { campaigns: [ { id, name, days: [{date, bonusAmount, notifications, reviews}] }, ... ] }
+// без выручки), просто другая программа Kaspi.
+// Формат: { campaigns: [ { id, name, days: [{date, bonusAmount, notifications, reviews}], product_ids: [...] }, ... ] }
 router.post('/upload', async (req, res) => {
   const { campaigns } = req.body;
   if (!Array.isArray(campaigns) || campaigns.length === 0) {
@@ -21,6 +21,9 @@ router.post('/upload', async (req, res) => {
       const campaignId = String(campaign.id || '').trim();
       const campaignName = campaign.name || null;
       const days = Array.isArray(campaign.days) ? campaign.days : [];
+      const productIds = Array.isArray(campaign.product_ids)
+        ? campaign.product_ids.map((id) => String(id).trim()).filter(Boolean)
+        : [];
       if (!campaignId) continue;
 
       for (const day of days) {
@@ -37,6 +40,16 @@ router.post('/upload', async (req, res) => {
           [day.date, campaignId, campaignName, Number(day.bonusAmount) || 0, Number(day.notifications) || 0, Number(day.reviews) || 0]
         );
         rowsUpserted += 1;
+      }
+
+      await client.query(`DELETE FROM review_bonus_campaign_products WHERE campaign_id = $1`, [campaignId]);
+      for (const productId of productIds) {
+        await client.query(
+          `INSERT INTO review_bonus_campaign_products (campaign_id, product_id, updated_at)
+           VALUES ($1, $2, now())
+           ON CONFLICT (campaign_id, product_id) DO UPDATE SET updated_at = now()`,
+          [campaignId, productId]
+        );
       }
     }
 
@@ -65,7 +78,7 @@ router.get('/', async (req, res) => {
     const params = campaignId ? [from, to, campaignId] : [from, to];
     const campaignFilter = campaignId ? 'AND campaign_id = $3' : '';
 
-    const [byDayResult, byCampaignResult] = await Promise.all([
+    const [byDayResult, byCampaignResult, productsResult] = await Promise.all([
       pool.query(
         `SELECT to_char(expense_date, 'YYYY-MM-DD') AS day, SUM(bonus_amount) AS cost
          FROM review_bonus_expenses
@@ -82,13 +95,21 @@ router.get('/', async (req, res) => {
          ORDER BY cost DESC`,
         params
       ),
+      pool.query(`SELECT campaign_id, product_id FROM review_bonus_campaign_products`),
     ]);
+
+    const productIdsByCampaign = new Map();
+    for (const row of productsResult.rows) {
+      if (!productIdsByCampaign.has(row.campaign_id)) productIdsByCampaign.set(row.campaign_id, []);
+      productIdsByCampaign.get(row.campaign_id).push(row.product_id);
+    }
 
     const byDay = byDayResult.rows.map((r) => ({ day: r.day, cost: Number(r.cost) }));
     const byCampaign = byCampaignResult.rows.map((r) => ({
       campaign_id: r.campaign_id,
       campaign_name: r.campaign_name,
       cost: Number(r.cost),
+      product_ids: productIdsByCampaign.get(r.campaign_id) || [],
     }));
     const totalCost = byCampaign.reduce((sum, c) => sum + c.cost, 0);
 

@@ -257,17 +257,18 @@ async function fetchPackagingExpensesByMonth() {
 // возвратов в Excel-отчёте Kaspi Pay привязаны только к заказу целиком, а не к конкретному товару
 // внутри него — поэтому эти три величины распределяются между товарами заказа пропорционально их
 // доле в выручке заказа (сумме order_items.total_price). Для заказов с одним товаром это точно,
-// для заказов с несколькими товарами — обоснованная оценка. Реклама и бонусы от продавца разносятся
-// по товарам через привязку кампания→товар — точнее, чем проценты выше, но тоже поровну между
-// товарами одной кампании, если их несколько. "Прочие расходы" и "Бонусы за отзыв" на уровне товара
-// не считаем вообще (см. фронтенд) — первое расход бизнеса в целом, для второго нет привязки к товару.
+// для заказов с несколькими товарами — обоснованная оценка. Реклама и оба вида бонусов
+// разносятся по товарам через привязку кампания→товар — точнее, чем проценты выше, но тоже
+// поровну между товарами одной кампании, если их несколько. "Прочие расходы" на уровне товара
+// не считаем вообще (см. фронтенд) — это расход бизнеса в целом, а не конкретного товара.
 async function getProductBreakdownForMonth(month, warehouses) {
   const { cogsByProductMonth, returnsCostByProductMonth } = await computeCosts(warehouses);
   const productCogs = cogsByProductMonth[month] || {};
   const productReturnsCost = returnsCostByProductMonth[month] || {};
-  const [productAdMarketing, productBonusMarketing] = await Promise.all([
+  const [productAdMarketing, productBonusMarketing, productReviewMarketing] = await Promise.all([
     getAdMarketingByProductForMonth(month),
     getBonusMarketingByProductForMonth(month),
+    getReviewMarketingByProductForMonth(month),
   ]);
 
   const ordersResult = await pool.query(
@@ -330,16 +331,17 @@ async function getProductBreakdownForMonth(month, warehouses) {
     const costOfReturns = productReturnsCost[p.product_id] || 0;
     const marketingAds = productAdMarketing[p.product_id] || 0;
     const marketingBonuses = productBonusMarketing[p.product_id] || 0;
+    const marketingReviews = productReviewMarketing[p.product_id] || 0;
     const returns = -p.returnsRaw;
     const commission = -p.commissionRaw;
     const delivery = -p.deliveryRaw;
     const netRevenue = p.revenue - returns;
     const taxes = netRevenue > 0 ? netRevenue * TAX_RATE : 0;
-    const netProfit = netRevenue - costOfGoods - commission - delivery - taxes - marketingAds - marketingBonuses;
-    // ROI считается только от "вложений" в товар (себестоимость + реклама + бонусы от продавца) —
+    const netProfit = netRevenue - costOfGoods - commission - delivery - taxes - marketingAds - marketingBonuses - marketingReviews;
+    // ROI считается только от "вложений" в товар (себестоимость + реклама + оба вида бонусов) —
     // комиссия, доставка и налоги в знаменатель не входят, это не инвестиция, а транзакционные
-    // издержки Kaspi. "Бонусы за отзыв" тут нет — их не с чем связать на уровне товара.
-    const totalExpenses = costOfGoods + marketingAds + marketingBonuses;
+    // издержки Kaspi.
+    const totalExpenses = costOfGoods + marketingAds + marketingBonuses + marketingReviews;
     const margin = netRevenue !== 0 ? (netProfit / netRevenue) * 100 : null;
     const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 
@@ -355,6 +357,7 @@ async function getProductBreakdownForMonth(month, warehouses) {
       taxes,
       marketing_ads: marketingAds,
       marketing_bonuses: marketingBonuses,
+      marketing_reviews: marketingReviews,
       net_profit: netProfit,
       margin,
       roi,
@@ -410,9 +413,9 @@ function getBonusMarketingByProductForMonth(month) {
   return getCampaignCostByProductForMonth(month, 'bonus_expenses', 'bonus_amount', 'bonus_campaign_products');
 }
 
-// "Бонусы за отзыв" сюда сознательно не входят — для них нет привязки кампания→товар
-// (эндпоинт со списком товаров акции пока не найден), поэтому на уровне товара их разнести
-// нечем — как и "Прочие расходы", там будет прочерк.
+function getReviewMarketingByProductForMonth(month) {
+  return getCampaignCostByProductForMonth(month, 'review_bonus_expenses', 'bonus_amount', 'review_bonus_campaign_products');
+}
 
 // Общий шаблон "сумма расхода по месяцам" — используется для рекламы, бонусов от продавца и
 // бонусов за отзыв: у всех трёх одна и та же форма (expense_date + сумма), просто разные таблицы/колонки.

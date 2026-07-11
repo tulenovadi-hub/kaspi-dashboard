@@ -239,9 +239,8 @@ async function initDb() {
   `);
 
   // "Бонусы за отзыв" (marketing.kaspi.kz/bonuses/reviews) — тот же принцип, что и
-  // bonus_expenses, но без привязки к товару (эндпоинт для этого пока не найден). Дневной
-  // эндпоинт этой программы заодно отдаёт notifications/reviews — сохраняем их, раз уж
-  // они всё равно приходят в том же ответе, что и bonusAmount.
+  // bonus_expenses. Дневной эндпоинт этой программы заодно отдаёт notifications/reviews —
+  // сохраняем их, раз уж они всё равно приходят в том же ответе, что и bonusAmount.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS review_bonus_expenses (
       id SERIAL PRIMARY KEY,
@@ -256,6 +255,17 @@ async function initDb() {
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_review_bonus_expenses_date ON review_bonus_expenses(expense_date);`);
+
+  // Привязка кампании "Бонусы за отзыв" к товару — по sku, та же логика, что и
+  // bonus_campaign_products у "Бонусов от продавца".
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS review_bonus_campaign_products (
+      campaign_id TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (campaign_id, product_id)
+    );
+  `);
 
   // Пользователи сайта с ролями. Раньше был один общий пароль на всех (DASHBOARD_PASSWORD) —
   // теперь у каждого свой логин/пароль. role: 'admin' | 'manager' | 'marketer'.
