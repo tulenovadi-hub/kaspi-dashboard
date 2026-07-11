@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const { pool } = require('../db');
 const { aggregateKaspiPayMonthly, fetchOtherExpensesByMonth, fetchMarketingByMonth, fetchPackagingExpensesByMonth, MAIN_CITIES, SELF_BUY_CITIES } = require('./reports');
+const { computeWarehouseStock, DISPLAY_WAREHOUSES } = require('./warehouse');
 
 const router = express.Router();
 
@@ -57,9 +58,12 @@ async function getMonthlyReportText() {
     .join('\n');
 }
 
-// Выручка и количество проданного по каждому товару за период + грубая оценка себестоимости
-// (по цене последней поставки — этого достаточно для того, чтобы ИИ увидел общую картину
-// по марже без необходимости гонять точный FIFO-расчёт по каждому товару).
+// Выручка и количество проданного по каждому товару за период + оценка себестоимости по методу
+// FIFO (партии по товару, от самой старой к самой новой) — раньше здесь бралась цена ТОЛЬКО
+// последней поставки, что сильно завышало маржу для товаров с несколькими партиями по разной
+// цене (последняя поставка часто дешевле старых). Всё ещё приближение (не учитывает, сколько
+// от каждой партии реально израсходовано другими продажами вне этого периода), но кардинально
+// точнее одной цены.
 async function getProductMarginsText(from, to) {
   const itemsResult = await pool.query(
     `SELECT oi.product_id, oi.product_name, SUM(oi.quantity) AS qty, SUM(oi.total_price) AS revenue
@@ -79,40 +83,63 @@ async function getProductMarginsText(from, to) {
 
   const productIds = itemsResult.rows.map((r) => r.product_id);
   const batchesResult = await pool.query(
-    `SELECT DISTINCT ON (product_id) product_id, cost_price
+    `SELECT product_id, cost_price, quantity
      FROM product_batches
      WHERE product_id = ANY($1::text[])
-     ORDER BY product_id, received_date DESC, id DESC`,
+     ORDER BY product_id, received_date ASC, id ASC`,
     [productIds]
   );
-  const latestCostByProduct = new Map(batchesResult.rows.map((r) => [r.product_id, Number(r.cost_price)]));
+  const batchesByProduct = new Map();
+  for (const b of batchesResult.rows) {
+    if (!batchesByProduct.has(b.product_id)) batchesByProduct.set(b.product_id, []);
+    batchesByProduct.get(b.product_id).push({ cost_price: Number(b.cost_price), quantity: Number(b.quantity) });
+  }
 
   return itemsResult.rows
     .map((r) => {
       const revenue = Number(r.revenue);
       const qty = Number(r.qty);
-      const cost = latestCostByProduct.get(r.product_id);
-      const marginPct = cost !== undefined && revenue > 0 ? ((revenue - qty * cost) / revenue) * 100 : null;
-      return `${r.product_name}: продано ${qty} шт, выручка ${fmt(revenue)}, ориентировочная маржа (по цене последней закупки, без учёта комиссии/доставки/налога/возвратов) ${pct(marginPct)}`;
+      const batches = batchesByProduct.get(r.product_id) || [];
+
+      let qtyLeft = qty;
+      let totalCost = 0;
+      let coveredQty = 0;
+      for (const b of batches) {
+        if (qtyLeft <= 0) break;
+        const take = Math.min(b.quantity, qtyLeft);
+        totalCost += take * b.cost_price;
+        coveredQty += take;
+        qtyLeft -= take;
+      }
+      // Партий не хватило на весь проданный объём (например, продано больше, чем известно
+      // поставок) — оставшееся оцениваем по цене самой новой партии, чтобы не терять число совсем.
+      if (qtyLeft > 0 && batches.length > 0) {
+        totalCost += qtyLeft * batches[batches.length - 1].cost_price;
+        coveredQty += qtyLeft;
+      }
+
+      const marginPct = coveredQty > 0 && revenue > 0 ? ((revenue - totalCost) / revenue) * 100 : null;
+      return `${r.product_name}: продано ${qty} шт, выручка ${fmt(revenue)}, ориентировочная маржа (по себестоимости партий FIFO, без учёта комиссии/доставки/налога/возвратов) ${pct(marginPct)}`;
     })
     .join('\n');
 }
 
-// Остатки на складе — что зависло без движения (много товара, ноль/мало продаж) и где uже
+// Остатки на складе — что зависло без движения (много товара, ноль/мало продаж) и где уже
 // продано больше, чем известно поставок (не отражена реальная себестоимость).
+// Переиспользуем computeWarehouseStock из warehouse.js — тот же расчёт, что и на странице
+// "Склад" (FIFO по факту продаж). Раньше здесь ошибочно читалась product_batches.remaining_quantity
+// напрямую из базы — эта колонка не уменьшается при продажах и по факту показывает "Поставлено",
+// а не реальный остаток.
 async function getWarehouseRisksText() {
-  const result = await pool.query(
-    `SELECT product_id, product_name, warehouse, SUM(quantity) AS supplied, SUM(remaining_quantity) AS remaining,
-            MAX(cost_price) AS cost_price
-     FROM product_batches
-     GROUP BY product_id, product_name, warehouse
-     HAVING SUM(remaining_quantity) > 0
-     ORDER BY SUM(remaining_quantity) * MAX(cost_price) DESC
-     LIMIT 15`
-  );
-  if (result.rows.length === 0) return 'Нет данных по остаткам.';
-  return result.rows
-    .map((r) => `${r.product_name} (${r.warehouse}): остаток ${r.remaining} шт, "заморожено" в остатке ~${fmt(r.remaining * r.cost_price)}`)
+  const products = await computeWarehouseStock();
+  const rows = products
+    .filter((p) => DISPLAY_WAREHOUSES.includes(p.warehouse) && p.remaining > 0)
+    .sort((a, b) => b.remaining_value - a.remaining_value)
+    .slice(0, 15);
+
+  if (rows.length === 0) return 'Нет данных по остаткам.';
+  return rows
+    .map((p) => `${p.product_name} (${p.warehouse}): остаток ${p.remaining} шт, "заморожено" в остатке ~${fmt(p.remaining_value)}`)
     .join('\n');
 }
 
