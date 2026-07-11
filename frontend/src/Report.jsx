@@ -8,6 +8,11 @@ import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
 const GREEN_KEYS = new Set(['revenue', 'net_profit']);
 const RED_KEYS = new Set(['cost_of_goods', 'returns', 'cost_of_returns', 'commission', 'delivery', 'taxes', 'marketing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'packaging', 'other_expenses']);
 
+// Колонки, для которых в "Основном отчёте" под суммой показываем её долю от выручки за месяц
+// (сколько из 100% выручки уходит на каждую статью). "Чистая прибыль" сюда не входит — для
+// неё уже есть отдельная колонка "Маржа" с тем же смыслом.
+const PERCENT_OF_REVENUE_KEYS = new Set(['cost_of_goods', 'returns', 'cost_of_returns', 'commission', 'delivery', 'taxes', 'marketing', 'packaging', 'other_expenses']);
+
 function hexToRgb(hex) {
   const n = parseInt(hex.replace('#', ''), 16);
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
@@ -33,7 +38,9 @@ function gradientColor(value, max) {
 // месяца/товара), остальные — через formatMoney, кроме margin/roi (через formatPercent).
 // Значение undefined (например, "Прочие расходы" в разбивке по товарам, где эта колонка
 // принципиально не считается) всегда рисуется прочерком, а не "0 ₸".
-function renderRowCells(columns, row, colorize) {
+// showPercentOfRevenue — только для строк месяца в "Основном отчёте": под суммой показываем
+// её долю от выручки за этот же месяц (row.revenue), чтобы видеть "сколько из 100% выручки куда уходит".
+function renderRowCells(columns, row, colorize, showPercentOfRevenue) {
   return columns.map((col) => {
     if (col.key === 'month') return <td key={col.key}>{formatMonthLabel(row.month)}</td>;
     if (col.key === 'product_name') return <td key={col.key}>{row.product_name}</td>;
@@ -49,15 +56,27 @@ function renderRowCells(columns, row, colorize) {
     if (colorize && GREEN_KEYS.has(col.key)) cellClassName += ' report-cell-green';
     else if (colorize && RED_KEYS.has(col.key)) cellClassName += ' report-cell-red';
 
+    const showPct = showPercentOfRevenue && PERCENT_OF_REVENUE_KEYS.has(col.key) && value !== undefined && row.revenue;
+    if (showPct) {
+      return (
+        <td key={col.key} className={cellClassName}>
+          {formatMoney(value)}
+          <div className="report-percent-sub">{(value / row.revenue * 100).toFixed(1)}%</div>
+        </td>
+      );
+    }
+
     return <td key={col.key} className={cellClassName}>{value === undefined ? '—' : formatMoney(value)}</td>;
   });
 }
 
 // colorize — включает раскраску выручки/расходов и градиент маржи/ROI (только для "Основного отчёта").
+// showPercentOfRevenue — под суммой в строке месяца показывает её долю от выручки; в разбивку
+// по товарам (нижняя вложенная таблица) сознательно не передаём — там просили только суммы.
 // expandable — если true, клик по строке месяца разворачивает под ней разбивку по товарам
 // (данные подгружаются лениво через onToggleMonth и кэшируются в productBreakdowns на уровне Report).
 function MonthlyTable({
-  title, months, columns, className, colorize,
+  title, months, columns, className, colorize, showPercentOfRevenue,
   expandable, expandedMonth, onToggleMonth, productBreakdowns, productLoading, productError,
 }) {
   return (
@@ -80,7 +99,7 @@ function MonthlyTable({
                 {months.map((m) => (
                   <React.Fragment key={m.month}>
                     <tr onClick={expandable ? () => onToggleMonth(m.month) : undefined}>
-                      {renderRowCells(columns, m, colorize)}
+                      {renderRowCells(columns, m, colorize, showPercentOfRevenue)}
                     </tr>
                     {expandable && expandedMonth === m.month && (
                       <tr>
@@ -282,6 +301,7 @@ export default function Report({ password }) {
             months={monthsMainCities}
             columns={MAIN_COLUMNS}
             colorize
+            showPercentOfRevenue
             expandable
             expandedMonth={expandedMonth}
             onToggleMonth={handleToggleMonth}
@@ -313,6 +333,8 @@ export default function Report({ password }) {
         через привязку кампании к товару (если кампания продвигает сразу несколько товаров — её расход делится между ними поровну; кампании без сохранённой
         привязки к товару в разбивку не попадают). «Прочие расходы» и «Упаковка» на уровне товара не считаются — это расходы всего бизнеса, а не конкретного
         товара, поэтому в разбивке там прочерк.
+        Число под суммой в каждой расходной колонке «Основного отчёта» — доля этой статьи от выручки за тот же месяц (сколько из 100% выручки уходит именно
+        сюда); в разбивке по товарам таких долей нет, там только суммы.
       </div>
     </div>
   );
