@@ -153,24 +153,6 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);`);
 
-  // Расходы на фулфилмент (упаковка/обработка заказов и хранение на складе) — загружаются
-  // вручную PDF-отчётами от фулфилмент-центра на странице "Расходы". row_key — свой для каждого
-  // типа отчёта: для хранения это дата (один отчёт про день не может продублироваться иначе как
-  // тем же значением), для упаковки — номер строки внутри периода отчёта (так же, как row_key
-  // в kaspi_pay_transactions защищает от потери строк при повторной загрузке того же файла).
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ff_expenses (
-      id SERIAL PRIMARY KEY,
-      row_key TEXT UNIQUE NOT NULL,
-      type TEXT NOT NULL CHECK (type IN ('packaging', 'storage')),
-      expense_date DATE NOT NULL,
-      amount NUMERIC NOT NULL DEFAULT 0,
-      order_number TEXT,
-      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ff_expenses_date ON ff_expenses(expense_date);`);
-
   // Расходы на рекламу (сервис "Маркетинг" в Kaspi Pay) — по дням и по конкретным рекламным
   // кампаниям (кампания = один товар). Официального API для этого нет, данные заливаются либо
   // вручную, либо через пользовательский скрипт (Tampermonkey), который дёргает внутренний,

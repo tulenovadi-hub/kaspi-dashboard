@@ -1,7 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const { pool } = require('../db');
-const { aggregateKaspiPayMonthly, fetchOtherExpensesByMonth, fetchMarketingByMonth, fetchFFServicesByMonth, MAIN_CITIES, SELF_BUY_CITIES } = require('./reports');
+const { aggregateKaspiPayMonthly, fetchOtherExpensesByMonth, fetchMarketingByMonth, fetchPackagingExpensesByMonth, MAIN_CITIES, SELF_BUY_CITIES } = require('./reports');
 
 const router = express.Router();
 
@@ -25,24 +25,24 @@ function pct(n) {
 // Последние несколько месяцев "Основного отчёта" (Алматы+Астана) — то же самое, что показано
 // в таблице на странице "Отчёт", просто переиспользуем готовую функцию оттуда.
 async function getMonthlyReportText() {
-  const [monthsMainCities, otherExpensesByMonth, marketingByMonth, ffServicesByMonth] = await Promise.all([
+  const [monthsMainCities, otherExpensesByMonth, marketingByMonth, packagingByMonth] = await Promise.all([
     aggregateKaspiPayMonthly(MAIN_CITIES),
     fetchOtherExpensesByMonth(),
     fetchMarketingByMonth(),
-    fetchFFServicesByMonth(),
+    fetchPackagingExpensesByMonth(),
   ]);
 
   const rows = monthsMainCities.slice(0, 6).map((row) => {
     const otherExpenses = otherExpensesByMonth[row.month] || 0;
     const marketing = marketingByMonth[row.month] || 0;
-    const ffServices = ffServicesByMonth[row.month] || 0;
-    const netProfit = row.net_profit - otherExpenses - marketing - ffServices;
-    // ROI = чистая прибыль / (себестоимость + маркетинг + услуги ФФ + прочие расходы) — та же
+    const packaging = packagingByMonth[row.month] || 0;
+    const netProfit = row.net_profit - otherExpenses - marketing - packaging;
+    // ROI = чистая прибыль / (себестоимость + маркетинг + упаковка + прочие расходы) — та же
     // формула, что и на странице "Отчёт" (комиссия/доставка/налоги в знаменатель не входят).
-    const totalExpenses = row.cost_of_goods + marketing + ffServices + otherExpenses;
+    const totalExpenses = row.cost_of_goods + marketing + packaging + otherExpenses;
     const margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
     const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
-    return { ...row, marketing, ff_services: ffServices, other_expenses: otherExpenses, net_profit: netProfit, margin, roi };
+    return { ...row, marketing, packaging, other_expenses: otherExpenses, net_profit: netProfit, margin, roi };
   });
 
   if (rows.length === 0) return 'Нет данных помесячного отчёта (не загружен Excel-отчёт Kaspi Pay).';
@@ -51,7 +51,7 @@ async function getMonthlyReportText() {
     .map((r) => (
       `${r.month}: выручка ${fmt(r.net_revenue)}, себестоимость ${fmt(r.cost_of_goods)}, возвраты ${fmt(r.returns)}, ` +
       `комиссия ${fmt(r.commission)}, доставка ${fmt(r.delivery)}, налоги ${fmt(r.taxes)}, маркетинг ${fmt(r.marketing)}, ` +
-      `услуги ФФ ${fmt(r.ff_services)}, прочие расходы ${fmt(r.other_expenses)}, чистая прибыль ${fmt(r.net_profit)}, ` +
+      `упаковка ${fmt(r.packaging)}, прочие расходы ${fmt(r.other_expenses)}, чистая прибыль ${fmt(r.net_profit)}, ` +
       `маржа ${pct(r.margin)}, ROI ${pct(r.roi)}`
     ))
     .join('\n');

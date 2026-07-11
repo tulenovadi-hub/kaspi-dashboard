@@ -230,6 +230,27 @@ async function fetchOtherExpensesByMonth() {
   return map;
 }
 
+// Категория "Упаковка" из той же гугл-таблицы расходов — расходы на фулфилмент (упаковка,
+// обработка заказов, хранение и т.д.), вносятся вручную. Не привязана к городу отгрузки,
+// поэтому считается по всему магазину целиком и подмешивается только в "Основной отчёт" —
+// та же логика, что и у OTHER_EXPENSES_CATEGORY выше.
+const PACKAGING_EXPENSES_CATEGORY = 'Упаковка';
+
+async function fetchPackagingExpensesByMonth() {
+  const result = await pool.query(
+    `SELECT to_char(expense_date, 'YYYY-MM') AS month, SUM(amount) AS total
+     FROM expenses
+     WHERE category = $1 AND expense_date IS NOT NULL
+     GROUP BY month`,
+    [PACKAGING_EXPENSES_CATEGORY]
+  );
+  const map = {};
+  for (const row of result.rows) {
+    map[row.month] = Number(row.total);
+  }
+  return map;
+}
+
 // Разбивка "Основного отчёта" по товарам за конкретный месяц — то же самое, что строка месяца
 // в MAIN_COLUMNS, только на уровне каждого товара. Себестоимость (и её версия для возвратов)
 // берётся из computeCosts напрямую по товару — она точная (FIFO). А вот комиссия, доставка и сумма
@@ -391,22 +412,6 @@ async function fetchMarketingByMonth() {
   return map;
 }
 
-// Расходы на фулфилмент по месяцам (ff_expenses, PDF-отчёты "ФФ услуга" и "Хранение", загружаются
-// вручную на странице "Расходы") — как и маркетинг, не привязаны к городу, подмешиваются только
-// в "Основной отчёт".
-async function fetchFFServicesByMonth() {
-  const result = await pool.query(
-    `SELECT to_char(expense_date, 'YYYY-MM') AS month, SUM(amount) AS total
-     FROM ff_expenses
-     GROUP BY month`
-  );
-  const map = {};
-  for (const row of result.rows) {
-    map[row.month] = Number(row.total);
-  }
-  return map;
-}
-
 router.get('/monthly/:month/products', async (req, res) => {
   const { month } = req.params;
   if (!/^\d{4}-\d{2}$/.test(month)) {
@@ -423,34 +428,35 @@ router.get('/monthly/:month/products', async (req, res) => {
 
 router.get('/monthly', async (req, res) => {
   try {
-    const [months, monthsMainCities, monthsSelfBuyCities, otherExpensesByMonth, marketingByMonth, ffServicesByMonth] = await Promise.all([
+    const [months, monthsMainCities, monthsSelfBuyCities, otherExpensesByMonth, marketingByMonth, packagingByMonth] = await Promise.all([
       aggregateKaspiPayMonthly(),
       aggregateKaspiPayMonthly(MAIN_CITIES),
       aggregateKaspiPayMonthly(SELF_BUY_CITIES),
       fetchOtherExpensesByMonth(),
       fetchMarketingByMonth(),
-      fetchFFServicesByMonth(),
+      fetchPackagingExpensesByMonth(),
     ]);
 
     // В "Основной отчёт" (Алматы+Астана) подмешиваем прочие расходы из "Расходов", расходы на
-    // рекламу из "Маркетинга" и расходы на фулфилмент из "Услуг ФФ", пересчитываем чистую
-    // прибыль/маржу/ROI с их учётом — в остальных двух таблицах этих колонок не нужно.
+    // рекламу из "Маркетинга" и расходы на упаковку (категория "Упаковка" в "Расходах"),
+    // пересчитываем чистую прибыль/маржу/ROI с их учётом — в остальных двух таблицах этих
+    // колонок не нужно.
     const monthsMainCitiesWithExpenses = monthsMainCities.map((row) => {
       const otherExpenses = otherExpensesByMonth[row.month] || 0;
       const marketing = marketingByMonth[row.month] || 0;
-      const ffServices = ffServicesByMonth[row.month] || 0;
-      const netProfit = row.net_profit - otherExpenses - marketing - ffServices;
-      // ROI = чистая прибыль / (себестоимость + маркетинг + услуги ФФ + прочие расходы) —
+      const packaging = packagingByMonth[row.month] || 0;
+      const netProfit = row.net_profit - otherExpenses - marketing - packaging;
+      // ROI = чистая прибыль / (себестоимость + маркетинг + упаковка + прочие расходы) —
       // комиссия, доставка и налоги в знаменатель не входят, это не инвестиция, а транзакционные
       // издержки Kaspi.
-      const totalExpenses = row.cost_of_goods + marketing + ffServices + otherExpenses;
+      const totalExpenses = row.cost_of_goods + marketing + packaging + otherExpenses;
       const margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
       const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 
       return {
         ...row,
         marketing,
-        ff_services: ffServices,
+        packaging,
         other_expenses: otherExpenses,
         net_profit: netProfit,
         margin,
@@ -469,6 +475,6 @@ module.exports = router;
 module.exports.aggregateKaspiPayMonthly = aggregateKaspiPayMonthly;
 module.exports.fetchOtherExpensesByMonth = fetchOtherExpensesByMonth;
 module.exports.fetchMarketingByMonth = fetchMarketingByMonth;
-module.exports.fetchFFServicesByMonth = fetchFFServicesByMonth;
+module.exports.fetchPackagingExpensesByMonth = fetchPackagingExpensesByMonth;
 module.exports.MAIN_CITIES = MAIN_CITIES;
 module.exports.SELF_BUY_CITIES = SELF_BUY_CITIES;

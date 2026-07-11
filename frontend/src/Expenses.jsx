@@ -1,8 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchExpenses, fetchExpensesMonthly, syncExpenses, uploadFFReport } from './api.js';
+import React, { useEffect, useMemo, useState } from 'react';
+import { fetchExpenses, fetchExpensesMonthly, syncExpenses } from './api.js';
 import { formatMoney, formatMonthLabel, formatDateDMY } from './dateUtils.js';
-
-const FF_TYPE_LABELS = { packaging: 'ФФ услуга (упаковка/обработка заказов)', storage: 'Хранение на складе' };
 
 export default function Expenses({ password }) {
   const [expenses, setExpenses] = useState([]);
@@ -12,11 +10,6 @@ export default function Expenses({ password }) {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [syncMessage, setSyncMessage] = useState('');
-
-  const [ffUploading, setFFUploading] = useState(false);
-  const [ffMessage, setFFMessage] = useState('');
-  const [ffError, setFFError] = useState('');
-  const ffFileInputRef = useRef(null);
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -51,30 +44,6 @@ export default function Expenses({ password }) {
       })
       .catch((err) => setError(err.message))
       .finally(() => setSyncing(false));
-  }
-
-  function handleFFFileChange(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    setFFUploading(true);
-    setFFMessage('');
-    setFFError('');
-
-    uploadFFReport(password, file)
-      .then((res) => {
-        const typeLabel = FF_TYPE_LABELS[res.type] || res.type;
-        const matchInfo = res.type === 'packaging' ? `, привязано к заказам: ${res.matchedOrders}, без привязки: ${res.unmatchedOrders}` : '';
-        setFFMessage(
-          `${typeLabel}: период ${formatDateDMY(res.periodFrom)} – ${formatDateDMY(res.periodTo)}, строк обработано: ${res.rowsProcessed}, ` +
-          `сумма: ${formatMoney(res.totalAmount)}${matchInfo}`
-        );
-      })
-      .catch((err) => setFFError(err.message))
-      .finally(() => {
-        setFFUploading(false);
-        if (ffFileInputRef.current) ffFileInputRef.current.value = '';
-      });
   }
 
   const listCategories = useMemo(() => {
@@ -114,31 +83,6 @@ export default function Expenses({ password }) {
           </button>
         </div>
         {syncMessage && <div className="report-upload-success">{syncMessage}</div>}
-      </div>
-
-      <div className="card">
-        <div className="report-upload-row">
-          <div>
-            <div className="report-upload-title">Загрузить отчёт фулфилмента (PDF)</div>
-            <div className="report-upload-hint">
-              Загрузите PDF-отчёт от фулфилмент-центра — «ФФ услуга» (упаковка/обработка заказов) или «Хранение» (аренда склада по дням).
-              Тип отчёта определяется автоматически. Расход попадёт в столбец «Услуги ФФ» в «Основном отчёте» на странице «Отчёт».
-            </div>
-          </div>
-          <label className={`primary-button report-upload-btn${ffUploading ? ' disabled' : ''}`}>
-            {ffUploading ? 'Загружаем...' : 'Выбрать файл .pdf'}
-            <input
-              ref={ffFileInputRef}
-              type="file"
-              accept=".pdf"
-              onChange={handleFFFileChange}
-              disabled={ffUploading}
-              style={{ display: 'none' }}
-            />
-          </label>
-        </div>
-        {ffMessage && <div className="report-upload-success">{ffMessage}</div>}
-        {ffError && <div className="error-banner">{ffError}</div>}
       </div>
 
       {error && <div className="error-banner">{error}</div>}
