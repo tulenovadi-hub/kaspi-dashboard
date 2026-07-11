@@ -331,6 +331,22 @@ async function getProductBreakdownForMonth(month, warehouses) {
   return rows;
 }
 
+// Расходы на рекламу по месяцам (ad_expenses, заливается вручную через Tampermonkey-скрипт
+// со страницы "Маркетинг" Kaspi Pay) — не привязаны к конкретному городу отгрузки, поэтому
+// считаются целиком по всему магазину и подмешиваются только в "Основной отчёт".
+async function fetchMarketingByMonth() {
+  const result = await pool.query(
+    `SELECT to_char(expense_date, 'YYYY-MM') AS month, SUM(cost) AS total
+     FROM ad_expenses
+     GROUP BY month`
+  );
+  const map = {};
+  for (const row of result.rows) {
+    map[row.month] = Number(row.total);
+  }
+  return map;
+}
+
 router.get('/monthly/:month/products', async (req, res) => {
   const { month } = req.params;
   if (!/^\d{4}-\d{2}$/.test(month)) {
@@ -347,24 +363,28 @@ router.get('/monthly/:month/products', async (req, res) => {
 
 router.get('/monthly', async (req, res) => {
   try {
-    const [months, monthsMainCities, monthsSelfBuyCities, otherExpensesByMonth] = await Promise.all([
+    const [months, monthsMainCities, monthsSelfBuyCities, otherExpensesByMonth, marketingByMonth] = await Promise.all([
       aggregateKaspiPayMonthly(),
       aggregateKaspiPayMonthly(MAIN_CITIES),
       aggregateKaspiPayMonthly(SELF_BUY_CITIES),
       fetchOtherExpensesByMonth(),
+      fetchMarketingByMonth(),
     ]);
 
-    // В "Основной отчёт" (Алматы+Астана) подмешиваем прочие расходы из "Расходов" и пересчитываем
-    // чистую прибыль/маржу/ROI с их учётом — в остальных двух таблицах эта колонка не нужна.
+    // В "Основной отчёт" (Алматы+Астана) подмешиваем прочие расходы из "Расходов" и расходы на
+    // рекламу из "Маркетинга", пересчитываем чистую прибыль/маржу/ROI с их учётом — в остальных
+    // двух таблицах этих колонок не нужно.
     const monthsMainCitiesWithExpenses = monthsMainCities.map((row) => {
       const otherExpenses = otherExpensesByMonth[row.month] || 0;
-      const netProfit = row.net_profit - otherExpenses;
-      const totalExpenses = row.cost_of_goods + row.commission + row.delivery + row.taxes + otherExpenses;
+      const marketing = marketingByMonth[row.month] || 0;
+      const netProfit = row.net_profit - otherExpenses - marketing;
+      const totalExpenses = row.cost_of_goods + row.commission + row.delivery + row.taxes + marketing + otherExpenses;
       const margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
       const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 
       return {
         ...row,
+        marketing,
         other_expenses: otherExpenses,
         net_profit: netProfit,
         margin,
@@ -382,5 +402,6 @@ router.get('/monthly', async (req, res) => {
 module.exports = router;
 module.exports.aggregateKaspiPayMonthly = aggregateKaspiPayMonthly;
 module.exports.fetchOtherExpensesByMonth = fetchOtherExpensesByMonth;
+module.exports.fetchMarketingByMonth = fetchMarketingByMonth;
 module.exports.MAIN_CITIES = MAIN_CITIES;
 module.exports.SELF_BUY_CITIES = SELF_BUY_CITIES;

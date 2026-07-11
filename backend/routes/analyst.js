@@ -1,7 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const { pool } = require('../db');
-const { aggregateKaspiPayMonthly, fetchOtherExpensesByMonth, MAIN_CITIES, SELF_BUY_CITIES } = require('./reports');
+const { aggregateKaspiPayMonthly, fetchOtherExpensesByMonth, fetchMarketingByMonth, MAIN_CITIES, SELF_BUY_CITIES } = require('./reports');
 
 const router = express.Router();
 
@@ -25,18 +25,20 @@ function pct(n) {
 // Последние несколько месяцев "Основного отчёта" (Алматы+Астана) — то же самое, что показано
 // в таблице на странице "Отчёт", просто переиспользуем готовую функцию оттуда.
 async function getMonthlyReportText() {
-  const [monthsMainCities, otherExpensesByMonth] = await Promise.all([
+  const [monthsMainCities, otherExpensesByMonth, marketingByMonth] = await Promise.all([
     aggregateKaspiPayMonthly(MAIN_CITIES),
     fetchOtherExpensesByMonth(),
+    fetchMarketingByMonth(),
   ]);
 
   const rows = monthsMainCities.slice(0, 6).map((row) => {
     const otherExpenses = otherExpensesByMonth[row.month] || 0;
-    const netProfit = row.net_profit - otherExpenses;
-    const totalExpenses = row.cost_of_goods + row.commission + row.delivery + row.taxes + otherExpenses;
+    const marketing = marketingByMonth[row.month] || 0;
+    const netProfit = row.net_profit - otherExpenses - marketing;
+    const totalExpenses = row.cost_of_goods + row.commission + row.delivery + row.taxes + marketing + otherExpenses;
     const margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
     const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
-    return { ...row, other_expenses: otherExpenses, net_profit: netProfit, margin, roi };
+    return { ...row, marketing, other_expenses: otherExpenses, net_profit: netProfit, margin, roi };
   });
 
   if (rows.length === 0) return 'Нет данных помесячного отчёта (не загружен Excel-отчёт Kaspi Pay).';
@@ -44,8 +46,8 @@ async function getMonthlyReportText() {
   return rows
     .map((r) => (
       `${r.month}: выручка ${fmt(r.net_revenue)}, себестоимость ${fmt(r.cost_of_goods)}, возвраты ${fmt(r.returns)}, ` +
-      `комиссия ${fmt(r.commission)}, доставка ${fmt(r.delivery)}, налоги ${fmt(r.taxes)}, прочие расходы ${fmt(r.other_expenses)}, ` +
-      `чистая прибыль ${fmt(r.net_profit)}, маржа ${pct(r.margin)}, ROI ${pct(r.roi)}`
+      `комиссия ${fmt(r.commission)}, доставка ${fmt(r.delivery)}, налоги ${fmt(r.taxes)}, маркетинг ${fmt(r.marketing)}, ` +
+      `прочие расходы ${fmt(r.other_expenses)}, чистая прибыль ${fmt(r.net_profit)}, маржа ${pct(r.margin)}, ROI ${pct(r.roi)}`
     ))
     .join('\n');
 }
