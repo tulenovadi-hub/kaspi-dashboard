@@ -103,6 +103,18 @@ export function fetchAnalystReport(password, from, to) {
   return apiRequest(`/api/analyst/report?from=${from}&to=${to}`, password);
 }
 
+export function fetchAnalystReportsList(password) {
+  return apiRequest('/api/analyst/reports', password);
+}
+
+export function fetchAnalystReportById(password, id) {
+  return apiRequest(`/api/analyst/reports/${id}`, password);
+}
+
+export function deleteAnalystReport(password, id) {
+  return apiRequest(`/api/analyst/reports/${id}`, password, { method: 'DELETE' });
+}
+
 export function fetchProductStats(password, productId, from, to, mode = 'main') {
   return apiRequest(`/api/stats/product/${encodeURIComponent(productId)}?from=${from}&to=${to}&mode=${mode}`, password);
 }

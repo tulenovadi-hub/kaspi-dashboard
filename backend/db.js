@@ -267,6 +267,20 @@ async function initDb() {
     );
   `);
 
+  // Сохранённые отчёты AI Финансиста — чтобы не терять сгенерированный отчёт при уходе со
+  // страницы и не жечь токены API повторно на то же самое. Хранится сразу готовый текст,
+  // period_from/period_to — тот период, который был выбран при генерации.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS analyst_reports (
+      id SERIAL PRIMARY KEY,
+      period_from DATE NOT NULL,
+      period_to DATE NOT NULL,
+      report_text TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_analyst_reports_created ON analyst_reports(created_at DESC);`);
+
   // Пользователи сайта с ролями. Раньше был один общий пароль на всех (DASHBOARD_PASSWORD) —
   // теперь у каждого свой логин/пароль. role: 'admin' | 'manager' | 'marketer'.
   await pool.query(`

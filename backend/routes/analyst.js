@@ -230,10 +230,60 @@ ${expenses}`;
       .map((block) => block.text)
       .join('\n');
 
-    res.json({ report: reportText });
+    // Сохраняем сразу же, чтобы отчёт не потерялся при уходе со страницы и не пришлось
+    // генерировать заново (и тратить токены API) — на странице есть история отчётов.
+    const saved = await pool.query(
+      `INSERT INTO analyst_reports (period_from, period_to, report_text) VALUES ($1, $2, $3) RETURNING id, created_at`,
+      [from, to, reportText]
+    );
+
+    res.json({ report: reportText, id: saved.rows[0].id, created_at: saved.rows[0].created_at });
   } catch (err) {
     console.error('Ошибка AI-финансиста:', err.response ? err.response.data : err.message);
     res.status(500).json({ error: 'Не удалось получить отчёт от AI. Проверьте ANTHROPIC_API_KEY и баланс на счету Anthropic.' });
+  }
+});
+
+// Список сохранённых отчётов (без текста — он может быть длинным, текст подгружается отдельно
+// только когда открывают конкретный отчёт).
+router.get('/reports', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, period_from, period_to, created_at FROM analyst_reports ORDER BY created_at DESC`
+    );
+    res.json({ reports: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось получить список сохранённых отчётов' });
+  }
+});
+
+router.get('/reports/:id', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, period_from, period_to, report_text, created_at FROM analyst_reports WHERE id = $1`,
+      [req.params.id]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Отчёт не найден — возможно, уже удалён' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось получить отчёт' });
+  }
+});
+
+router.delete('/reports/:id', async (req, res) => {
+  try {
+    const result = await pool.query(`DELETE FROM analyst_reports WHERE id = $1 RETURNING id`, [req.params.id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Отчёт не найден — возможно, уже удалён' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось удалить отчёт' });
   }
 });
 
