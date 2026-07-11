@@ -513,5 +513,6 @@ module.exports.aggregateKaspiPayMonthly = aggregateKaspiPayMonthly;
 module.exports.fetchOtherExpensesByMonth = fetchOtherExpensesByMonth;
 module.exports.fetchMarketingByMonth = fetchMarketingByMonth;
 module.exports.fetchPackagingExpensesByMonth = fetchPackagingExpensesByMonth;
+module.exports.getProductBreakdownForMonth = getProductBreakdownForMonth;
 module.exports.MAIN_CITIES = MAIN_CITIES;
 module.exports.SELF_BUY_CITIES = SELF_BUY_CITIES;

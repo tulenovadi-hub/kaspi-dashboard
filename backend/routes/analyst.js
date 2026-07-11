@@ -1,7 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const { pool } = require('../db');
-const { aggregateKaspiPayMonthly, fetchOtherExpensesByMonth, fetchMarketingByMonth, fetchPackagingExpensesByMonth, MAIN_CITIES, SELF_BUY_CITIES } = require('./reports');
+const { aggregateKaspiPayMonthly, fetchOtherExpensesByMonth, fetchMarketingByMonth, fetchPackagingExpensesByMonth, getProductBreakdownForMonth, MAIN_CITIES, SELF_BUY_CITIES } = require('./reports');
 const { computeWarehouseStock, DISPLAY_WAREHOUSES } = require('./warehouse');
 
 const router = express.Router();
@@ -11,6 +11,19 @@ const VALID_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK']
 
 function isValidDate(str) {
   return /^\d{4}-\d{2}-\d{2}$/.test(str);
+}
+
+// Список месяцев 'YYYY-MM', покрывающих диапазон from..to (по границам месяца, включительно).
+function monthsBetween(fromMonth, toMonth) {
+  const months = [];
+  let [y, m] = fromMonth.split('-').map(Number);
+  const [toY, toM] = toMonth.split('-').map(Number);
+  while (y < toY || (y === toY && m <= toM)) {
+    months.push(`${y}-${String(m).padStart(2, '0')}`);
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  return months;
 }
 
 function fmt(n) {
@@ -58,69 +71,65 @@ async function getMonthlyReportText() {
     .join('\n');
 }
 
-// Выручка и количество проданного по каждому товару за период + оценка себестоимости по методу
-// FIFO (партии по товару, от самой старой к самой новой) — раньше здесь бралась цена ТОЛЬКО
-// последней поставки, что сильно завышало маржу для товаров с несколькими партиями по разной
-// цене (последняя поставка часто дешевле старых). Всё ещё приближение (не учитывает, сколько
-// от каждой партии реально израсходовано другими продажами вне этого периода), но кардинально
-// точнее одной цены.
+// Маржа по товарам — переиспользует ту же самую точную помесячную разбивку, что и таблица
+// на странице "Отчёт" (клик по строке месяца): себестоимость по FIFO, плюс комиссия, доставка,
+// налог и маркетинг, распределённые на товар. Период AI Финансиста может быть произвольным (не
+// обязательно целым месяцем), поэтому считаем по каждому затронутому календарному месяцу
+// (getProductBreakdownForMonth) и складываем по товару — margin/ROI пересчитываются из суммарных
+// цифр, а не усредняются по месяцам.
 async function getProductMarginsText(from, to) {
-  const itemsResult = await pool.query(
-    `SELECT oi.product_id, oi.product_name, SUM(oi.quantity) AS qty, SUM(oi.total_price) AS revenue
+  const months = monthsBetween(from.slice(0, 7), to.slice(0, 7));
+  const breakdownsByMonth = await Promise.all(months.map((month) => getProductBreakdownForMonth(month, MAIN_CITIES)));
+
+  const totals = new Map(); // product_id -> накопитель
+  for (const rows of breakdownsByMonth) {
+    for (const r of rows) {
+      if (!totals.has(r.product_id)) {
+        totals.set(r.product_id, {
+          product_name: r.product_name,
+          revenue: 0,
+          returns: 0,
+          net_profit: 0,
+        });
+      }
+      const acc = totals.get(r.product_id);
+      acc.revenue += Number(r.revenue);
+      acc.returns += Number(r.returns);
+      acc.net_profit += Number(r.net_profit);
+    }
+  }
+
+  if (totals.size === 0) return 'Нет продаж за выбранный период.';
+
+  // Количество проданного — той же логикой фильтрации (главные города, без самовыкупов),
+  // что и остальные цифры в этом разделе; чисто информационная деталь для AI, на маржу не влияет.
+  const qtyResult = await pool.query(
+    `SELECT oi.product_id, SUM(oi.quantity) AS qty
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
      WHERE oi.creation_date >= $1::timestamp - interval '5 hours'
        AND oi.creation_date < $2::timestamp - interval '5 hours' + interval '1 day'
        AND o.status = ANY($3::text[])
-       AND (o.origin_city IS NULL OR NOT (o.origin_city = ANY($4::text[])))
-     GROUP BY oi.product_id, oi.product_name
-     ORDER BY revenue DESC
-     LIMIT 40`,
-    [from, to, VALID_STATUSES, SELF_BUY_CITIES]
+       AND o.origin_city = ANY($4::text[])
+     GROUP BY oi.product_id`,
+    [from, to, VALID_STATUSES, MAIN_CITIES]
   );
+  const qtyByProduct = new Map(qtyResult.rows.map((r) => [r.product_id, Number(r.qty)]));
 
-  if (itemsResult.rows.length === 0) return 'Нет продаж за выбранный период.';
-
-  const productIds = itemsResult.rows.map((r) => r.product_id);
-  const batchesResult = await pool.query(
-    `SELECT product_id, cost_price, quantity
-     FROM product_batches
-     WHERE product_id = ANY($1::text[])
-     ORDER BY product_id, received_date ASC, id ASC`,
-    [productIds]
-  );
-  const batchesByProduct = new Map();
-  for (const b of batchesResult.rows) {
-    if (!batchesByProduct.has(b.product_id)) batchesByProduct.set(b.product_id, []);
-    batchesByProduct.get(b.product_id).push({ cost_price: Number(b.cost_price), quantity: Number(b.quantity) });
-  }
-
-  return itemsResult.rows
-    .map((r) => {
-      const revenue = Number(r.revenue);
-      const qty = Number(r.qty);
-      const batches = batchesByProduct.get(r.product_id) || [];
-
-      let qtyLeft = qty;
-      let totalCost = 0;
-      let coveredQty = 0;
-      for (const b of batches) {
-        if (qtyLeft <= 0) break;
-        const take = Math.min(b.quantity, qtyLeft);
-        totalCost += take * b.cost_price;
-        coveredQty += take;
-        qtyLeft -= take;
-      }
-      // Партий не хватило на весь проданный объём (например, продано больше, чем известно
-      // поставок) — оставшееся оцениваем по цене самой новой партии, чтобы не терять число совсем.
-      if (qtyLeft > 0 && batches.length > 0) {
-        totalCost += qtyLeft * batches[batches.length - 1].cost_price;
-        coveredQty += qtyLeft;
-      }
-
-      const marginPct = coveredQty > 0 && revenue > 0 ? ((revenue - totalCost) / revenue) * 100 : null;
-      return `${r.product_name}: продано ${qty} шт, выручка ${fmt(revenue)}, ориентировочная маржа (по себестоимости партий FIFO, без учёта комиссии/доставки/налога/возвратов) ${pct(marginPct)}`;
+  const rows = Array.from(totals.entries())
+    .map(([productId, acc]) => {
+      const netRevenue = acc.revenue - acc.returns;
+      const margin = netRevenue !== 0 ? (acc.net_profit / netRevenue) * 100 : null;
+      return { ...acc, qty: qtyByProduct.get(productId) || 0, margin };
     })
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 40);
+
+  return rows
+    .map((r) => (
+      `${r.product_name}: продано ${r.qty} шт, выручка ${fmt(r.revenue)}, чистая прибыль ${fmt(r.net_profit)}, ` +
+      `маржа (с учётом себестоимости FIFO, комиссии, доставки, налога и маркетинга — как в «Отчёте») ${pct(r.margin)}`
+    ))
     .join('\n');
 }
 
@@ -223,7 +232,7 @@ router.get('/report', async (req, res) => {
 === ПОМЕСЯЧНЫЙ ОТЧЁТ (Алматы+Астана, последние месяцы) ===
 ${monthlyReport}
 
-=== ПРОДАЖИ ПО ТОВАРАМ ЗА ПЕРИОД ${from} — ${to} (выручка, кол-во, ориентировочная маржа) ===
+=== ПРОДАЖИ ПО ТОВАРАМ ЗА ПЕРИОД ${from} — ${to} (выручка, кол-во, чистая прибыль, маржа с учётом всех расходов) ===
 ${productMargins}
 
 === ОСТАТКИ НА СКЛАДЕ (самые крупные по стоимости остатка) ===
