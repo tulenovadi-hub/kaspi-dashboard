@@ -1183,6 +1183,41 @@ select:focus-visible {
   text-overflow: ellipsis;
 }
 
+/* Заголовок раздела в меню (например "Маркетинг" над его подстраницами) — не кликается,
+   просто визуально группирует пункты ниже. */
+.sidebar-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 12px 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.sidebar-section-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.sidebar-section-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Подстраница внутри раздела — тот же .sidebar-item, но с отступом слева, чтобы читалась
+   как вложенная в заголовок секции выше. В свёрнутом виде .sidebar.collapsed .sidebar-item
+   переопределяет padding (выше по специфичности), так что здесь ничего доп. делать не нужно. */
+.sidebar-item-sub {
+  padding-left: 34px;
+}
+
 .sidebar-logout {
   margin-top: auto;
   width: 100%;

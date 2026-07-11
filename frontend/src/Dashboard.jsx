@@ -8,6 +8,7 @@ import Expenses from './Expenses.jsx';
 import Orders from './Orders.jsx';
 import Settings from './Settings.jsx';
 import Marketing from './Marketing.jsx';
+import Bonuses from './Bonuses.jsx';
 import Analyst from './Analyst.jsx';
 import ComingSoon from './ComingSoon.jsx';
 
@@ -15,7 +16,7 @@ const SECTION_TITLES = {};
 
 export default function Dashboard({ password, username, role, onLogout }) {
   const allowedPages = ROLE_PAGES[role] || ROLE_PAGES.manager;
-  const [view, setView] = useState('sales'); // 'sales' | 'report' | 'selfbuy' | 'expenses' | 'batches' | 'warehouse' | 'marketing' | 'settings'
+  const [view, setView] = useState('sales'); // 'sales' | 'report' | 'selfbuy' | 'expenses' | 'batches' | 'warehouse' | 'marketing_ads' | 'marketing_bonuses' | 'marketing_reviews' | 'settings'
   const [collapsed, setCollapsed] = useState(() => sessionStorage.getItem('sidebar_collapsed') === '1');
 
   // Защита на случай, если роль не даёт доступа к текущему разделу (например, роль сменили
@@ -103,10 +104,26 @@ export default function Dashboard({ password, username, role, onLogout }) {
       );
     }
 
-    if (key === 'marketing') {
+    if (key === 'marketing_ads') {
       return (
         <div key={key} style={style}>
           <Marketing password={password} />
+        </div>
+      );
+    }
+
+    if (key === 'marketing_bonuses') {
+      return (
+        <div key={key} style={style}>
+          <Bonuses password={password} />
+        </div>
+      );
+    }
+
+    if (key === 'marketing_reviews') {
+      return (
+        <div key={key} style={style}>
+          <ComingSoon title="Бонусы за отзыв" />
         </div>
       );
     }

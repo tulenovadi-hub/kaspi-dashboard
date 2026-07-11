@@ -48,11 +48,13 @@ const icons = {
 
 // Какие пункты меню видит каждая роль
 const ROLE_PAGES = {
-  admin: ['sales', 'report', 'selfbuy', 'orders', 'expenses', 'batches', 'warehouse', 'marketing', 'analyst', 'settings'],
+  admin: ['sales', 'report', 'selfbuy', 'orders', 'expenses', 'batches', 'warehouse', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'analyst', 'settings'],
   manager: ['sales', 'selfbuy', 'orders', 'warehouse'],
-  marketer: ['sales', 'selfbuy', 'orders', 'warehouse', 'marketing'],
+  marketer: ['sales', 'selfbuy', 'orders', 'warehouse', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews'],
 };
 
+// "Маркетинг" — не отдельная страница, а раздел с тремя подстраницами (children). Раздел
+// показывается, только если у роли есть доступ хотя бы к одной из них.
 const NAV_ITEMS = [
   { key: 'sales', label: 'Главная', icon: 'home' },
   { key: 'report', label: 'Отчёт', icon: 'report' },
@@ -61,7 +63,15 @@ const NAV_ITEMS = [
   { key: 'expenses', label: 'Расходы', icon: 'expenses' },
   { key: 'batches', label: 'Поставки', icon: 'batches' },
   { key: 'warehouse', label: 'Склад', icon: 'warehouse' },
-  { key: 'marketing', label: 'Маркетинг', icon: 'marketing' },
+  {
+    section: 'Маркетинг',
+    icon: 'marketing',
+    children: [
+      { key: 'marketing_ads', label: 'Реклама товаров' },
+      { key: 'marketing_bonuses', label: 'Бонусы от продавца' },
+      { key: 'marketing_reviews', label: 'Бонусы за отзыв' },
+    ],
+  },
   { key: 'analyst', label: 'AI Финансист', icon: 'analyst' },
   { key: 'settings', label: 'Настройки', icon: 'settings' },
 ];
@@ -69,20 +79,50 @@ const NAV_ITEMS = [
 export { ROLE_PAGES };
 
 function NavList({ view, onSelect, collapsed, role }) {
-  const items = NAV_ITEMS.filter((item) => !role || (ROLE_PAGES[role] || []).includes(item.key));
+  const allowed = (key) => !role || (ROLE_PAGES[role] || []).includes(key);
+
   return (
     <nav className="sidebar-nav">
-      {items.map((item) => (
-        <button
-          key={item.key}
-          className={`sidebar-item${view === item.key ? ' active' : ''}`}
-          onClick={() => onSelect(item.key)}
-          title={collapsed ? item.label : undefined}
-        >
-          <span className="sidebar-item-icon">{icons[item.icon]}</span>
-          {!collapsed && <span className="sidebar-item-label">{item.label}</span>}
-        </button>
-      ))}
+      {NAV_ITEMS.map((item, i) => {
+        if (item.children) {
+          const visibleChildren = item.children.filter((c) => allowed(c.key));
+          if (visibleChildren.length === 0) return null;
+          return (
+            <React.Fragment key={`section-${i}`}>
+              {!collapsed && (
+                <div className="sidebar-section">
+                  <span className="sidebar-section-icon">{icons[item.icon]}</span>
+                  <span>{item.section}</span>
+                </div>
+              )}
+              {visibleChildren.map((c) => (
+                <button
+                  key={c.key}
+                  className={`sidebar-item sidebar-item-sub${view === c.key ? ' active' : ''}`}
+                  onClick={() => onSelect(c.key)}
+                  title={collapsed ? c.label : undefined}
+                >
+                  <span className="sidebar-item-icon">{icons[item.icon]}</span>
+                  {!collapsed && <span className="sidebar-item-label">{c.label}</span>}
+                </button>
+              ))}
+            </React.Fragment>
+          );
+        }
+
+        if (!allowed(item.key)) return null;
+        return (
+          <button
+            key={item.key}
+            className={`sidebar-item${view === item.key ? ' active' : ''}`}
+            onClick={() => onSelect(item.key)}
+            title={collapsed ? item.label : undefined}
+          >
+            <span className="sidebar-item-icon">{icons[item.icon]}</span>
+            {!collapsed && <span className="sidebar-item-label">{item.label}</span>}
+          </button>
+        );
+      })}
     </nav>
   );
 }

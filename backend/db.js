@@ -210,6 +210,34 @@ async function initDb() {
     );
   `);
 
+  // Расходы на "Бонусы от продавца" (marketing.kaspi.kz/bonuses) — тот же Tampermonkey-скрипт,
+  // что и для рекламы, просто с другой страницы. В отличие от рекламы, здесь нужен только расход
+  // (bonusAmount, деньги, выплаченные покупателям бонусами) — выручку тут сознательно не тянем,
+  // она не нужна.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bonus_expenses (
+      id SERIAL PRIMARY KEY,
+      expense_date DATE NOT NULL,
+      campaign_id TEXT NOT NULL,
+      campaign_name TEXT,
+      bonus_amount NUMERIC NOT NULL DEFAULT 0,
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (expense_date, campaign_id)
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_bonus_expenses_date ON bonus_expenses(expense_date);`);
+
+  // Привязка кампании бонусов к товару — по sku (= ваш product_id), та же логика, что и
+  // ad_campaign_products у рекламы.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bonus_campaign_products (
+      campaign_id TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (campaign_id, product_id)
+    );
+  `);
+
   // Пользователи сайта с ролями. Раньше был один общий пароль на всех (DASHBOARD_PASSWORD) —
   // теперь у каждого свой логин/пароль. role: 'admin' | 'manager' | 'marketer'.
   await pool.query(`
@@ -245,7 +273,7 @@ async function initDb() {
     console.log('Создан пользователь по умолчанию: admin / (старый общий пароль сайта). Обязательно смените его в Настройках!');
   }
 
-  console.log('База данных готова: таблицы orders, order_items, product_batches, kaspi_pay_transactions, product_images, expenses, ad_expenses, users и sessions на месте.');
+  console.log('База данных готова: таблицы orders, order_items, product_batches, kaspi_pay_transactions, product_images, expenses, ad_expenses, bonus_expenses, users и sessions на месте.');
 }
 
 module.exports = { pool, initDb };
