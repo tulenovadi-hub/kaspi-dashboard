@@ -590,7 +590,7 @@ router.get('/delivery-anomalies', async (req, res) => {
     res.json({ anomalies, checked_orders: rows.length, from, to });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Не удалось проверить стоимость доставки', debug: err.message });
+    res.status(500).json({ error: 'Не удалось проверить стоимость доставки' });
   }
 });
 
