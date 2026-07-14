@@ -508,6 +508,79 @@ router.get('/monthly', async (req, res) => {
   }
 });
 
+// Проверка стоимости доставки на подозрительные завышения. У Kaspi веса товаров не видно, но
+// вес каждого товара свой и не меняется — поэтому стоимость доставки одного и того же товара
+// должна быть примерно одинаковой во всех заказах. Берём только заказы с ОДНИМ товаром (чтобы
+// не гадать, как доставка распределяется между несколькими позициями), считаем по каждому товару
+// медианную доставку за единицу и помечаем заказы, где реальная доставка сильно отличается от неё.
+router.get('/delivery-anomalies', async (req, res) => {
+  const from = req.query.from || '2026-01-01';
+  const to = req.query.to || new Date().toISOString().slice(0, 10);
+
+  try {
+    const result = await pool.query(
+      `WITH single_item_orders AS (
+         SELECT oi.order_id, MIN(oi.product_id) AS product_id, MIN(oi.product_name) AS product_name,
+                MIN(oi.quantity) AS quantity
+         FROM order_items oi
+         GROUP BY oi.order_id
+         HAVING COUNT(*) = 1
+       ),
+       priced AS (
+         SELECT
+           kpt.order_number,
+           kpt.operation_date,
+           sio.product_id,
+           sio.product_name,
+           sio.quantity,
+           (-kpt.delivery_cost) AS delivery_cost,
+           (-kpt.delivery_cost) / NULLIF(sio.quantity, 0) AS per_unit_delivery
+         FROM kaspi_pay_transactions kpt
+         JOIN orders o ON o.code = kpt.order_number
+         JOIN single_item_orders sio ON sio.order_id = o.id
+         WHERE kpt.operation_type != 'Возврат'
+           AND kpt.operation_date BETWEEN $1 AND $2
+           AND kpt.delivery_cost != 0
+           AND sio.product_id IS NOT NULL
+       )
+       SELECT *,
+         percentile_cont(0.5) WITHIN GROUP (ORDER BY per_unit_delivery) OVER (PARTITION BY product_id) AS median_per_unit,
+         COUNT(*) OVER (PARTITION BY product_id) AS sample_size
+       FROM priced`,
+      [from, to]
+    );
+
+    const rows = result.rows.map((r) => {
+      const perUnit = Number(r.per_unit_delivery);
+      const median = Number(r.median_per_unit);
+      return {
+        order_number: r.order_number,
+        date: r.operation_date,
+        product_id: r.product_id,
+        product_name: r.product_name,
+        quantity: Number(r.quantity),
+        delivery_cost: Number(r.delivery_cost),
+        per_unit_delivery: perUnit,
+        median_per_unit: median,
+        sample_size: Number(r.sample_size),
+        ratio: median > 0 ? perUnit / median : null,
+      };
+    });
+
+    // Порог: доставка минимум в 1.5 раза выше/ниже обычной для этого товара, разница минимум
+    // 200 тг (чтобы не ловить копеечный шум), и у товара есть хотя бы 3 заказа для сравнения.
+    const anomalies = rows
+      .filter((r) => r.sample_size >= 3 && r.ratio !== null)
+      .filter((r) => (r.ratio >= 1.5 || r.ratio <= 0.6) && Math.abs(r.per_unit_delivery - r.median_per_unit) >= 200)
+      .sort((a, b) => b.ratio - a.ratio);
+
+    res.json({ anomalies, checked_orders: rows.length, from, to });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось проверить стоимость доставки' });
+  }
+});
+
 module.exports = router;
 module.exports.aggregateKaspiPayMonthly = aggregateKaspiPayMonthly;
 module.exports.fetchOtherExpensesByMonth = fetchOtherExpensesByMonth;
