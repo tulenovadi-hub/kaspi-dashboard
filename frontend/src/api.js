@@ -165,6 +165,11 @@ export function fetchMonthProductBreakdown(password, month) {
   return apiRequest(`/api/reports/monthly/${month}/products`, password);
 }
 
+export function fetchDeliveryAnomalies(password, from) {
+  const query = from ? `?from=${encodeURIComponent(from)}` : '';
+  return apiRequest(`/api/reports/delivery-anomalies${query}`, password);
+}
+
 export function fetchWarehouse(password) {
   return apiRequest('/api/warehouse', password);
 }

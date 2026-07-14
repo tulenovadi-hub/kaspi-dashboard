@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { fetchOrders } from './api.js';
+import { fetchOrders, fetchDeliveryAnomalies } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, formatPercent } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
+
+// С какой даты проверяем доставку — раньше этой даты данных недостаточно для сравнения.
+const DELIVERY_CHECK_FROM = '2026-01-01';
 
 const STATUS_LABELS = {
   COMPLETED: 'Выполнено',
@@ -43,6 +46,19 @@ export default function Orders({ password }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState(createEmptyFilters);
+
+  const [checkingDelivery, setCheckingDelivery] = useState(false);
+  const [deliveryCheckError, setDeliveryCheckError] = useState('');
+  const [deliveryAnomalies, setDeliveryAnomalies] = useState(null);
+
+  function handleCheckDelivery() {
+    setCheckingDelivery(true);
+    setDeliveryCheckError('');
+    fetchDeliveryAnomalies(password, DELIVERY_CHECK_FROM)
+      .then((res) => setDeliveryAnomalies(res))
+      .catch((err) => setDeliveryCheckError(err.message))
+      .finally(() => setCheckingDelivery(false));
+  }
 
   useEffect(() => {
     setLoading(true);
@@ -132,7 +148,58 @@ export default function Orders({ password }) {
         {hasActiveFilters && (
           <button className="orders-toolbar-reset" onClick={resetFilters}>Сбросить фильтры</button>
         )}
+        <button className="sync-button" onClick={handleCheckDelivery} disabled={checkingDelivery} style={{ marginLeft: 'auto' }}>
+          {checkingDelivery ? 'Проверяю...' : 'Проверить доставку'}
+        </button>
       </div>
+
+      {deliveryCheckError && <div className="error-banner">{deliveryCheckError}</div>}
+
+      {deliveryAnomalies && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div style={{ padding: '14px 16px 0', fontWeight: 600 }}>
+            Подозрительные начисления за доставку ({formatDateDMY(deliveryAnomalies.from)} – {formatDateDMY(deliveryAnomalies.to)})
+          </div>
+          <div style={{ padding: '4px 16px 14px', color: 'var(--text-secondary)', fontSize: 13 }}>
+            Сравнивали заказы с одним товаром ({formatNumber(deliveryAnomalies.checked_orders)} шт.) — стоимость доставки за единицу товара
+            против обычной (медианной) для этого же товара. Показаны случаи, где отличие минимум в 1.5 раза и минимум на 200 тг.
+          </div>
+          {deliveryAnomalies.anomalies.length === 0 ? (
+            <div className="empty-state">Подозрительных начислений не найдено</div>
+          ) : (
+            <div className="table-scroll">
+              <table className="product-table orders-table">
+                <thead>
+                  <tr>
+                    <th>Дата</th>
+                    <th>№ заказа</th>
+                    <th>Товар</th>
+                    <th className="num">Кол-во</th>
+                    <th className="num">Списано за доставку</th>
+                    <th className="num">Обычно для товара</th>
+                    <th className="num">Во сколько раз</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deliveryAnomalies.anomalies.map((a) => (
+                    <tr key={`${a.order_number}_${a.product_id}`}>
+                      <td>{formatDateDMY(a.date)}</td>
+                      <td className="num">{a.order_number}</td>
+                      <td>{a.product_name}</td>
+                      <td className="num">{formatNumber(a.quantity)}</td>
+                      <td className="num">{formatMoney(a.delivery_cost)}</td>
+                      <td className="num">{formatMoney(a.median_per_unit)}</td>
+                      <td className="num" style={{ color: a.ratio > 1 ? '#ff6b6b' : '#6b7690' }}>
+                        {a.ratio.toFixed(2)}×
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="card">
         {loading ? (
