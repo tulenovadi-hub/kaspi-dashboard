@@ -543,16 +543,29 @@ router.get('/delivery-anomalies', async (req, res) => {
            AND kpt.delivery_cost != 0
            AND sio.product_id IS NOT NULL
        )
-       SELECT *,
-         percentile_cont(0.5) WITHIN GROUP (ORDER BY per_unit_delivery) OVER (PARTITION BY product_id) AS median_per_unit,
-         COUNT(*) OVER (PARTITION BY product_id) AS sample_size
-       FROM priced`,
+       SELECT * FROM priced`,
       [from, to]
     );
 
+    // percentile_cont — это "ordered-set aggregate" в Postgres, для него нельзя использовать
+    // OVER (партиционирование по товару) — поэтому медиану на единицу товара считаем в JS.
+    const byProduct = new Map();
+    for (const r of result.rows) {
+      const key = r.product_id;
+      if (!byProduct.has(key)) byProduct.set(key, []);
+      byProduct.get(key).push(Number(r.per_unit_delivery));
+    }
+    const medianByProduct = new Map();
+    for (const [key, values] of byProduct) {
+      const sorted = [...values].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+      medianByProduct.set(key, { median, sampleSize: values.length });
+    }
+
     const rows = result.rows.map((r) => {
       const perUnit = Number(r.per_unit_delivery);
-      const median = Number(r.median_per_unit);
+      const { median, sampleSize } = medianByProduct.get(r.product_id);
       return {
         order_number: r.order_number,
         date: r.operation_date,
@@ -562,7 +575,7 @@ router.get('/delivery-anomalies', async (req, res) => {
         delivery_cost: Number(r.delivery_cost),
         per_unit_delivery: perUnit,
         median_per_unit: median,
-        sample_size: Number(r.sample_size),
+        sample_size: sampleSize,
         ratio: median > 0 ? perUnit / median : null,
       };
     });
