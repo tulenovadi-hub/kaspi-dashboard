@@ -216,6 +216,18 @@ async function computeKnownProfitRatio(from, to, mode, kptByOrder, costData) {
   return knownNetRevenue > 0 ? knownNetProfit / knownNetRevenue : null;
 }
 
+// Сумма расходов на маркетинг (реклама + бонусы от продавца + бонусы за отзыв) за произвольный
+// диапазон дат — просто SUM того, что реально загружено, без каких-либо прогнозов на
+// недостающие дни (в отличие от оценки чистой прибыли по свежим заказам ниже).
+async function fetchMarketingTotalForRange(from, to) {
+  const [adsResult, bonusResult, reviewResult] = await Promise.all([
+    pool.query(`SELECT COALESCE(SUM(cost), 0) AS total FROM ad_expenses WHERE expense_date BETWEEN $1 AND $2`, [from, to]),
+    pool.query(`SELECT COALESCE(SUM(bonus_amount), 0) AS total FROM bonus_expenses WHERE expense_date BETWEEN $1 AND $2`, [from, to]),
+    pool.query(`SELECT COALESCE(SUM(bonus_amount), 0) AS total FROM review_bonus_expenses WHERE expense_date BETWEEN $1 AND $2`, [from, to]),
+  ]);
+  return Number(adsResult.rows[0].total) + Number(bonusResult.rows[0].total) + Number(reviewResult.rows[0].total);
+}
+
 // Считает суммарную чистую прибыль по ВСЕМ товарам за период (для карточки на Главной).
 //
 // Ключевое отличие от расчёта по одному товару: если по какому-то заказу ещё не загружен
@@ -225,7 +237,10 @@ async function computeKnownProfitRatio(from, to, mode, kptByOrder, costData) {
 // неизвестного заказа. Если по этому товару вообще нет ни одной известной продажи в периоде —
 // используем общий средний % прибыли по всем товарам за период как более грубый запасной вариант.
 async function computeSummaryNetProfit(from, to, mode) {
-  const [itemsResult, kptResult, costData] = await Promise.all([
+  // Маркетинг не привязан к городу отгрузки, поэтому вычитаем его только на "Главной" (mode
+  // !== 'selfbuy') — так же, как колонка "Маркетинг" в "Отчёте" есть только в "Основном отчёте"
+  // (Алматы, Астана), а не в "Самовыкупах".
+  const [itemsResult, kptResult, costData, marketing] = await Promise.all([
     pool.query(
       `SELECT oi.product_id, oi.quantity, oi.total_price, o.code AS order_number, o.id AS order_id
        FROM order_items oi
@@ -243,10 +258,11 @@ async function computeSummaryNetProfit(from, to, mode) {
        GROUP BY order_number, operation_type`
     ),
     computeCostsByOrderItem(mode),
+    mode !== 'selfbuy' ? fetchMarketingTotalForRange(from, to) : Promise.resolve(0),
   ]);
 
   if (itemsResult.rows.length === 0) {
-    return { netProfit: 0, usedEstimate: false };
+    return { netProfit: -marketing, usedEstimate: false };
   }
 
   // order_id -> сумма всех позиций в этом заказе (для деления комиссии/доставки по товарам)
@@ -333,7 +349,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   }
 
   return {
-    netProfit: knownNetProfit + estimatedNetProfit,
+    netProfit: knownNetProfit + estimatedNetProfit - marketing,
     usedEstimate: unknownItems.length > 0,
   };
 }

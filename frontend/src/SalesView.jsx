@@ -165,6 +165,13 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
             </div>
           )}
 
+          {mode !== 'selfbuy' && (
+            <div style={{ color: '#6b7690', fontSize: 12, marginTop: usedEstimate ? -4 : -12, marginBottom: 16 }}>
+              Из чистой прибыли также вычтены расходы на маркетинг (реклама, бонусы от продавца, бонусы за отзыв)
+              за выбранный период — только то, что фактически загружено, без прогноза за недостающие дни.
+            </div>
+          )}
+
           <div className="section-title">Динамика продаж</div>
           <div className="card">
             <SalesChart data={summaryDays} dataKey="total_revenue" />
