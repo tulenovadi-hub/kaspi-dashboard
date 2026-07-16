@@ -61,22 +61,40 @@ async function refreshTrackedOrders() {
 }
 
 // Подтягивает настоящий статус трекинга (публичный logistics.kaspi.kz) для всех заказов, по
-// которым мы ещё не видели tracking_active = false — как только он становится false, статус
-// уже не изменится, дальше можно не перепроверять.
+// которым мы ещё не видели подтверждённый возврат — как только видим, статус уже не
+// изменится, дальше можно не перепроверять.
+//
+// ВАЖНО: верхнеуровневые поля ответа (orderStatus/active/lastActualTrack) оказались
+// ненадёжными — на заказе 773482186 они показывали "ещё едет" (active: true, lastActualTrack:
+// null), хотя в массиве tracks того же ответа явно есть событие "RETURNED" с датой. Поэтому
+// ориентируемся только на сам массив tracks: если там есть код RETURNED — заказ точно
+// вернулся, и берём дату САМОГО ПОЗДНЕГО события из tracks как last_track_at (а не
+// lastActualTrack, который тоже может быть пустым при непустой истории).
 async function refreshTrackingStatuses() {
-  const result = await pool.query(`SELECT order_number FROM delivery_cancellations WHERE tracking_active IS DISTINCT FROM false`);
+  const result = await pool.query(`SELECT order_number FROM delivery_cancellations WHERE tracking_status IS DISTINCT FROM 'RETURNED'`);
 
   let count = 0;
   for (const row of result.rows) {
     const data = await fetchTrackingStatus(row.order_number);
     if (!data) continue;
 
-    const lastTrackAt = data.lastActualTrack ? data.lastActualTrack.actualDateTime : null;
+    const tracks = Array.isArray(data.tracks) ? data.tracks : [];
+    const hasReturned = tracks.some((t) => t.code === 'RETURNED');
+    const lastTrack = tracks.reduce((latest, t) => {
+      if (!t.actualDateTime) return latest;
+      if (!latest || new Date(t.actualDateTime) > new Date(latest.actualDateTime)) return t;
+      return latest;
+    }, null);
+
+    const trackingStatus = hasReturned ? 'RETURNED' : (data.orderStatus || null);
+    const trackingActive = hasReturned ? false : (tracks.length > 0 ? true : (data.active === undefined ? null : data.active));
+    const lastTrackAt = lastTrack ? lastTrack.actualDateTime : null;
+
     await pool.query(
       `UPDATE delivery_cancellations
        SET tracking_status = $2, tracking_active = $3, last_track_at = $4
        WHERE order_number = $1`,
-      [row.order_number, data.orderStatus || null, data.active === undefined ? null : data.active, lastTrackAt]
+      [row.order_number, trackingStatus, trackingActive, lastTrackAt]
     );
     count += 1;
   }
