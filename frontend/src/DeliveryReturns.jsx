@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { fetchDeliveryReturns, syncDeliveryReturns, deleteDeliveryReturn } from './api.js';
 import { formatMoney } from './dateUtils.js';
 
@@ -33,6 +33,54 @@ function statusLabel(o) {
   if (o.status === 'CANCELLING') return 'Отменяется';
   if (o.status === 'CANCELLED') return 'В архиве';
   return o.status || '—';
+}
+
+function OrdersTable({ orders, onDelete, deletingId, showDaysColumn }) {
+  return (
+    <div className="table-scroll">
+      <table className="product-table orders-table">
+        <thead>
+          <tr>
+            <th>№ заказа</th>
+            <th>Дата создания</th>
+            {showDaysColumn && <th className="num">Дней без движения</th>}
+            <th className="num">Сумма</th>
+            <th>Статус трекинга</th>
+            <th>Причина отмены</th>
+            <th>Город отгрузки</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((o) => (
+            <tr key={o.order_number} className={o.suspicious ? 'orders-row-return' : ''}>
+              <td className="num">{o.order_number}</td>
+              <td>{formatDate(o.creation_date)}</td>
+              {showDaysColumn && (
+                <td className="num">{o.days_since_last_track !== null ? o.days_since_last_track : o.days_since}</td>
+              )}
+              <td className="num">{formatMoney(o.total_price)}</td>
+              <td style={{ color: o.suspicious ? '#ff6b6b' : undefined, fontWeight: o.suspicious ? 600 : undefined }}>
+                {statusLabel(o)}
+              </td>
+              <td>{CANCELLATION_REASON_LABELS[o.cancellation_reason] || o.cancellation_reason || '—'}</td>
+              <td>{o.origin_city || '—'}</td>
+              <td className="num">
+                <button
+                  className="batch-delete"
+                  onClick={() => onDelete(o.order_number)}
+                  disabled={deletingId === o.order_number}
+                  title="Убрать из списка"
+                >
+                  ✕
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export default function DeliveryReturns({ password }) {
@@ -74,6 +122,12 @@ export default function DeliveryReturns({ password }) {
       .finally(() => setDeletingId(null));
   }
 
+  // Заказы, отменённые ДО передачи в доставку (tracking_status === 'CANCELLED') — товар никуда
+  // не уезжал и возвращать было нечего, такие никогда не бывают подозрительными. Выносим их в
+  // отдельную таблицу ниже, чтобы не засорять основной список, где важны реальные возвраты.
+  const mainOrders = useMemo(() => orders.filter((o) => o.tracking_status !== 'CANCELLED'), [orders]);
+  const cancelledBeforeDelivery = useMemo(() => orders.filter((o) => o.tracking_status === 'CANCELLED'), [orders]);
+
   const suspiciousCount = orders.filter((o) => o.suspicious).length;
 
   return (
@@ -85,10 +139,9 @@ export default function DeliveryReturns({ password }) {
       <div style={{ color: '#6b7690', fontSize: 13, marginBottom: 16 }}>
         Заказы, отменённые при доставке (Kaspi Доставка). Статус берётся из настоящего трекинга Kaspi
         Delivery, а не из основного API заказов (там поле возврата на склад оказалось ненадёжным).
-        «Вернулся на склад» и «Отменён без доставки» — благополучные исходы. Подозрительным заказ
-        помечается только если он всё ещё «Едет обратно на склад», но без единого движения уже
-        {' '}{thresholdDays}+ дней. Список пополняется и перепроверяется каждую ночь — уберите строку
-        кнопкой «✕», когда разобрались с заказом на Kaspi.
+        Подозрительным заказ помечается только если он всё ещё «Едет обратно на склад», но без
+        единого движения уже {thresholdDays}+ дней. Список пополняется и перепроверяется каждую
+        ночь — уберите строку кнопкой «✕», когда разобрались с заказом на Kaspi.
       </div>
 
       <div className="batches-toolbar">
@@ -102,50 +155,10 @@ export default function DeliveryReturns({ password }) {
       <div className="card">
         {loading ? (
           <div className="empty-state">Загрузка...</div>
-        ) : orders.length === 0 ? (
+        ) : mainOrders.length === 0 ? (
           <div className="empty-state">Сейчас нет заказов, отменённых при доставке</div>
         ) : (
-          <div className="table-scroll">
-            <table className="product-table orders-table">
-              <thead>
-                <tr>
-                  <th>№ заказа</th>
-                  <th>Дата создания</th>
-                  <th className="num">Дней без движения</th>
-                  <th className="num">Сумма</th>
-                  <th>Статус трекинга</th>
-                  <th>Причина отмены</th>
-                  <th>Город отгрузки</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => (
-                  <tr key={o.order_number} className={o.suspicious ? 'orders-row-return' : ''}>
-                    <td className="num">{o.order_number}</td>
-                    <td>{formatDate(o.creation_date)}</td>
-                    <td className="num">{o.days_since_last_track !== null ? o.days_since_last_track : o.days_since}</td>
-                    <td className="num">{formatMoney(o.total_price)}</td>
-                    <td style={{ color: o.suspicious ? '#ff6b6b' : undefined, fontWeight: o.suspicious ? 600 : undefined }}>
-                      {statusLabel(o)}
-                    </td>
-                    <td>{CANCELLATION_REASON_LABELS[o.cancellation_reason] || o.cancellation_reason || '—'}</td>
-                    <td>{o.origin_city || '—'}</td>
-                    <td className="num">
-                      <button
-                        className="batch-delete"
-                        onClick={() => handleDelete(o.order_number)}
-                        disabled={deletingId === o.order_number}
-                        title="Убрать из списка"
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <OrdersTable orders={mainOrders} onDelete={handleDelete} deletingId={deletingId} showDaysColumn />
         )}
       </div>
 
@@ -153,6 +166,19 @@ export default function DeliveryReturns({ password }) {
         <div className="report-note">
           Всего отслеживается: {orders.length}. Подозрительных: {suspiciousCount}.
         </div>
+      )}
+
+      {!loading && cancelledBeforeDelivery.length > 0 && (
+        <>
+          <div className="section-title">Отменены до передачи в доставку</div>
+          <div style={{ color: '#6b7690', fontSize: 13, marginBottom: 16 }}>
+            Товар физически никуда не уезжал — возвращать было нечего. Показаны отдельно, чтобы не
+            путать с реальными возвратами выше.
+          </div>
+          <div className="card">
+            <OrdersTable orders={cancelledBeforeDelivery} onDelete={handleDelete} deletingId={deletingId} />
+          </div>
+        </>
       )}
     </div>
   );
