@@ -42,6 +42,12 @@ function isHighlighted(o) {
   return o.suspicious || o.tracking_status === 'WAITING_IN_PICKUP_POINT';
 }
 
+function wonderLabel(o) {
+  return o.wonder_received === true ? 'Да' : o.wonder_received === false ? 'Нет' : '—';
+}
+
+const WONDER_OPTIONS = ['Да', 'Нет', '—'];
+
 function createEmptyFilters() {
   return {
     orderNumber: '',
@@ -49,6 +55,7 @@ function createEmptyFilters() {
     dateTo: '',
     statusExcluded: new Set(),
     cityExcluded: new Set(),
+    wonderExcluded: new Set(),
     amountMin: '',
     amountMax: '',
   };
@@ -140,7 +147,26 @@ function OrdersTable({
                 </div>
               </FilterHeader>
             </th>
-            <th>Принят складом</th>
+            <th>
+              <FilterHeader label="Принят складом" active={filters.wonderExcluded.size > 0}>
+                <div className="filter-popover-list">
+                  {WONDER_OPTIONS.map((w) => (
+                    <label key={w} className="filter-popover-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={!filters.wonderExcluded.has(w)}
+                        onChange={() => toggleSetValue('wonderExcluded', w)}
+                      />
+                      <span>{w}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="filter-popover-actions">
+                  <button onClick={() => selectAll('wonderExcluded')}>Все</button>
+                  <button onClick={() => selectNone('wonderExcluded', WONDER_OPTIONS)}>Ничего</button>
+                </div>
+              </FilterHeader>
+            </th>
             <th></th>
           </tr>
         </thead>
@@ -164,7 +190,7 @@ function OrdersTable({
                 <td>{CANCELLATION_REASON_LABELS[o.cancellation_reason] || o.cancellation_reason || '—'}</td>
                 <td>{o.origin_city || '—'}</td>
                 <td style={{ color: o.wonder_received === false ? '#ff6b6b' : undefined, fontWeight: o.wonder_received === false ? 600 : undefined }}>
-                  {o.wonder_received === true ? 'Да' : o.wonder_received === false ? 'Нет' : '—'}
+                  {wonderLabel(o)}
                 </td>
                 <td className="num">
                   <button
@@ -252,6 +278,7 @@ export default function DeliveryReturns({ password }) {
       if (filters.orderNumber && !String(o.order_number).includes(filters.orderNumber)) return false;
       if (filters.statusExcluded.has(statusLabel(o))) return false;
       if (filters.cityExcluded.has(o.origin_city)) return false;
+      if (filters.wonderExcluded.has(wonderLabel(o))) return false;
       if (min !== null && Number(o.total_price) < min) return false;
       if (max !== null && Number(o.total_price) > max) return false;
       return true;
