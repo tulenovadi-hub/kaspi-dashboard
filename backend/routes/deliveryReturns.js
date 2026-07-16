@@ -20,15 +20,15 @@ router.get('/', async (req, res) => {
     const now = Date.now();
     const orders = result.rows.map((r) => {
       const daysSince = Math.floor((now - new Date(r.creation_date).getTime()) / (24 * 60 * 60 * 1000));
-      // Если трекинг подтвердил, что доставка закончилась (tracking_active = false) — судим
-      // по итоговому статусу: "RETURNED" значит реально вернулся, что-то другое — подозрительно.
-      // Пока трекинг ещё активен (или мы вообще не смогли его получить), ориентируемся на то,
-      // сколько дней прошло без единого движения (или с момента создания, если движений не было вовсе).
-      let suspicious;
+      // tracking_active = false — трекинг сам сообщил, что процесс закончен. И "RETURNED"
+      // (реально вернулся), и "CANCELLED" (отменили ДО того, как заказ вообще уехал в
+      // доставку — возвращать было нечего) — это нормальные, благополучные исходы, не повод
+      // для подозрений. Пока трекинг ещё активен ("RETURNING" и т.п.) — подозрительно, только
+      // если движения нет уже слишком долго. Если трекинг вообще не нашёлся (null) — данных
+      // не хватает, лучше не флагать вслепую, чем повторить ошибку с returnedToWarehouse.
+      let suspicious = false;
       let daysSinceLastTrack = null;
-      if (r.tracking_active === false) {
-        suspicious = r.tracking_status !== 'RETURNED';
-      } else {
+      if (r.tracking_active === true) {
         const lastTrackMs = r.last_track_at ? new Date(r.last_track_at).getTime() : null;
         daysSinceLastTrack = lastTrackMs ? Math.floor((now - lastTrackMs) / (24 * 60 * 60 * 1000)) : daysSince;
         suspicious = daysSinceLastTrack >= SUSPICIOUS_DAYS_THRESHOLD;
