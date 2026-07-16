@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { fetchDeliveryReturns, syncDeliveryReturns, deleteDeliveryReturn } from './api.js';
 import { formatMoney } from './dateUtils.js';
+import FilterHeader from './FilterHeader.jsx';
 
 function formatDate(value) {
   if (!value) return '—';
@@ -35,48 +36,145 @@ function statusLabel(o) {
   return o.status || '—';
 }
 
-function OrdersTable({ orders, onDelete, deletingId, showDaysColumn }) {
+// Помимо формально "подозрительных" (застряли в реальном возврате) отдельно подсвечиваем
+// заказы, ожидающие в пункте выдачи — их нужно физически забрать, легко забыть.
+function isHighlighted(o) {
+  return o.suspicious || o.tracking_status === 'WAITING_IN_PICKUP_POINT';
+}
+
+function createEmptyFilters() {
+  return {
+    orderNumber: '',
+    dateFrom: '',
+    dateTo: '',
+    statusExcluded: new Set(),
+    cityExcluded: new Set(),
+    amountMin: '',
+    amountMax: '',
+  };
+}
+
+function OrdersTable({
+  orders, onDelete, deletingId, showDaysColumn,
+  filters, updateFilter, toggleSetValue, selectAll, selectNone, statusOptions, cityOptions,
+}) {
   return (
     <div className="table-scroll">
       <table className="product-table orders-table">
         <thead>
           <tr>
-            <th>№ заказа</th>
-            <th>Дата создания</th>
+            <th>
+              <FilterHeader label="№ заказа" active={!!filters.orderNumber}>
+                <input
+                  className="filter-popover-input"
+                  type="text"
+                  placeholder="Поиск..."
+                  value={filters.orderNumber}
+                  onChange={(e) => updateFilter('orderNumber', e.target.value)}
+                  autoFocus
+                />
+                <button className="filter-popover-clear" onClick={() => updateFilter('orderNumber', '')}>Очистить</button>
+              </FilterHeader>
+            </th>
+            <th>
+              <FilterHeader label="Дата создания" active={!!(filters.dateFrom || filters.dateTo)}>
+                <div className="filter-popover-row">
+                  <label>С</label>
+                  <input type="date" value={filters.dateFrom} onChange={(e) => updateFilter('dateFrom', e.target.value)} />
+                </div>
+                <div className="filter-popover-row">
+                  <label>По</label>
+                  <input type="date" value={filters.dateTo} onChange={(e) => updateFilter('dateTo', e.target.value)} />
+                </div>
+                <button className="filter-popover-clear" onClick={() => { updateFilter('dateFrom', ''); updateFilter('dateTo', ''); }}>Очистить</button>
+              </FilterHeader>
+            </th>
             {showDaysColumn && <th className="num">Дней без движения</th>}
-            <th className="num">Сумма</th>
-            <th>Статус трекинга</th>
+            <th className="num">
+              <FilterHeader label="Сумма" active={!!(filters.amountMin || filters.amountMax)} align="right">
+                <div className="filter-popover-row">
+                  <input type="number" placeholder="от" value={filters.amountMin} onChange={(e) => updateFilter('amountMin', e.target.value)} />
+                  <input type="number" placeholder="до" value={filters.amountMax} onChange={(e) => updateFilter('amountMax', e.target.value)} />
+                </div>
+                <button className="filter-popover-clear" onClick={() => { updateFilter('amountMin', ''); updateFilter('amountMax', ''); }}>Очистить</button>
+              </FilterHeader>
+            </th>
+            <th>
+              <FilterHeader label="Статус трекинга" active={filters.statusExcluded.size > 0}>
+                <div className="filter-popover-list">
+                  {statusOptions.map((s) => (
+                    <label key={s} className="filter-popover-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={!filters.statusExcluded.has(s)}
+                        onChange={() => toggleSetValue('statusExcluded', s)}
+                      />
+                      <span>{s}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="filter-popover-actions">
+                  <button onClick={() => selectAll('statusExcluded')}>Все</button>
+                  <button onClick={() => selectNone('statusExcluded', statusOptions)}>Ничего</button>
+                </div>
+              </FilterHeader>
+            </th>
             <th>Причина отмены</th>
-            <th>Город отгрузки</th>
+            <th>
+              <FilterHeader label="Город отгрузки" active={filters.cityExcluded.size > 0}>
+                <div className="filter-popover-list">
+                  {cityOptions.map((c) => (
+                    <label key={c} className="filter-popover-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={!filters.cityExcluded.has(c)}
+                        onChange={() => toggleSetValue('cityExcluded', c)}
+                      />
+                      <span>{c}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="filter-popover-actions">
+                  <button onClick={() => selectAll('cityExcluded')}>Все</button>
+                  <button onClick={() => selectNone('cityExcluded', cityOptions)}>Ничего</button>
+                </div>
+              </FilterHeader>
+            </th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          {orders.map((o) => (
-            <tr key={o.order_number} className={o.suspicious ? 'orders-row-return' : ''}>
-              <td className="num">{o.order_number}</td>
-              <td>{formatDate(o.creation_date)}</td>
-              {showDaysColumn && (
-                <td className="num">{o.days_since_last_track !== null ? o.days_since_last_track : o.days_since}</td>
-              )}
-              <td className="num">{formatMoney(o.total_price)}</td>
-              <td style={{ color: o.suspicious ? '#ff6b6b' : undefined, fontWeight: o.suspicious ? 600 : undefined }}>
-                {statusLabel(o)}
-              </td>
-              <td>{CANCELLATION_REASON_LABELS[o.cancellation_reason] || o.cancellation_reason || '—'}</td>
-              <td>{o.origin_city || '—'}</td>
-              <td className="num">
-                <button
-                  className="batch-delete"
-                  onClick={() => onDelete(o.order_number)}
-                  disabled={deletingId === o.order_number}
-                  title="Убрать из списка"
-                >
-                  ✕
-                </button>
-              </td>
+          {orders.length === 0 ? (
+            <tr>
+              <td colSpan={showDaysColumn ? 8 : 7} className="empty-state">Ничего не найдено по заданным фильтрам</td>
             </tr>
-          ))}
+          ) : (
+            orders.map((o) => (
+              <tr key={o.order_number} className={isHighlighted(o) ? 'orders-row-return' : ''}>
+                <td className="num">{o.order_number}</td>
+                <td>{formatDate(o.creation_date)}</td>
+                {showDaysColumn && (
+                  <td className="num">{o.days_since_last_track !== null ? o.days_since_last_track : o.days_since}</td>
+                )}
+                <td className="num">{formatMoney(o.total_price)}</td>
+                <td style={{ color: isHighlighted(o) ? '#ff6b6b' : undefined, fontWeight: isHighlighted(o) ? 600 : undefined }}>
+                  {statusLabel(o)}
+                </td>
+                <td>{CANCELLATION_REASON_LABELS[o.cancellation_reason] || o.cancellation_reason || '—'}</td>
+                <td>{o.origin_city || '—'}</td>
+                <td className="num">
+                  <button
+                    className="batch-delete"
+                    onClick={() => onDelete(o.order_number)}
+                    disabled={deletingId === o.order_number}
+                    title="Убрать из списка"
+                  >
+                    ✕
+                  </button>
+                </td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>
@@ -90,6 +188,7 @@ export default function DeliveryReturns({ password }) {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
+  const [filters, setFilters] = useState(createEmptyFilters);
 
   function loadData() {
     setLoading(true);
@@ -122,13 +221,48 @@ export default function DeliveryReturns({ password }) {
       .finally(() => setDeletingId(null));
   }
 
+  const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
+  const toggleSetValue = (key, value) => {
+    setFilters((f) => {
+      const next = new Set(f[key]);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return { ...f, [key]: next };
+    });
+  };
+  const selectAll = (key) => setFilters((f) => ({ ...f, [key]: new Set() }));
+  const selectNone = (key, allValues) => setFilters((f) => ({ ...f, [key]: new Set(allValues) }));
+  const hasActiveFilters = Object.entries(filters).some(([, v]) => (v instanceof Set ? v.size > 0 : v !== ''));
+  const resetFilters = () => setFilters(createEmptyFilters());
+
+  const statusOptions = useMemo(() => Array.from(new Set(orders.map(statusLabel))).sort(), [orders]);
+  const cityOptions = useMemo(() => Array.from(new Set(orders.map((o) => o.origin_city).filter(Boolean))).sort(), [orders]);
+
+  const filteredOrders = useMemo(() => {
+    const min = filters.amountMin === '' ? null : Number(filters.amountMin);
+    const max = filters.amountMax === '' ? null : Number(filters.amountMax);
+    return orders.filter((o) => {
+      const datePart = String(o.creation_date || '').slice(0, 10);
+      if (filters.dateFrom && datePart < filters.dateFrom) return false;
+      if (filters.dateTo && datePart > filters.dateTo) return false;
+      if (filters.orderNumber && !String(o.order_number).includes(filters.orderNumber)) return false;
+      if (filters.statusExcluded.has(statusLabel(o))) return false;
+      if (filters.cityExcluded.has(o.origin_city)) return false;
+      if (min !== null && Number(o.total_price) < min) return false;
+      if (max !== null && Number(o.total_price) > max) return false;
+      return true;
+    });
+  }, [orders, filters]);
+
   // Заказы, отменённые ДО передачи в доставку (tracking_status === 'CANCELLED') — товар никуда
   // не уезжал и возвращать было нечего, такие никогда не бывают подозрительными. Выносим их в
   // отдельную таблицу ниже, чтобы не засорять основной список, где важны реальные возвраты.
-  const mainOrders = useMemo(() => orders.filter((o) => o.tracking_status !== 'CANCELLED'), [orders]);
-  const cancelledBeforeDelivery = useMemo(() => orders.filter((o) => o.tracking_status === 'CANCELLED'), [orders]);
+  const mainOrders = useMemo(() => filteredOrders.filter((o) => o.tracking_status !== 'CANCELLED'), [filteredOrders]);
+  const cancelledBeforeDelivery = useMemo(() => filteredOrders.filter((o) => o.tracking_status === 'CANCELLED'), [filteredOrders]);
 
   const suspiciousCount = orders.filter((o) => o.suspicious).length;
+
+  const tableProps = { filters, updateFilter, toggleSetValue, selectAll, selectNone, statusOptions, cityOptions, deletingId, onDelete: handleDelete };
 
   return (
     <div>
@@ -140,14 +274,18 @@ export default function DeliveryReturns({ password }) {
         Заказы, отменённые при доставке (Kaspi Доставка). Статус берётся из настоящего трекинга Kaspi
         Delivery, а не из основного API заказов (там поле возврата на склад оказалось ненадёжным).
         Подозрительным заказ помечается только если он всё ещё «Едет обратно на склад», но без
-        единого движения уже {thresholdDays}+ дней. Список пополняется и перепроверяется каждую
-        ночь — уберите строку кнопкой «✕», когда разобрались с заказом на Kaspi.
+        единого движения уже {thresholdDays}+ дней; заказы «Ожидает в пункте выдачи» подсвечены
+        отдельно — их нужно забрать физически. Список пополняется и перепроверяется каждую ночь —
+        уберите строку кнопкой «✕», когда разобрались с заказом на Kaspi.
       </div>
 
       <div className="batches-toolbar">
         <button className="sync-button" onClick={handleSync} disabled={syncing}>
           {syncing ? 'Проверяю...' : 'Проверить сейчас'}
         </button>
+        {hasActiveFilters && (
+          <button className="orders-toolbar-reset" onClick={resetFilters}>Сбросить фильтры</button>
+        )}
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -155,10 +293,10 @@ export default function DeliveryReturns({ password }) {
       <div className="card">
         {loading ? (
           <div className="empty-state">Загрузка...</div>
-        ) : mainOrders.length === 0 ? (
+        ) : orders.length === 0 ? (
           <div className="empty-state">Сейчас нет заказов, отменённых при доставке</div>
         ) : (
-          <OrdersTable orders={mainOrders} onDelete={handleDelete} deletingId={deletingId} showDaysColumn />
+          <OrdersTable orders={mainOrders} showDaysColumn {...tableProps} />
         )}
       </div>
 
@@ -168,7 +306,7 @@ export default function DeliveryReturns({ password }) {
         </div>
       )}
 
-      {!loading && cancelledBeforeDelivery.length > 0 && (
+      {!loading && orders.some((o) => o.tracking_status === 'CANCELLED') && (
         <>
           <div className="section-title">Отменены до передачи в доставку</div>
           <div style={{ color: '#6b7690', fontSize: 13, marginBottom: 16 }}>
@@ -176,7 +314,7 @@ export default function DeliveryReturns({ password }) {
             путать с реальными возвратами выше.
           </div>
           <div className="card">
-            <OrdersTable orders={cancelledBeforeDelivery} onDelete={handleDelete} deletingId={deletingId} />
+            <OrdersTable orders={cancelledBeforeDelivery} {...tableProps} />
           </div>
         </>
       )}
