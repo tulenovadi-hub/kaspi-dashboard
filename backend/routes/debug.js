@@ -71,4 +71,24 @@ router.get('/order-by-code/:code', async (req, res) => {
   }
 });
 
+// Временный диагностический роут — проверяем, поддерживает ли Kaspi фильтр по статусу
+// заказа в списке /orders (а не только по дате создания, как сейчас в kaspiClient.js).
+// Если да — можно будет находить ВСЕ заказы в статусе "отменяется/возврат" напрямую у Kaspi,
+// не завися от нашей локальной синхронизации (которая старые заказы больше не обновляет).
+router.get('/orders-by-status', async (req, res) => {
+  try {
+    const response = await client().get('/orders', {
+      params: {
+        'page[number]': 0,
+        'page[size]': 100,
+        'filter[orders][state]': req.query.state || 'KASPI_DELIVERY',
+        'filter[orders][status]': req.query.status || 'CANCELLING',
+      },
+    });
+    res.json(response.data);
+  } catch (err) {
+    res.status(500).json({ error: err.message, details: err.response ? err.response.data : null });
+  }
+});
+
 module.exports = router;
