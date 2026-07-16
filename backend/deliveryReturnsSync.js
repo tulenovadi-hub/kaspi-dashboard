@@ -86,8 +86,16 @@ async function refreshTrackingStatuses() {
       return latest;
     }, null);
 
-    const trackingStatus = hasReturned ? 'RETURNED' : (data.orderStatus || null);
-    const trackingActive = hasReturned ? false : (tracks.length > 0 ? true : (data.active === undefined ? null : data.active));
+    // "Активно возвращается" — только если ПОСЛЕДНЕЕ по времени событие начинается с RETURN_
+    // (реально в процессе обратной перевозки). Любой другой код последним (CANCELLED, ожидание
+    // в пункте выдачи и т.п.) означает, что процесс так или иначе завершился без явного
+    // подтверждения RETURNED — это не повод считать заказ зависшим, просто у него не было
+    // отдельного этапа возврата (например, отменили ещё до отправки).
+    const lastCode = lastTrack ? lastTrack.code : null;
+    const isActivelyReturning = !!(lastCode && lastCode.startsWith('RETURN_'));
+
+    const trackingStatus = hasReturned ? 'RETURNED' : lastCode;
+    const trackingActive = hasReturned ? false : isActivelyReturning;
     const lastTrackAt = lastTrack ? lastTrack.actualDateTime : null;
 
     await pool.query(

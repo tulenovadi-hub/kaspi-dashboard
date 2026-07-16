@@ -11,15 +11,24 @@ const CANCELLATION_REASON_LABELS = {
   BUYER_CANCELLATION_HIMSELF: 'Отменил покупатель',
 };
 
+// tracking_status у большинства заказов — это код ПОСЛЕДНЕГО события трекинга Kaspi Delivery
+// (см. backend/deliveryReturnsSync.js), а не фиксированный набор значений — кодов у Kaspi
+// много, поэтому переводим только самые частые, а для остальных просто делаем код читаемым.
 const TRACKING_STATUS_LABELS = {
   RETURNED: 'Вернулся на склад',
-  RETURNING: 'Едет обратно на склад',
   CANCELLED: 'Отменён без доставки',
+  WAITING_IN_PICKUP_POINT: 'Ожидает в пункте выдачи',
 };
+
+function humanizeTrackingCode(code) {
+  return code.charAt(0) + code.slice(1).toLowerCase().replace(/_/g, ' ');
+}
 
 function statusLabel(o) {
   if (o.tracking_status) {
-    return TRACKING_STATUS_LABELS[o.tracking_status] || o.tracking_status;
+    if (TRACKING_STATUS_LABELS[o.tracking_status]) return TRACKING_STATUS_LABELS[o.tracking_status];
+    if (o.tracking_active) return 'Едет обратно на склад';
+    return humanizeTrackingCode(o.tracking_status);
   }
   if (o.status === 'CANCELLING') return 'Отменяется';
   if (o.status === 'CANCELLED') return 'В архиве';
