@@ -140,13 +140,14 @@ function OrdersTable({
                 </div>
               </FilterHeader>
             </th>
+            <th>Принят складом</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {orders.length === 0 ? (
             <tr>
-              <td colSpan={showDaysColumn ? 8 : 7} className="empty-state">Ничего не найдено по заданным фильтрам</td>
+              <td colSpan={showDaysColumn ? 9 : 8} className="empty-state">Ничего не найдено по заданным фильтрам</td>
             </tr>
           ) : (
             orders.map((o) => (
@@ -162,6 +163,9 @@ function OrdersTable({
                 </td>
                 <td>{CANCELLATION_REASON_LABELS[o.cancellation_reason] || o.cancellation_reason || '—'}</td>
                 <td>{o.origin_city || '—'}</td>
+                <td style={{ color: o.wonder_received === false ? '#ff6b6b' : undefined, fontWeight: o.wonder_received === false ? 600 : undefined }}>
+                  {o.wonder_received === true ? 'Да' : o.wonder_received === false ? 'Нет' : '—'}
+                </td>
                 <td className="num">
                   <button
                     className="batch-delete"
@@ -275,8 +279,10 @@ export default function DeliveryReturns({ password }) {
         Delivery, а не из основного API заказов (там поле возврата на склад оказалось ненадёжным).
         Подозрительным заказ помечается только если он всё ещё «Едет обратно на склад», но без
         единого движения уже {thresholdDays}+ дней; заказы «Ожидает в пункте выдачи» подсвечены
-        отдельно — их нужно забрать физически. Список пополняется и перепроверяется каждую ночь —
-        уберите строку кнопкой «✕», когда разобрались с заказом на Kaspi.
+        отдельно — их нужно забрать физически. «Принят складом» сверяется со списком возвратов у
+        партнёра Wonder — «Нет» значит, что заказ не найден у Wonder ни в одном статусе. Список
+        пополняется и перепроверяется каждую ночь — уберите строку кнопкой «✕», когда разобрались
+        с заказом на Kaspi.
       </div>
 
       <div className="batches-toolbar">

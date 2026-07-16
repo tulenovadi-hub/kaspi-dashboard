@@ -1,6 +1,6 @@
 const express = require('express');
 const { pool } = require('../db');
-const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses } = require('../deliveryReturnsSync');
+const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived } = require('../deliveryReturnsSync');
 
 const router = express.Router();
 
@@ -12,7 +12,7 @@ router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT order_number, creation_date, total_price, cancellation_reason, delivery_mode,
-              origin_city, state, status, tracking_status, tracking_active, last_track_at
+              origin_city, state, status, tracking_status, tracking_active, last_track_at, wonder_received
        FROM delivery_cancellations
        ORDER BY creation_date ASC`
     );
@@ -48,6 +48,7 @@ router.get('/', async (req, res) => {
         tracking_status: r.tracking_status,
         tracking_active: r.tracking_active,
         last_track_at: r.last_track_at,
+        wonder_received: r.wonder_received,
         suspicious,
       };
     });
@@ -73,7 +74,17 @@ router.post('/sync', async (req, res) => {
     const foundNew = await syncDeliveryCancellations(dateFromMs, dateToMs);
     const refreshed = await refreshTrackedOrders();
     const trackingChecked = await refreshTrackingStatuses();
-    res.json({ ok: true, found_new: foundNew, refreshed, tracking_checked: trackingChecked });
+
+    // Отдельный try/catch — если у Wonder не задан логин или он сам недоступен, это не должно
+    // сбрасывать уже полученные результаты по остальным шагам синхронизации.
+    let wonderChecked = 0;
+    try {
+      wonderChecked = await refreshWonderReceived();
+    } catch (err) {
+      console.error('Не удалось сверить заказы с Wonder:', err);
+    }
+
+    res.json({ ok: true, found_new: foundNew, refreshed, tracking_checked: trackingChecked, wonder_checked: wonderChecked });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось проверить отменённые заказы' });

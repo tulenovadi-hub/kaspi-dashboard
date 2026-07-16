@@ -5,6 +5,7 @@
 const { pool } = require('./db');
 const { fetchOrdersByStatus, fetchOrderByCode } = require('./kaspiClient');
 const { fetchTrackingStatus } = require('./kaspiLogistics');
+const { fetchAllWonderOrderCodes } = require('./wonderClient');
 
 function upsertFromAttrs(client, attrs) {
   const originCity = attrs.originAddress && attrs.originAddress.city ? attrs.originAddress.city.name : null;
@@ -109,4 +110,27 @@ async function refreshTrackingStatuses() {
   return count;
 }
 
-module.exports = { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses };
+// Сверяет заказы, реально уехавшие в доставку (tracking_status != 'CANCELLED' — тем, что
+// отменили ещё до отправки, сверяться не с чем), со списком refund-order-groups у Wonder.
+// Если WONDER_EMAIL/WONDER_PASSWORD не заданы (или Wonder вернул ошибку логина) — просто
+// ничего не делает, остальная синхронизация не должна из-за этого падать.
+async function refreshWonderReceived() {
+  const codes = await fetchAllWonderOrderCodes();
+  if (!codes) return 0;
+
+  const result = await pool.query(
+    `SELECT order_number FROM delivery_cancellations WHERE tracking_status IS DISTINCT FROM 'CANCELLED'`
+  );
+
+  let count = 0;
+  for (const row of result.rows) {
+    await pool.query(
+      'UPDATE delivery_cancellations SET wonder_received = $2 WHERE order_number = $1',
+      [row.order_number, codes.has(row.order_number)]
+    );
+    count += 1;
+  }
+  return count;
+}
+
+module.exports = { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived };

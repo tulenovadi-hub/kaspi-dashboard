@@ -313,6 +313,9 @@ async function initDb() {
   await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS tracking_status TEXT;`);
   await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS tracking_active BOOLEAN;`);
   await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS last_track_at TIMESTAMPTZ;`);
+  // Принят ли заказ складом партнёра Wonder (platform.wonder-fulfillment.kz) — сверяется по
+  // номеру заказа со списком refund-order-groups у Wonder. NULL — ещё не проверяли.
+  await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS wonder_received BOOLEAN;`);
 
   // Пользователи сайта с ролями. Раньше был один общий пароль на всех (DASHBOARD_PASSWORD) —
   // теперь у каждого свой логин/пароль. role: 'admin' | 'manager' | 'marketer'.

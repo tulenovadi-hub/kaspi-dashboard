@@ -6,7 +6,7 @@ const cron = require('node-cron');
 
 const { initDb, pool } = require('./db');
 const { syncRecentOrders } = require('./syncJob');
-const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses } = require('./deliveryReturnsSync');
+const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived } = require('./deliveryReturnsSync');
 const authRoutes = require('./routes/auth');
 const usersRoutes = require('./routes/users');
 const statsRoutes = require('./routes/stats');
@@ -134,6 +134,7 @@ initDb()
       syncDeliveryCancellations(now - 2 * 24 * 60 * 60 * 1000, now)
         .then(() => refreshTrackedOrders())
         .then(() => refreshTrackingStatuses())
+        .then(() => refreshWonderReceived())
         .catch((err) => console.error('Ошибка синхронизации отменённых при доставке заказов:', err));
     });
 
