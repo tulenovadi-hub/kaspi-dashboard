@@ -33,11 +33,13 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
   const daysCount = days.length || 1;
   const avgQtyPerDay = (totalQty / daysCount).toFixed(1);
 
-  // Сумма чистой прибыли за весь период — только по дням, где она вообще посчитана
-  // (для дней без данных из Excel-отчёта net_profit = null, их просто пропускаем при суммировании).
+  // Сумма чистой прибыли за весь период. Для дней без загруженного Excel-отчёта Kaspi Pay
+  // net_profit — это прогноз по историческому % прибыли этого товара (см. backend), не null —
+  // поэтому суммируем все дни, где значение вообще есть (по-настоящему null бывает, только если
+  // по товару вообще никогда не было ни одного известного дня — тогда прогнозировать не от чего).
   const knownProfitDays = days.filter((d) => d.net_profit !== null && d.net_profit !== undefined);
   const totalNetProfit = knownProfitDays.reduce((sum, d) => sum + Number(d.net_profit), 0);
-  const hasMissingProfitDays = days.length > 0 && knownProfitDays.length < days.length;
+  const hasEstimatedDays = days.some((d) => d.is_estimated);
 
   return (
     <div className="card">
@@ -51,8 +53,8 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
             <span style={{ color: totalNetProfit < 0 ? '#ff6b6b' : '#3ddc97', fontWeight: 600 }}>
               {formatMoney(totalNetProfit)}
             </span>
-            {hasMissingProfitDays && (
-              <span title="Не по всем дням периода есть данные из Excel-отчёта Kaspi Pay — сумма посчитана только по дням, где они загружены"> *</span>
+            {hasEstimatedDays && (
+              <span title="По части дней периода ещё не загружен Excel-отчёт Kaspi Pay — их чистая прибыль спрогнозирована по историческому % прибыли этого товара"> *</span>
             )}
             )
           </div>
@@ -98,6 +100,12 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
         }}>
           ⌀ {avgQtyPerDay} шт/день
         </div>
+        {metric === 'net_profit' && hasEstimatedDays && (
+          <div style={{ fontSize: 12, color: '#6b7690', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="18" height="2"><line x1="0" y1="1" x2="18" y2="1" stroke="#6e8bff" strokeWidth="2" strokeDasharray="5 3" /></svg>
+            пунктир — прогноз (нет ещё Excel-отчёта Kaspi Pay за эти дни)
+          </div>
+        )}
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -106,7 +114,7 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
           {days.length === 0 && loading ? (
             <div className="empty-state">Загрузка...</div>
           ) : (
-            <SalesChart data={days} dataKey={metric} />
+            <SalesChart data={days} dataKey={metric} estimatable={metric === 'net_profit'} />
           )}
         </div>
       )}

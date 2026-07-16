@@ -548,27 +548,51 @@ router.get('/product/:productId', async (req, res) => {
       ensureDay(day).cost = cost;
     }
 
+    // Исторический % чистой прибыли от выручки для ЭТОГО товара — считаем по ВСЕЙ истории
+    // известных (есть Excel-отчёт) дней, а не только по выбранному периоду, чтобы прогноз был
+    // основан на как можно большей выборке (та же идея, что на Главной — computeSummaryNetProfit,
+    // только там % усредняется по всем товарам, а здесь достаточно истории одного товара).
+    let historyKnownRevenue = 0;
+    let historyKnownProfit = 0;
+    for (const [day, kp] of Object.entries(kaspiPayByDay)) {
+      const netRevenueDay = (kp.purchasesAmount || 0) - (kp.returnsAmount || 0);
+      const costDay = costByDay[day] || 0;
+      const taxesDay = netRevenueDay > 0 ? netRevenueDay * TAX_RATE : 0;
+      historyKnownRevenue += netRevenueDay;
+      historyKnownProfit += netRevenueDay - costDay - (kp.commission || 0) - (kp.delivery || 0) - taxesDay;
+    }
+    const historicalRatio = historyKnownRevenue > 0 ? historyKnownProfit / historyKnownRevenue : null;
+
     const days = Array.from(dayMap.values())
       .map((d) => {
-        // Если за этот день ещё не загружали Excel-отчёт Kaspi Pay — комиссии/доставки/себестоимости
-        // попросту неоткуда взять. Раньше в этом случае чистая прибыль считалась как 0, что выглядело
-        // как "в этот день заработали 0 тенге" — на самом деле это означает "нет данных", а не
-        // "нулевая прибыль". Отдаём net_profit: null — на графике это будет разрывом, а не ложным нулём.
-        if (!d.hasKaspiData) {
-          return { day: d.day, total_quantity: d.total_quantity, total_revenue: d.total_revenue, net_profit: null };
+        if (d.hasKaspiData) {
+          const netRevenue = (d.kaspi_purchases || 0) - (d.kaspi_returns || 0);
+          const cost = d.cost || 0;
+          const commission = d.commission || 0;
+          const delivery = d.delivery || 0;
+          const taxes = netRevenue > 0 ? netRevenue * TAX_RATE : 0;
+          const netProfit = netRevenue - cost - commission - delivery - taxes;
+          return {
+            day: d.day,
+            total_quantity: d.total_quantity,
+            total_revenue: d.total_revenue,
+            net_profit: netProfit,
+            is_estimated: false,
+          };
         }
 
-        const netRevenue = (d.kaspi_purchases || 0) - (d.kaspi_returns || 0);
-        const cost = d.cost || 0;
-        const commission = d.commission || 0;
-        const delivery = d.delivery || 0;
-        const taxes = netRevenue > 0 ? netRevenue * TAX_RATE : 0;
-        const netProfit = netRevenue - cost - commission - delivery - taxes;
+        // За этот день ещё не загружали Excel-отчёт Kaspi Pay — точную комиссию/доставку/себестоимость
+        // взять неоткуда, поэтому ПРОГНОЗИРУЕМ прибыль по историческому % этого же товара (см. выше).
+        // Если по товару вообще ни разу не было известных дней — прогнозировать не от чего, оставляем разрыв.
+        if (historicalRatio === null) {
+          return { day: d.day, total_quantity: d.total_quantity, total_revenue: d.total_revenue, net_profit: null, is_estimated: false };
+        }
         return {
           day: d.day,
           total_quantity: d.total_quantity,
           total_revenue: d.total_revenue,
-          net_profit: netProfit,
+          net_profit: d.total_revenue * historicalRatio,
+          is_estimated: true,
         };
       })
       .sort((a, b) => a.day.localeCompare(b.day));
