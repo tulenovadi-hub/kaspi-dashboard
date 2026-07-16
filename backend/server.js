@@ -20,6 +20,7 @@ const adExpensesRoutes = require('./routes/adExpenses');
 const bonusExpensesRoutes = require('./routes/bonusExpenses');
 const reviewBonusExpensesRoutes = require('./routes/reviewBonusExpenses');
 const analystRoutes = require('./routes/analyst');
+const deliveryReturnsRoutes = require('./routes/deliveryReturns');
 
 const app = express();
 app.use(cors());
@@ -86,6 +87,7 @@ app.use('/api/ad-expenses', requireRole('admin', 'marketer'), adExpensesRoutes);
 app.use('/api/bonus-expenses', requireRole('admin', 'marketer'), bonusExpensesRoutes);
 app.use('/api/review-bonus-expenses', requireRole('admin', 'marketer'), reviewBonusExpensesRoutes);
 app.use('/api/analyst', requireRole('admin'), analystRoutes);
+app.use('/api/delivery-returns', requireRole('admin'), deliveryReturnsRoutes);
 app.use('/api/debug', requireRole('admin'), debugRoutes);
 
 // Эндпоинт, чтобы вручную запустить синхронизацию из дашборда (кнопка "Обновить сейчас")

@@ -11,6 +11,7 @@ import Marketing from './Marketing.jsx';
 import Bonuses from './Bonuses.jsx';
 import { fetchReviewBonusExpenses } from './api.js';
 import Analyst from './Analyst.jsx';
+import DeliveryReturns from './DeliveryReturns.jsx';
 import ComingSoon from './ComingSoon.jsx';
 
 const SECTION_TITLES = {};
@@ -138,6 +139,14 @@ export default function Dashboard({ password, username, role, onLogout }) {
       return (
         <div key={key} style={style}>
           <Analyst password={password} />
+        </div>
+      );
+    }
+
+    if (key === 'delivery_returns') {
+      return (
+        <div key={key} style={style}>
+          <DeliveryReturns password={password} />
         </div>
       );
     }

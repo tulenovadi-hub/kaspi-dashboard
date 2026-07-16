@@ -170,6 +170,10 @@ export function fetchDeliveryAnomalies(password, from) {
   return apiRequest(`/api/reports/delivery-anomalies${query}`, password);
 }
 
+export function fetchDeliveryReturns(password) {
+  return apiRequest('/api/delivery-returns', password);
+}
+
 export function fetchWarehouse(password) {
   return apiRequest('/api/warehouse', password);
 }
