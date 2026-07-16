@@ -76,11 +76,15 @@ router.get('/order-by-code/:code', async (req, res) => {
 // Если да — можно будет находить ВСЕ заказы в статусе "отменяется/возврат" напрямую у Kaspi,
 // не завися от нашей локальной синхронизации (которая старые заказы больше не обновляет).
 router.get('/orders-by-status', async (req, res) => {
+  const daysBack = Number(req.query.daysBack) || 90;
+  const now = Date.now();
   try {
     const response = await client().get('/orders', {
       params: {
         'page[number]': 0,
         'page[size]': 100,
+        'filter[orders][creationDate][$ge]': now - daysBack * 24 * 60 * 60 * 1000,
+        'filter[orders][creationDate][$le]': now,
         'filter[orders][state]': req.query.state || 'KASPI_DELIVERY',
         'filter[orders][status]': req.query.status || 'CANCELLING',
       },
