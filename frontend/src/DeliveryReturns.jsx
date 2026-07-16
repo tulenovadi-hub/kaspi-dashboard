@@ -11,13 +11,17 @@ const CANCELLATION_REASON_LABELS = {
   BUYER_CANCELLATION_HIMSELF: 'Отменил покупатель',
 };
 
+const TRACKING_STATUS_LABELS = {
+  RETURNED: 'Вернулся на склад',
+  RETURNING: 'Едет обратно на склад',
+};
+
 function statusLabel(o) {
-  if (o.status === 'CANCELLING') return 'Отменяется';
-  if (o.status === 'CANCELLED') {
-    if (o.returned_to_warehouse === true) return 'В архиве — вернулся на склад';
-    if (o.returned_to_warehouse === false) return 'В архиве — возврат НЕ подтверждён';
-    return 'В архиве';
+  if (o.tracking_status) {
+    return TRACKING_STATUS_LABELS[o.tracking_status] || o.tracking_status;
   }
+  if (o.status === 'CANCELLING') return 'Отменяется';
+  if (o.status === 'CANCELLED') return 'В архиве';
   return o.status || '—';
 }
 
@@ -69,11 +73,11 @@ export default function DeliveryReturns({ password }) {
       </div>
 
       <div style={{ color: '#6b7690', fontSize: 13, marginBottom: 16 }}>
-        Заказы, отменённые при доставке (Kaspi Доставка). Пока заказ «Отменяется» {thresholdDays}+ дней —
-        подозрительно долго. Если заказ уже в архиве, но Kaspi так и не подтвердил возврат на склад
-        (<code>returnedToWarehouse: false</code>) — почти наверняка потерян, стоит написать в поддержку.
-        Список пополняется и перепроверяется каждую ночь — уберите строку кнопкой «✕», когда разобрались
-        с заказом на Kaspi.
+        Заказы, отменённые при доставке (Kaspi Доставка). Статус берётся из настоящего трекинга Kaspi
+        Delivery, а не из основного API заказов (там поле возврата на склад оказалось ненадёжным).
+        Если доставка закончилась, но статус не «Вернулся на склад» — либо если {thresholdDays}+ дней
+        нет ни одного движения — заказ помечен подозрительным. Список пополняется и перепроверяется
+        каждую ночь — уберите строку кнопкой «✕», когда разобрались с заказом на Kaspi.
       </div>
 
       <div className="batches-toolbar">
@@ -96,9 +100,9 @@ export default function DeliveryReturns({ password }) {
                 <tr>
                   <th>№ заказа</th>
                   <th>Дата создания</th>
-                  <th className="num">Дней с создания</th>
+                  <th className="num">Дней без движения</th>
                   <th className="num">Сумма</th>
-                  <th>Статус</th>
+                  <th>Статус трекинга</th>
                   <th>Причина отмены</th>
                   <th>Город отгрузки</th>
                   <th></th>
@@ -109,7 +113,7 @@ export default function DeliveryReturns({ password }) {
                   <tr key={o.order_number} className={o.suspicious ? 'orders-row-return' : ''}>
                     <td className="num">{o.order_number}</td>
                     <td>{formatDate(o.creation_date)}</td>
-                    <td className="num">{o.days_since}</td>
+                    <td className="num">{o.days_since_last_track !== null ? o.days_since_last_track : o.days_since}</td>
                     <td className="num">{formatMoney(o.total_price)}</td>
                     <td style={{ color: o.suspicious ? '#ff6b6b' : undefined, fontWeight: o.suspicious ? 600 : undefined }}>
                       {statusLabel(o)}

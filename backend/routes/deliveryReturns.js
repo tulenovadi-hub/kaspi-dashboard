@@ -1,20 +1,18 @@
 const express = require('express');
 const { pool } = require('../db');
-const { syncDeliveryCancellations, refreshTrackedOrders } = require('../deliveryReturnsSync');
+const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses } = require('../deliveryReturnsSync');
 
 const router = express.Router();
 
-// Сколько дней заказ может провисеть в статусе "Отменяется" (ещё не в архиве), прежде чем
-// считать его подозрительным — обычные отмены обрабатываются заметно быстрее, порог
-// согласован с владельцем магазина. Для заказов, уже попавших в архив (state=ARCHIVE/
-// status=CANCELLED), надёжный признак другой — returned_to_warehouse (см. ниже).
+// Сколько дней без движения (или без единого трек-события вообще) — повод считать заказ
+// подозрительным. Порог согласован с владельцем магазина.
 const SUSPICIOUS_DAYS_THRESHOLD = 45;
 
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT order_number, creation_date, total_price, cancellation_reason, delivery_mode,
-              origin_city, state, status, returned_to_warehouse
+              origin_city, state, status, tracking_status, tracking_active, last_track_at
        FROM delivery_cancellations
        ORDER BY creation_date ASC`
     );
@@ -22,22 +20,34 @@ router.get('/', async (req, res) => {
     const now = Date.now();
     const orders = result.rows.map((r) => {
       const daysSince = Math.floor((now - new Date(r.creation_date).getTime()) / (24 * 60 * 60 * 1000));
-      const isArchived = r.status === 'CANCELLED';
-      // В архиве returnedToWarehouse — надёжный признак ("false" = Kaspi не подтвердил возврат,
-      // похоже на утерю). Пока заказ ещё "отменяется" — это поле всегда false и ни о чём не
-      // говорит, там ориентируемся просто на то, сколько дней он уже висит в этом статусе.
-      const suspicious = isArchived ? r.returned_to_warehouse === false : daysSince >= SUSPICIOUS_DAYS_THRESHOLD;
+      // Если трекинг подтвердил, что доставка закончилась (tracking_active = false) — судим
+      // по итоговому статусу: "RETURNED" значит реально вернулся, что-то другое — подозрительно.
+      // Пока трекинг ещё активен (или мы вообще не смогли его получить), ориентируемся на то,
+      // сколько дней прошло без единого движения (или с момента создания, если движений не было вовсе).
+      let suspicious;
+      let daysSinceLastTrack = null;
+      if (r.tracking_active === false) {
+        suspicious = r.tracking_status !== 'RETURNED';
+      } else {
+        const lastTrackMs = r.last_track_at ? new Date(r.last_track_at).getTime() : null;
+        daysSinceLastTrack = lastTrackMs ? Math.floor((now - lastTrackMs) / (24 * 60 * 60 * 1000)) : daysSince;
+        suspicious = daysSinceLastTrack >= SUSPICIOUS_DAYS_THRESHOLD;
+      }
+
       return {
         order_number: r.order_number,
         creation_date: r.creation_date,
         days_since: daysSince,
+        days_since_last_track: daysSinceLastTrack,
         total_price: Number(r.total_price),
         cancellation_reason: r.cancellation_reason,
         delivery_mode: r.delivery_mode,
         origin_city: r.origin_city,
         state: r.state,
         status: r.status,
-        returned_to_warehouse: r.returned_to_warehouse,
+        tracking_status: r.tracking_status,
+        tracking_active: r.tracking_active,
+        last_track_at: r.last_track_at,
         suspicious,
       };
     });
@@ -51,8 +61,8 @@ router.get('/', async (req, res) => {
 
 // Ручной запуск проверки: находит новые отмены за диапазон (по умолчанию последние 2 дня —
 // то же самое, что и ночная синхронизация; можно передать { "from": "2026-01-01" } для
-// разового бэкфилла) И перепроверяет уже отслеживаемые незавершённые заказы на предмет того,
-// не переехали ли они в архив.
+// разового бэкфилла), перепроверяет статус ещё не архивных заказов в основном API, и
+// обновляет реальный трекинг доставки/возврата для всех незавершённых заказов.
 router.post('/sync', async (req, res) => {
   try {
     const dateToMs = Date.now();
@@ -60,11 +70,10 @@ router.post('/sync', async (req, res) => {
       ? new Date(req.body.from).getTime()
       : dateToMs - 2 * 24 * 60 * 60 * 1000;
 
-    const [foundNew, refreshed] = await Promise.all([
-      syncDeliveryCancellations(dateFromMs, dateToMs),
-      refreshTrackedOrders(),
-    ]);
-    res.json({ ok: true, found_new: foundNew, refreshed });
+    const foundNew = await syncDeliveryCancellations(dateFromMs, dateToMs);
+    const refreshed = await refreshTrackedOrders();
+    const trackingChecked = await refreshTrackingStatuses();
+    res.json({ ok: true, found_new: foundNew, refreshed, tracking_checked: trackingChecked });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось проверить отменённые заказы' });

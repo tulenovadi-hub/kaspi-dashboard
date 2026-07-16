@@ -283,12 +283,13 @@ async function initDb() {
 
   // Заказы, отменённые при доставке (Kaspi Доставка) — либо ещё в процессе (state=KASPI_DELIVERY/
   // status=CANCELLING), либо уже в архиве (state=ARCHIVE/status=CANCELLED). Kaspi должен вернуть
-  // такой заказ на склад продавца, но иногда теряет его в пути — единственный надёжный признак
-  // этого — kaspiDelivery.returnedToWarehouse, и он появляется только когда заказ УЖЕ в архиве
-  // (пока идёт отмена, поле всегда false). Разовый бэкфилл собирает всю историю, дальше ночная
-  // синхронизация добавляет новые за последние пару дней И перепроверяет уже отслеживаемые
-  // незавершённые заказы (см. deliveryReturnsSync.js). Строку убирает сам пользователь кнопкой
-  // "Удалить", когда разобрался с заказом на Kaspi.
+  // такой заказ на склад продавца, но иногда теряет его в пути. kaspiDelivery.returnedToWarehouse
+  // из основного API оказался ненадёжным (у реально вернувшегося заказа было false) — вместо
+  // него используем публичный трекинг logistics.kaspi.kz/core/api/public/support?orderId=...,
+  // который даёт настоящий статус (RETURNED/RETURNING) и дату последнего трек-события.
+  // Разовый бэкфилл собирает всю историю, дальше ночная синхронизация добавляет новые за
+  // последние пару дней И перепроверяет статус/трекинг уже отслеживаемых заказов
+  // (см. deliveryReturnsSync.js). Строку убирает сам пользователь кнопкой "Удалить".
   await pool.query(`
     CREATE TABLE IF NOT EXISTS delivery_cancellations (
       order_number TEXT PRIMARY KEY,
@@ -300,12 +301,18 @@ async function initDb() {
       state TEXT,
       status TEXT,
       returned_to_warehouse BOOLEAN,
+      tracking_status TEXT,
+      tracking_active BOOLEAN,
+      last_track_at TIMESTAMPTZ,
       first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
   await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS state TEXT;`);
   await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS status TEXT;`);
   await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS returned_to_warehouse BOOLEAN;`);
+  await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS tracking_status TEXT;`);
+  await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS tracking_active BOOLEAN;`);
+  await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS last_track_at TIMESTAMPTZ;`);
 
   // Пользователи сайта с ролями. Раньше был один общий пароль на всех (DASHBOARD_PASSWORD) —
   // теперь у каждого свой логин/пароль. role: 'admin' | 'manager' | 'marketer'.

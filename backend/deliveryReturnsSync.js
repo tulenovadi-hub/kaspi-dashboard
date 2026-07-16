@@ -4,6 +4,7 @@
 
 const { pool } = require('./db');
 const { fetchOrdersByStatus, fetchOrderByCode } = require('./kaspiClient');
+const { fetchTrackingStatus } = require('./kaspiLogistics');
 
 function upsertFromAttrs(client, attrs) {
   const originCity = attrs.originAddress && attrs.originAddress.city ? attrs.originAddress.city.name : null;
@@ -43,9 +44,8 @@ async function syncDeliveryCancellations(dateFromMs, dateToMs) {
 }
 
 // Перепроверяет уже отслеживаемые заказы, которые ещё не в архиве — ловит момент, когда
-// Kaspi наконец разрешает отмену (переходит в ARCHIVE/CANCELLED) и появляется настоящий
-// признак returnedToWarehouse. Диапазон дат тут не при чём — просто дёргаем каждый заказ
-// по его номеру напрямую.
+// Kaspi наконец разрешает отмену и переходит в ARCHIVE/CANCELLED. Диапазон дат тут не при
+// чём — просто дёргаем каждый заказ по его номеру напрямую.
 async function refreshTrackedOrders() {
   const result = await pool.query(`SELECT order_number FROM delivery_cancellations WHERE status IS DISTINCT FROM 'CANCELLED'`);
 
@@ -60,4 +60,27 @@ async function refreshTrackedOrders() {
   return count;
 }
 
-module.exports = { syncDeliveryCancellations, refreshTrackedOrders };
+// Подтягивает настоящий статус трекинга (публичный logistics.kaspi.kz) для всех заказов, по
+// которым мы ещё не видели tracking_active = false — как только он становится false, статус
+// уже не изменится, дальше можно не перепроверять.
+async function refreshTrackingStatuses() {
+  const result = await pool.query(`SELECT order_number FROM delivery_cancellations WHERE tracking_active IS DISTINCT FROM false`);
+
+  let count = 0;
+  for (const row of result.rows) {
+    const data = await fetchTrackingStatus(row.order_number);
+    if (!data) continue;
+
+    const lastTrackAt = data.lastActualTrack ? data.lastActualTrack.actualDateTime : null;
+    await pool.query(
+      `UPDATE delivery_cancellations
+       SET tracking_status = $2, tracking_active = $3, last_track_at = $4
+       WHERE order_number = $1`,
+      [row.order_number, data.orderStatus || null, data.active === undefined ? null : data.active, lastTrackAt]
+    );
+    count += 1;
+  }
+  return count;
+}
+
+module.exports = { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses };
