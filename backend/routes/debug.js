@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const { pool } = require('../db');
 
 const router = express.Router();
 
@@ -51,6 +52,22 @@ router.get('/merchantproduct/:productId', async (req, res) => {
     res.json(response.data);
   } catch (err) {
     res.status(500).json({ error: err.message, details: err.response ? err.response.data : null });
+  }
+});
+
+// Временный диагностический роут — смотрим raw_data заказа из НАШЕЙ базы по номеру заказа (code),
+// а не по внутреннему id Kaspi (его с сайта продавца не видно). Нужен, чтобы понять, какие поля
+// Kaspi присылает для заказов, отменённых при доставке ("KASPI_DELIVERY_RETURN_REQUEST" и т.п.) —
+// есть ли там дата отмены/статус возврата, по которым можно отследить, что заказ не потерян.
+router.get('/order-by-code/:code', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, code, state, status, raw_data FROM orders WHERE code = $1', [req.params.code]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Заказ с таким номером не найден в нашей базе' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
