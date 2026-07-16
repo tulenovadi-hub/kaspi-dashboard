@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { fetchDeliveryReturns } from './api.js';
+import { fetchDeliveryReturns, syncDeliveryReturns, deleteDeliveryReturn } from './api.js';
 import { formatMoney } from './dateUtils.js';
 
-function formatDate(ms) {
-  if (!ms) return '—';
-  return new Date(ms).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+function formatDate(value) {
+  if (!value) return '—';
+  return new Date(value).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 const CANCELLATION_REASON_LABELS = {
@@ -15,9 +15,11 @@ export default function DeliveryReturns({ password }) {
   const [orders, setOrders] = useState([]);
   const [thresholdDays, setThresholdDays] = useState(45);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
+  const [deletingId, setDeletingId] = useState(null);
 
-  useEffect(() => {
+  function loadData() {
     setLoading(true);
     setError('');
     fetchDeliveryReturns(password)
@@ -27,7 +29,26 @@ export default function DeliveryReturns({ password }) {
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [password]);
+  }
+
+  useEffect(loadData, [password]);
+
+  function handleSync() {
+    setSyncing(true);
+    setError('');
+    syncDeliveryReturns(password)
+      .then(() => loadData())
+      .catch((err) => setError(err.message))
+      .finally(() => setSyncing(false));
+  }
+
+  function handleDelete(orderNumber) {
+    setDeletingId(orderNumber);
+    deleteDeliveryReturn(password, orderNumber)
+      .then(() => setOrders((prev) => prev.filter((o) => o.order_number !== orderNumber)))
+      .catch((err) => setError(err.message))
+      .finally(() => setDeletingId(null));
+  }
 
   const suspiciousCount = orders.filter((o) => o.suspicious).length;
 
@@ -40,14 +61,21 @@ export default function DeliveryReturns({ password }) {
       <div style={{ color: '#6b7690', fontSize: 13, marginBottom: 16 }}>
         Заказы, отменённые при доставке (Kaspi Доставка), которые Kaspi ещё не вернул на склад продавца.
         Заказы, зависшие в этом статусе {thresholdDays}+ дней, помечены как подозрительные — возможно,
-        Kaspi потерял их при возврате, стоит написать в поддержку.
+        Kaspi потерял их при возврате, стоит написать в поддержку. Список пополняется каждую ночь новыми
+        заказами за последние 2 дня — уберите строку кнопкой «✕», когда разобрались с заказом на Kaspi.
+      </div>
+
+      <div className="batches-toolbar">
+        <button className="sync-button" onClick={handleSync} disabled={syncing}>
+          {syncing ? 'Проверяю...' : 'Проверить сейчас'}
+        </button>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
 
       <div className="card">
         {loading ? (
-          <div className="empty-state">Загрузка... (запрос к Kaspi может занять до минуты)</div>
+          <div className="empty-state">Загрузка...</div>
         ) : orders.length === 0 ? (
           <div className="empty-state">Сейчас нет заказов, отменённых при доставке</div>
         ) : (
@@ -61,6 +89,7 @@ export default function DeliveryReturns({ password }) {
                   <th className="num">Сумма</th>
                   <th>Причина отмены</th>
                   <th>Город отгрузки</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -74,6 +103,16 @@ export default function DeliveryReturns({ password }) {
                     <td className="num">{formatMoney(o.total_price)}</td>
                     <td>{CANCELLATION_REASON_LABELS[o.cancellation_reason] || o.cancellation_reason || '—'}</td>
                     <td>{o.origin_city || '—'}</td>
+                    <td className="num">
+                      <button
+                        className="batch-delete"
+                        onClick={() => handleDelete(o.order_number)}
+                        disabled={deletingId === o.order_number}
+                        title="Убрать из списка"
+                      >
+                        ✕
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -85,7 +124,6 @@ export default function DeliveryReturns({ password }) {
       {!loading && orders.length > 0 && (
         <div className="report-note">
           Всего в статусе «Отменяется»: {orders.length}. Подозрительных (от {thresholdDays} дней): {suspiciousCount}.
-          Список запрашивается напрямую у Kaspi при каждом открытии страницы — актуален на момент загрузки.
         </div>
       )}
     </div>

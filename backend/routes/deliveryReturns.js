@@ -1,5 +1,6 @@
 const express = require('express');
-const { fetchOrdersByStatus } = require('../kaspiClient');
+const { pool } = require('../db');
+const { syncDeliveryCancellations } = require('../deliveryReturnsSync');
 
 const router = express.Router();
 
@@ -8,36 +9,63 @@ const router = express.Router();
 // возвраты обрабатываются заметно быстрее, порог согласован с владельцем магазина.
 const SUSPICIOUS_DAYS_THRESHOLD = 45;
 
-// На сколько дней назад просматривать историю в поиске "зависших" отмен.
-const SCAN_DAYS_BACK = 30;
-const CHUNK_DAYS = 10;
-
 router.get('/', async (req, res) => {
   try {
-    const orders = await fetchOrdersByStatus('KASPI_DELIVERY', 'CANCELLING', SCAN_DAYS_BACK, CHUNK_DAYS);
+    const result = await pool.query(
+      `SELECT order_number, creation_date, total_price, cancellation_reason, delivery_mode, origin_city
+       FROM delivery_cancellations
+       ORDER BY creation_date ASC`
+    );
+
     const now = Date.now();
+    const orders = result.rows.map((r) => {
+      const daysSince = Math.floor((now - new Date(r.creation_date).getTime()) / (24 * 60 * 60 * 1000));
+      return {
+        order_number: r.order_number,
+        creation_date: r.creation_date,
+        days_since: daysSince,
+        total_price: Number(r.total_price),
+        cancellation_reason: r.cancellation_reason,
+        delivery_mode: r.delivery_mode,
+        origin_city: r.origin_city,
+        suspicious: daysSince >= SUSPICIOUS_DAYS_THRESHOLD,
+      };
+    });
 
-    const list = orders
-      .map((o) => {
-        const attrs = o.attributes || {};
-        const daysSince = Math.floor((now - attrs.creationDate) / (24 * 60 * 60 * 1000));
-        return {
-          order_number: attrs.code,
-          creation_date: attrs.creationDate,
-          days_since: daysSince,
-          total_price: attrs.totalPrice,
-          cancellation_reason: attrs.cancellationReason,
-          delivery_mode: attrs.deliveryMode,
-          origin_city: attrs.originAddress && attrs.originAddress.city ? attrs.originAddress.city.name : null,
-          suspicious: daysSince >= SUSPICIOUS_DAYS_THRESHOLD,
-        };
-      })
-      .sort((a, b) => b.days_since - a.days_since);
-
-    res.json({ orders: list, threshold_days: SUSPICIOUS_DAYS_THRESHOLD });
+    res.json({ orders, threshold_days: SUSPICIOUS_DAYS_THRESHOLD });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить список отменённых при доставке заказов' });
+  }
+});
+
+// Ручной запуск проверки — по умолчанию последние 2 дня (то же самое, что и ночная
+// синхронизация в server.js), но можно передать более широкий диапазон для разового бэкфилла,
+// например { "from": "2026-01-01" } чтобы подтянуть всю историю с начала года.
+router.post('/sync', async (req, res) => {
+  try {
+    const dateToMs = Date.now();
+    const dateFromMs = req.body && req.body.from
+      ? new Date(req.body.from).getTime()
+      : dateToMs - 2 * 24 * 60 * 60 * 1000;
+
+    const count = await syncDeliveryCancellations(dateFromMs, dateToMs);
+    res.json({ ok: true, checked: count });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось проверить отменённые заказы' });
+  }
+});
+
+// Пользователь убирает заказ из списка вручную, когда разобрался с ним на Kaspi (вернулся на
+// склад, оформлен возврат и т.п.) — автоматически определить это мы не можем (см. deliveryReturnsSync.js).
+router.delete('/:orderNumber', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM delivery_cancellations WHERE order_number = $1', [req.params.orderNumber]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось удалить заказ из списка' });
   }
 });
 

@@ -174,6 +174,14 @@ export function fetchDeliveryReturns(password) {
   return apiRequest('/api/delivery-returns', password);
 }
 
+export function syncDeliveryReturns(password) {
+  return apiRequest('/api/delivery-returns/sync', password, { method: 'POST' });
+}
+
+export function deleteDeliveryReturn(password, orderNumber) {
+  return apiRequest(`/api/delivery-returns/${orderNumber}`, password, { method: 'DELETE' });
+}
+
 export function fetchWarehouse(password) {
   return apiRequest('/api/warehouse', password);
 }

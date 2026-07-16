@@ -281,6 +281,23 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_analyst_reports_created ON analyst_reports(created_at DESC);`);
 
+  // Заказы, отменённые при доставке (Kaspi Доставка, state=KASPI_DELIVERY/status=CANCELLING),
+  // которые Kaspi должен вернуть на склад продавца — иногда теряются в пути. Kaspi не даёт
+  // отслеживать это напрямую, поэтому храним найденные заказы у себя: разовый бэкфилл собирает
+  // всю историю, а дальше ночная синхронизация только добавляет новые (см. deliveryReturnsSync.js).
+  // Строку убирает сам пользователь кнопкой "Удалить", когда разобрался с заказом на Kaspi.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS delivery_cancellations (
+      order_number TEXT PRIMARY KEY,
+      creation_date TIMESTAMPTZ NOT NULL,
+      total_price NUMERIC NOT NULL DEFAULT 0,
+      cancellation_reason TEXT,
+      delivery_mode TEXT,
+      origin_city TEXT,
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
   // Пользователи сайта с ролями. Раньше был один общий пароль на всех (DASHBOARD_PASSWORD) —
   // теперь у каждого свой логин/пароль. role: 'admin' | 'manager' | 'marketer'.
   await pool.query(`

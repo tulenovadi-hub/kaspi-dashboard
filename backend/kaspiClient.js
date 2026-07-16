@@ -49,15 +49,15 @@ async function fetchOrders(dateFromMs, dateToMs) {
 
 // Заказы с конкретными state/status (например "отменяется при доставке" — KASPI_DELIVERY/
 // CANCELLING) за широкое окно дат. В отличие от fetchOrders, Kaspi ограничивает диапазон
-// creationDate максимум 14 днями за один запрос, поэтому идём чанками (по умолчанию 14 дней назад).
-async function fetchOrdersByStatus(state, status, daysBack, chunkDays = 14) {
+// creationDate максимум 14 днями за один запрос, поэтому идём чанками (по умолчанию 10 дней,
+// как и обычная синхронизация заказов в syncJob.js).
+async function fetchOrdersByStatus(state, status, dateFromMs, dateToMs, chunkDays = 10) {
   const http = client();
-  const now = Date.now();
-  let cursor = now - daysBack * 24 * 60 * 60 * 1000;
+  let cursor = dateFromMs;
   const allOrders = [];
 
-  while (cursor < now) {
-    const chunkEnd = Math.min(cursor + chunkDays * 24 * 60 * 60 * 1000, now);
+  while (cursor < dateToMs) {
+    const chunkEnd = Math.min(cursor + chunkDays * 24 * 60 * 60 * 1000, dateToMs);
     let page = 0;
     const pageSize = 100;
 
