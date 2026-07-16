@@ -1,18 +1,20 @@
 const express = require('express');
 const { pool } = require('../db');
-const { syncDeliveryCancellations } = require('../deliveryReturnsSync');
+const { syncDeliveryCancellations, refreshTrackedOrders } = require('../deliveryReturnsSync');
 
 const router = express.Router();
 
-// Сколько дней заказ может провисеть в статусе "Отменяется/возврат" в Kaspi Доставке, прежде
-// чем считать его подозрительным (возможно потерян Kaspi при возврате на склад) — обычные
-// возвраты обрабатываются заметно быстрее, порог согласован с владельцем магазина.
+// Сколько дней заказ может провисеть в статусе "Отменяется" (ещё не в архиве), прежде чем
+// считать его подозрительным — обычные отмены обрабатываются заметно быстрее, порог
+// согласован с владельцем магазина. Для заказов, уже попавших в архив (state=ARCHIVE/
+// status=CANCELLED), надёжный признак другой — returned_to_warehouse (см. ниже).
 const SUSPICIOUS_DAYS_THRESHOLD = 45;
 
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT order_number, creation_date, total_price, cancellation_reason, delivery_mode, origin_city
+      `SELECT order_number, creation_date, total_price, cancellation_reason, delivery_mode,
+              origin_city, state, status, returned_to_warehouse
        FROM delivery_cancellations
        ORDER BY creation_date ASC`
     );
@@ -20,6 +22,11 @@ router.get('/', async (req, res) => {
     const now = Date.now();
     const orders = result.rows.map((r) => {
       const daysSince = Math.floor((now - new Date(r.creation_date).getTime()) / (24 * 60 * 60 * 1000));
+      const isArchived = r.status === 'CANCELLED';
+      // В архиве returnedToWarehouse — надёжный признак ("false" = Kaspi не подтвердил возврат,
+      // похоже на утерю). Пока заказ ещё "отменяется" — это поле всегда false и ни о чём не
+      // говорит, там ориентируемся просто на то, сколько дней он уже висит в этом статусе.
+      const suspicious = isArchived ? r.returned_to_warehouse === false : daysSince >= SUSPICIOUS_DAYS_THRESHOLD;
       return {
         order_number: r.order_number,
         creation_date: r.creation_date,
@@ -28,7 +35,10 @@ router.get('/', async (req, res) => {
         cancellation_reason: r.cancellation_reason,
         delivery_mode: r.delivery_mode,
         origin_city: r.origin_city,
-        suspicious: daysSince >= SUSPICIOUS_DAYS_THRESHOLD,
+        state: r.state,
+        status: r.status,
+        returned_to_warehouse: r.returned_to_warehouse,
+        suspicious,
       };
     });
 
@@ -39,9 +49,10 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Ручной запуск проверки — по умолчанию последние 2 дня (то же самое, что и ночная
-// синхронизация в server.js), но можно передать более широкий диапазон для разового бэкфилла,
-// например { "from": "2026-01-01" } чтобы подтянуть всю историю с начала года.
+// Ручной запуск проверки: находит новые отмены за диапазон (по умолчанию последние 2 дня —
+// то же самое, что и ночная синхронизация; можно передать { "from": "2026-01-01" } для
+// разового бэкфилла) И перепроверяет уже отслеживаемые незавершённые заказы на предмет того,
+// не переехали ли они в архив.
 router.post('/sync', async (req, res) => {
   try {
     const dateToMs = Date.now();
@@ -49,16 +60,18 @@ router.post('/sync', async (req, res) => {
       ? new Date(req.body.from).getTime()
       : dateToMs - 2 * 24 * 60 * 60 * 1000;
 
-    const count = await syncDeliveryCancellations(dateFromMs, dateToMs);
-    res.json({ ok: true, checked: count });
+    const [foundNew, refreshed] = await Promise.all([
+      syncDeliveryCancellations(dateFromMs, dateToMs),
+      refreshTrackedOrders(),
+    ]);
+    res.json({ ok: true, found_new: foundNew, refreshed });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось проверить отменённые заказы' });
   }
 });
 
-// Пользователь убирает заказ из списка вручную, когда разобрался с ним на Kaspi (вернулся на
-// склад, оформлен возврат и т.п.) — автоматически определить это мы не можем (см. deliveryReturnsSync.js).
+// Пользователь убирает заказ из списка вручную, когда разобрался с ним на Kaspi.
 router.delete('/:orderNumber', async (req, res) => {
   try {
     await pool.query('DELETE FROM delivery_cancellations WHERE order_number = $1', [req.params.orderNumber]);

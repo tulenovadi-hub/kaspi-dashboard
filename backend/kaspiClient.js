@@ -89,6 +89,20 @@ async function fetchOrdersByStatus(state, status, dateFromMs, dateToMs, chunkDay
   return allOrders;
 }
 
+// Внутренний id заказа у Kaspi — это просто base64 от номера заказа (code), который видит
+// продавец: "915440447" -> "OTE1NDQwNDQ3". Позволяет получить live-статус КОНКРЕТНОГО заказа
+// по номеру, без обхода по датам — нужно, чтобы перепроверять уже отслеживаемые отмены
+// (например, перешёл ли заказ из "отменяется" в архив, и вернулся ли на склад).
+function encodeOrderId(code) {
+  return Buffer.from(String(code), 'utf-8').toString('base64');
+}
+
+async function fetchOrderByCode(code) {
+  const http = client();
+  const response = await http.get(`/orders/${encodeOrderId(code)}`);
+  return response.data.data;
+}
+
 // Kaspi кодирует id ресурса в base64: "MTM2NTE3NjA2" -> "136517606".
 // Это тот же код, что виден в публичной ссылке на товар (kaspi.kz/shop/p/.../-<code>/),
 // используем его позже, чтобы подтянуть картинку товара с публичной страницы.
@@ -125,4 +139,4 @@ async function fetchOrderEntries(orderId) {
   });
 }
 
-module.exports = { fetchOrders, fetchOrderEntries, fetchOrdersByStatus };
+module.exports = { fetchOrders, fetchOrderEntries, fetchOrdersByStatus, fetchOrderByCode };

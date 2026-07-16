@@ -281,11 +281,14 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_analyst_reports_created ON analyst_reports(created_at DESC);`);
 
-  // Заказы, отменённые при доставке (Kaspi Доставка, state=KASPI_DELIVERY/status=CANCELLING),
-  // которые Kaspi должен вернуть на склад продавца — иногда теряются в пути. Kaspi не даёт
-  // отслеживать это напрямую, поэтому храним найденные заказы у себя: разовый бэкфилл собирает
-  // всю историю, а дальше ночная синхронизация только добавляет новые (см. deliveryReturnsSync.js).
-  // Строку убирает сам пользователь кнопкой "Удалить", когда разобрался с заказом на Kaspi.
+  // Заказы, отменённые при доставке (Kaspi Доставка) — либо ещё в процессе (state=KASPI_DELIVERY/
+  // status=CANCELLING), либо уже в архиве (state=ARCHIVE/status=CANCELLED). Kaspi должен вернуть
+  // такой заказ на склад продавца, но иногда теряет его в пути — единственный надёжный признак
+  // этого — kaspiDelivery.returnedToWarehouse, и он появляется только когда заказ УЖЕ в архиве
+  // (пока идёт отмена, поле всегда false). Разовый бэкфилл собирает всю историю, дальше ночная
+  // синхронизация добавляет новые за последние пару дней И перепроверяет уже отслеживаемые
+  // незавершённые заказы (см. deliveryReturnsSync.js). Строку убирает сам пользователь кнопкой
+  // "Удалить", когда разобрался с заказом на Kaspi.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS delivery_cancellations (
       order_number TEXT PRIMARY KEY,
@@ -294,9 +297,15 @@ async function initDb() {
       cancellation_reason TEXT,
       delivery_mode TEXT,
       origin_city TEXT,
+      state TEXT,
+      status TEXT,
+      returned_to_warehouse BOOLEAN,
       first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS state TEXT;`);
+  await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS status TEXT;`);
+  await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS returned_to_warehouse BOOLEAN;`);
 
   // Пользователи сайта с ролями. Раньше был один общий пароль на всех (DASHBOARD_PASSWORD) —
   // теперь у каждого свой логин/пароль. role: 'admin' | 'manager' | 'marketer'.

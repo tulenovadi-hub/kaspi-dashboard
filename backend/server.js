@@ -6,7 +6,7 @@ const cron = require('node-cron');
 
 const { initDb, pool } = require('./db');
 const { syncRecentOrders } = require('./syncJob');
-const { syncDeliveryCancellations } = require('./deliveryReturnsSync');
+const { syncDeliveryCancellations, refreshTrackedOrders } = require('./deliveryReturnsSync');
 const authRoutes = require('./routes/auth');
 const usersRoutes = require('./routes/users');
 const statsRoutes = require('./routes/stats');
@@ -126,12 +126,14 @@ initDb()
       console.log('Запуск плановой ночной синхронизации...');
       syncRecentOrders().catch((err) => console.error('Ошибка плановой синхронизации:', err));
 
-      // Отменённые при доставке заказы за последние 2 дня — исходный бэкфилл всей истории
-      // делается один раз вручную (см. backend/routes/deliveryReturns.js POST /sync), здесь
-      // только докидываем новые случаи, чтобы не гонять весь диапазон каждую ночь.
+      // Отменённые при доставке заказы: новые за последние 2 дня + перепроверка уже
+      // отслеживаемых незавершённых заказов (вдруг переехали в архив). Исходный бэкфилл
+      // всей истории делается один раз вручную (см. backend/routes/deliveryReturns.js POST /sync).
       const now = Date.now();
       syncDeliveryCancellations(now - 2 * 24 * 60 * 60 * 1000, now)
         .catch((err) => console.error('Ошибка синхронизации отменённых при доставке заказов:', err));
+      refreshTrackedOrders()
+        .catch((err) => console.error('Ошибка перепроверки отменённых при доставке заказов:', err));
     });
 
     // Сразу при запуске сервера тоже делаем синхронизацию —
