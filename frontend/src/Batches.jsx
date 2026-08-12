@@ -241,6 +241,14 @@ export default function Batches({ password, onClose }) {
       .sort((a, b) => (a.received_date < b.received_date ? 1 : -1));
   }, [batches, search, productFilter, warehouseFilter, dateFrom, dateTo]);
 
+  const groupedByWarehouse = filtered.reduce((acc, b) => {
+    const city = b.warehouse || 'Без склада';
+    if (!acc[city]) acc[city] = [];
+    acc[city].push(b);
+    return acc;
+  }, {});
+  const cities = Object.keys(groupedByWarehouse).sort((a, b) => a.localeCompare(b, 'ru'));
+
   return (
     <div>
       <div className="app-header">
@@ -295,62 +303,69 @@ export default function Batches({ password, onClose }) {
         </button>
       </div>
 
-      <div className="card">
-        {loading ? (
+      {loading ? (
+        <div className="card">
           <div className="empty-state">Загрузка...</div>
-        ) : filtered.length === 0 ? (
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="card">
           <div className="empty-state">Поставок пока нет — нажмите «Создать новую поставку»</div>
-        ) : (
-          <div className="table-scroll">
-            <table className="product-table">
-              <thead>
-                <tr>
-                  <th>№ поставки</th>
-                  <th>Товар</th>
-                  <th>Склад</th>
-                  <th>Дата поступления</th>
-                  <th className="num">Себестоимость</th>
-                  <th className="num">Заявлено</th>
-                  <th className="num">Остаток</th>
-                  <th>Примечание</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((b) => {
-                  const noLogistics = !b.logistics_cost || Number(b.logistics_cost) === 0;
-                  return (
-                    <tr key={b.id} className="batch-row" onClick={() => openEdit(b)}>
-                      <td className="num">#{b.id}</td>
-                      <td>
-                        {b.product_name}
-                        {noLogistics && (
-                          <span className="batch-missing-logistics">⚠ логистика не внесена</span>
-                        )}
-                      </td>
-                      <td>{b.warehouse}</td>
-                      <td>{formatDateDMY(b.received_date)}</td>
-                      <td className="num">{formatMoney(b.cost_price)}</td>
-                      <td className="num">{formatNumber(b.quantity)}</td>
-                      <td className="num">{formatNumber(b.remaining_quantity)}</td>
-                      <td className="batch-note-cell">{b.note || '—'}</td>
-                      <td className="num">
-                        <button
-                          className="batch-delete"
-                          onClick={(e) => { e.stopPropagation(); handleDelete(b.id); }}
-                          title="Удалить поставку"
-                        >
-                          ✕
-                        </button>
-                      </td>
+        </div>
+      ) : (
+        cities.map((city) => (
+          <React.Fragment key={city}>
+            <div className="section-title">{city}</div>
+            <div className="card">
+              <div className="table-scroll">
+                <table className="product-table">
+                  <thead>
+                    <tr>
+                      <th>№ поставки</th>
+                      <th>Товар</th>
+                      <th>Дата поступления</th>
+                      <th className="num">Себестоимость</th>
+                      <th className="num">Заявлено</th>
+                      <th className="num">Остаток</th>
+                      <th>Примечание</th>
+                      <th></th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                  </thead>
+                  <tbody>
+                    {groupedByWarehouse[city].map((b) => {
+                      const noLogistics = !b.logistics_cost || Number(b.logistics_cost) === 0;
+                      return (
+                        <tr key={b.id} className="batch-row" onClick={() => openEdit(b)}>
+                          <td className="num">#{b.id}</td>
+                          <td>
+                            {b.product_name}
+                            {noLogistics && (
+                              <span className="batch-missing-logistics">⚠ логистика не внесена</span>
+                            )}
+                          </td>
+                          <td>{formatDateDMY(b.received_date)}</td>
+                          <td className="num">{formatMoney(b.cost_price)}</td>
+                          <td className="num">{formatNumber(b.quantity)}</td>
+                          <td className="num">{formatNumber(b.remaining_quantity)}</td>
+                          <td className="batch-note-cell">{b.note || '—'}</td>
+                          <td className="num">
+                            <button
+                              className="batch-delete"
+                              onClick={(e) => { e.stopPropagation(); handleDelete(b.id); }}
+                              title="Удалить поставку"
+                            >
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </React.Fragment>
+        ))
+      )}
 
       {showModal && (
         <BatchModal
