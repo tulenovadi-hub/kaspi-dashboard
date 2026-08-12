@@ -1,7 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { fetchWarehouse, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
-import FilterHeader from './FilterHeader.jsx';
 
 // Сжимаем картинку на клиенте перед отправкой — это просто маленькая иконка-превью на
 // "Складе", полное разрешение исходного фото не нужно, а без сжатия загрузка была бы
@@ -44,7 +43,6 @@ function resizeImageFile(file, maxDim = 320, quality = 0.85) {
 function createEmptyFilters() {
   return {
     productName: '',
-    warehouseExcluded: new Set(),
   };
 }
 
@@ -118,26 +116,18 @@ export default function Warehouse({ password }) {
     }
   }
 
-  const warehouses = useMemo(
-    () => Array.from(new Set(products.map((p) => p.warehouse).filter(Boolean))).sort(),
-    [products]
-  );
-
-  const toggleWarehouse = (w) => {
-    setFilters((f) => {
-      const next = new Set(f.warehouseExcluded);
-      if (next.has(w)) next.delete(w);
-      else next.add(w);
-      return { ...f, warehouseExcluded: next };
-    });
-  };
-
   const filtered = products.filter((p) => {
-    if (filters.warehouseExcluded.has(p.warehouse)) return false;
     if (filters.productName && !p.product_name.toLowerCase().includes(filters.productName.toLowerCase())) return false;
     return true;
   });
-  const totalRemainingValue = filtered.reduce((sum, p) => sum + Number(p.remaining_value || 0), 0);
+
+  const groupedByWarehouse = filtered.reduce((acc, p) => {
+    const city = p.warehouse || 'Без склада';
+    if (!acc[city]) acc[city] = [];
+    acc[city].push(p);
+    return acc;
+  }, {});
+  const cities = Object.keys(groupedByWarehouse).sort((a, b) => a.localeCompare(b, 'ru'));
 
   return (
     <div>
@@ -147,161 +137,151 @@ export default function Warehouse({ password }) {
 
       {error && <div className="error-banner">{error}</div>}
 
-      <div className="card">
-        {loading ? (
+      {!loading && products.length > 0 && (
+        <div className="batches-toolbar">
+          <input
+            className="toolbar-input"
+            type="text"
+            placeholder="Поиск по товару..."
+            value={filters.productName}
+            onChange={(e) => setFilters((f) => ({ ...f, productName: e.target.value }))}
+          />
+        </div>
+      )}
+
+      {loading ? (
+        <div className="card">
           <div className="empty-state">Загрузка...</div>
-        ) : products.length === 0 ? (
+        </div>
+      ) : products.length === 0 ? (
+        <div className="card">
           <div className="empty-state">Пока нет данных — сначала добавьте партии на странице «Поставки»</div>
-        ) : (
-          <div className="table-scroll">
-            <table className="product-table">
-              <thead>
-                <tr>
-                  <th>
-                    <FilterHeader label="Товар" active={!!filters.productName}>
-                      <input
-                        className="filter-popover-input"
-                        type="text"
-                        placeholder="Поиск..."
-                        value={filters.productName}
-                        onChange={(e) => setFilters((f) => ({ ...f, productName: e.target.value }))}
-                        autoFocus
-                      />
-                      <button className="filter-popover-clear" onClick={() => setFilters((f) => ({ ...f, productName: '' }))}>Очистить</button>
-                    </FilterHeader>
-                  </th>
-                  <th>
-                    <FilterHeader label="Склад" active={filters.warehouseExcluded.size > 0}>
-                      <div className="filter-popover-list">
-                        {warehouses.map((w) => (
-                          <label key={w} className="filter-popover-checkbox">
-                            <input
-                              type="checkbox"
-                              checked={!filters.warehouseExcluded.has(w)}
-                              onChange={() => toggleWarehouse(w)}
-                            />
-                            <span>{w}</span>
-                          </label>
-                        ))}
-                      </div>
-                      <div className="filter-popover-actions">
-                        <button onClick={() => setFilters((f) => ({ ...f, warehouseExcluded: new Set() }))}>Все</button>
-                        <button onClick={() => setFilters((f) => ({ ...f, warehouseExcluded: new Set(warehouses) }))}>Ничего</button>
-                      </div>
-                    </FilterHeader>
-                  </th>
-                  <th className="num">Поставлено</th>
-                  <th className="num">Продано</th>
-                  <th className="num">В обработке</th>
-                  <th className="num">Остаток</th>
-                  <th className="num">Себестоимость (FIFO)</th>
-                  <th className="num">Стоимость остатка</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="empty-state">Ничего не найдено по заданным фильтрам</td>
-                  </tr>
-                ) : (
-                  filtered.map((p) => {
-                    const rowKey = `${p.product_id}::${p.warehouse}`;
-                    const busy = imageBusy === p.product_id;
-                    return (
-                      <React.Fragment key={rowKey}>
-                        <tr onClick={() => toggleExpand(rowKey)}>
-                          <td>
-                            <div className="warehouse-product-cell">
-                              <label
-                                className="warehouse-thumb-wrap"
-                                onClick={(e) => e.stopPropagation()}
-                                title="Нажмите, чтобы загрузить свою картинку"
-                              >
-                                {images[p.product_id] ? (
-                                  <img className="warehouse-thumb" src={images[p.product_id]} alt={p.product_name} />
-                                ) : (
-                                  <div className="warehouse-thumb warehouse-thumb-empty" />
-                                )}
-                                <div className="warehouse-thumb-overlay">
-                                  {busy ? '…' : '✎'}
-                                </div>
-                                {images[p.product_id] && !busy && (
-                                  <button
-                                    type="button"
-                                    className="warehouse-thumb-remove"
-                                    title="Удалить картинку"
-                                    onClick={(e) => handleImageRemove(p.product_id, e)}
+        </div>
+      ) : cities.length === 0 ? (
+        <div className="card">
+          <div className="empty-state">Ничего не найдено по заданным фильтрам</div>
+        </div>
+      ) : (
+        cities.map((city) => {
+          const cityProducts = groupedByWarehouse[city];
+          const cityTotal = cityProducts.reduce((sum, p) => sum + Number(p.remaining_value || 0), 0);
+          return (
+            <React.Fragment key={city}>
+              <div className="section-title">{city}</div>
+              <div className="card">
+                <div className="table-scroll">
+                  <table className="product-table">
+                    <thead>
+                      <tr>
+                        <th>Товар</th>
+                        <th className="num">Остаток</th>
+                        <th className="num">Поставлено</th>
+                        <th className="num">Продано</th>
+                        <th className="num">В обработке</th>
+                        <th className="num">Себестоимость (FIFO)</th>
+                        <th className="num">Стоимость остатка</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cityProducts.map((p) => {
+                        const rowKey = `${p.product_id}::${p.warehouse}`;
+                        const busy = imageBusy === p.product_id;
+                        return (
+                          <React.Fragment key={rowKey}>
+                            <tr onClick={() => toggleExpand(rowKey)}>
+                              <td>
+                                <div className="warehouse-product-cell">
+                                  <label
+                                    className="warehouse-thumb-wrap"
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="Нажмите, чтобы загрузить свою картинку"
                                   >
-                                    ×
-                                  </button>
-                                )}
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="warehouse-thumb-input"
-                                  disabled={busy}
-                                  onChange={(e) => handleImageChange(p.product_id, e)}
-                                />
-                              </label>
-                              <div>
-                                {p.product_name}
-                                {p.oversold_qty > 0 && (
-                                  <span className="warehouse-warning" title="Продано больше, чем известно поставок на этом складе — добавьте недостающие партии">
-                                    ⚠ продано на {formatNumber(p.oversold_qty)} шт больше поставок
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                          <td>{p.warehouse}</td>
-                          <td className="num">{formatNumber(p.total_supplied)}</td>
-                          <td className="num">{formatNumber(p.total_sold)}</td>
-                          <td className="num">{formatNumber(p.in_progress)}</td>
-                          <td className="num">{formatNumber(p.remaining)}</td>
-                          <td className="num">{p.current_cost_price !== null ? formatMoney(p.current_cost_price) : '—'}</td>
-                          <td className="num">{formatMoney(p.remaining_value)}</td>
-                        </tr>
-                        {expanded === rowKey && p.batches.length > 0 && (
-                          <tr>
-                            <td colSpan={8} className="warehouse-batches-cell">
-                              <table className="product-table warehouse-sub-table">
-                                <thead>
-                                  <tr>
-                                    <th>Партия от</th>
-                                    <th className="num">Себестоимость</th>
-                                    <th className="num">Поставлено</th>
-                                    <th className="num">Остаток</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {p.batches.map((b) => (
-                                    <tr key={b.id}>
-                                      <td>{b.received_date}</td>
-                                      <td className="num">{formatMoney(b.cost_price)}</td>
-                                      <td className="num">{formatNumber(b.quantity)}</td>
-                                      <td className="num">{formatNumber(b.remaining)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })
-                )}
-              </tbody>
-              <tfoot>
-                <tr className="warehouse-total-row">
-                  <td colSpan={7} className="num">Итого:</td>
-                  <td className="num">{formatMoney(totalRemainingValue)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </div>
+                                    {images[p.product_id] ? (
+                                      <img className="warehouse-thumb" src={images[p.product_id]} alt={p.product_name} />
+                                    ) : (
+                                      <div className="warehouse-thumb warehouse-thumb-empty" />
+                                    )}
+                                    <div className="warehouse-thumb-overlay">
+                                      {busy ? '…' : '✎'}
+                                    </div>
+                                    {images[p.product_id] && !busy && (
+                                      <button
+                                        type="button"
+                                        className="warehouse-thumb-remove"
+                                        title="Удалить картинку"
+                                        onClick={(e) => handleImageRemove(p.product_id, e)}
+                                      >
+                                        ×
+                                      </button>
+                                    )}
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      className="warehouse-thumb-input"
+                                      disabled={busy}
+                                      onChange={(e) => handleImageChange(p.product_id, e)}
+                                    />
+                                  </label>
+                                  <div>
+                                    {p.product_name}
+                                    {p.oversold_qty > 0 && (
+                                      <span className="warehouse-warning" title="Продано больше, чем известно поставок на этом складе — добавьте недостающие партии">
+                                        ⚠ продано на {formatNumber(p.oversold_qty)} шт больше поставок
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="num">{formatNumber(p.remaining)}</td>
+                              <td className="num">{formatNumber(p.total_supplied)}</td>
+                              <td className="num">{formatNumber(p.total_sold)}</td>
+                              <td className="num">{formatNumber(p.in_progress)}</td>
+                              <td className="num">{p.current_cost_price !== null ? formatMoney(p.current_cost_price) : '—'}</td>
+                              <td className="num">{formatMoney(p.remaining_value)}</td>
+                            </tr>
+                            {expanded === rowKey && p.batches.length > 0 && (
+                              <tr>
+                                <td colSpan={7} className="warehouse-batches-cell">
+                                  <table className="product-table warehouse-sub-table">
+                                    <thead>
+                                      <tr>
+                                        <th>Партия от</th>
+                                        <th className="num">Себестоимость</th>
+                                        <th className="num">Поставлено</th>
+                                        <th className="num">Остаток</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {p.batches.map((b) => (
+                                        <tr key={b.id}>
+                                          <td>{b.received_date}</td>
+                                          <td className="num">{formatMoney(b.cost_price)}</td>
+                                          <td className="num">{formatNumber(b.quantity)}</td>
+                                          <td className="num">{formatNumber(b.remaining)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="warehouse-total-row">
+                        <td colSpan={6} className="num">Итого:</td>
+                        <td className="num">{formatMoney(cityTotal)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            </React.Fragment>
+          );
+        })
+      )}
 
       <div className="report-note">
         Остаток считается по методу FIFO отдельно для каждого склада, и учитывает только заказы {cutoffDate ? `с ${cutoffDate} и позже` : 'после даты отсечки'} —
