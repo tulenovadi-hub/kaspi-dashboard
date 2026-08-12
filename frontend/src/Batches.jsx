@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchBatchProducts, fetchBatches, addBatch, updateBatch, deleteBatch } from './api.js';
-import { formatMoney, formatNumber, WAREHOUSES } from './dateUtils.js';
+import { formatMoney, formatNumber, formatDateDMY, WAREHOUSES } from './dateUtils.js';
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -16,7 +16,7 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
   const [purchasePrice, setPurchasePrice] = useState(editingBatch ? String(editingBatch.purchase_price) : '');
   const [logisticsCost, setLogisticsCost] = useState(editingBatch ? String(editingBatch.logistics_cost) : '');
   const [quantity, setQuantity] = useState(editingBatch ? String(editingBatch.quantity) : '');
-  const [receivedDate, setReceivedDate] = useState(editingBatch ? editingBatch.received_date : todayISO());
+  const [receivedDate, setReceivedDate] = useState(editingBatch ? String(editingBatch.received_date).slice(0, 10) : todayISO());
   const [note, setNote] = useState(editingBatch ? editingBatch.note || '' : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -329,7 +329,7 @@ export default function Batches({ password, onClose }) {
                         )}
                       </td>
                       <td>{b.warehouse}</td>
-                      <td>{b.received_date}</td>
+                      <td>{formatDateDMY(b.received_date)}</td>
                       <td className="num">{formatMoney(b.cost_price)}</td>
                       <td className="num">{formatNumber(b.quantity)}</td>
                       <td className="num">{formatNumber(b.remaining_quantity)}</td>
