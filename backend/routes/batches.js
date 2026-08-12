@@ -4,6 +4,7 @@ const { pool } = require('../db');
 const router = express.Router();
 
 const VALID_WAREHOUSES = ['Алматы', 'Астана', 'Талдыкорган', 'Юбилейное'];
+const VALID_STATUSES = ['in_transit', 'received'];
 
 // Список всех продуктов, которые когда-либо продавались — нужно для выпадающего
 // списка при добавлении новой партии, чтобы не вводить название вручную и не ошибиться.
@@ -26,7 +27,7 @@ router.get('/products', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, created_at
+      `SELECT id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at
        FROM product_batches
        ORDER BY product_name, received_date, id`
     );
@@ -39,7 +40,7 @@ router.get('/', async (req, res) => {
 
 // Добавление новой партии
 router.post('/', async (req, res) => {
-  const { product_id, product_name, purchase_price, logistics_cost, note, warehouse, quantity, received_date } = req.body;
+  const { product_id, product_name, purchase_price, logistics_cost, note, warehouse, quantity, received_date, status } = req.body;
 
   if (!product_id || !product_name) {
     return res.status(400).json({ error: 'Не указан товар' });
@@ -50,6 +51,7 @@ router.post('/', async (req, res) => {
   const purchasePrice = Number(purchase_price);
   const logisticsCost = Number(logistics_cost || 0);
   const qty = Number(quantity);
+  const batchStatus = VALID_STATUSES.includes(status) ? status : 'received';
   if (!Number.isFinite(purchasePrice) || purchasePrice < 0) {
     return res.status(400).json({ error: 'Закупочная цена указана некорректно' });
   }
@@ -67,10 +69,10 @@ router.post('/', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `INSERT INTO product_batches (product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
-       RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, created_at`,
-      [product_id, product_name, costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, received_date]
+      `INSERT INTO product_batches (product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10)
+       RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at`,
+      [product_id, product_name, costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, received_date, batchStatus]
     );
     res.status(201).json({ batch: result.rows[0] });
   } catch (err) {
@@ -83,7 +85,7 @@ router.post('/', async (req, res) => {
 // сдвигается на ту же разницу, чтобы не потерять уже проданную часть партии.
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
-  const { warehouse, purchase_price, logistics_cost, note, quantity, received_date } = req.body;
+  const { warehouse, purchase_price, logistics_cost, note, quantity, received_date, status } = req.body;
 
   if (!warehouse || !VALID_WAREHOUSES.includes(warehouse)) {
     return res.status(400).json({ error: 'Не указан склад (город)' });
@@ -91,6 +93,7 @@ router.put('/:id', async (req, res) => {
   const purchasePrice = Number(purchase_price);
   const logisticsCost = Number(logistics_cost || 0);
   const qty = Number(quantity);
+  const batchStatus = VALID_STATUSES.includes(status) ? status : 'received';
   if (!Number.isFinite(purchasePrice) || purchasePrice < 0) {
     return res.status(400).json({ error: 'Закупочная цена указана некорректно' });
   }
@@ -118,15 +121,37 @@ router.put('/:id', async (req, res) => {
     const result = await pool.query(
       `UPDATE product_batches
        SET cost_price = $1, purchase_price = $2, logistics_cost = $3, note = $4, warehouse = $5,
-           quantity = $6, remaining_quantity = $7, received_date = $8
-       WHERE id = $9
-       RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, created_at`,
-      [costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, newRemaining, received_date, id]
+           quantity = $6, remaining_quantity = $7, received_date = $8, status = $9
+       WHERE id = $10
+       RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at`,
+      [costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, newRemaining, received_date, batchStatus, id]
     );
     res.json({ batch: result.rows[0] });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось сохранить изменения' });
+  }
+});
+
+// Быстрая отметка "Прибыло" (для партий со статусом in_transit) — переводит статус в received
+// и проставляет фактическую дату поступления = сегодня (до этого там была ожидаемая дата).
+router.post('/:id/receive', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await pool.query(
+      `UPDATE product_batches SET status = 'received', received_date = $1
+       WHERE id = $2
+       RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at`,
+      [today, id]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Партия не найдена' });
+    }
+    res.json({ batch: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось отметить поставку как прибывшую' });
   }
 });
 

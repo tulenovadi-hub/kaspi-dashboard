@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { fetchBatchProducts, fetchBatches, addBatch, updateBatch, deleteBatch } from './api.js';
+import { fetchBatchProducts, fetchBatches, addBatch, updateBatch, deleteBatch, markBatchReceived } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, WAREHOUSES } from './dateUtils.js';
 
 function todayISO() {
@@ -17,6 +17,7 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
   const [logisticsCost, setLogisticsCost] = useState(editingBatch ? String(editingBatch.logistics_cost) : '');
   const [quantity, setQuantity] = useState(editingBatch ? String(editingBatch.quantity) : '');
   const [receivedDate, setReceivedDate] = useState(editingBatch ? String(editingBatch.received_date).slice(0, 10) : todayISO());
+  const [status, setStatus] = useState(editingBatch ? editingBatch.status || 'received' : 'received');
   const [note, setNote] = useState(editingBatch ? editingBatch.note || '' : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -33,6 +34,7 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
       note,
       quantity,
       received_date: receivedDate,
+      status,
     };
 
     setSaving(true);
@@ -136,7 +138,18 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
             Себестоимость за 1 шт: <strong>{costPrice.toLocaleString('ru-RU')} ₸</strong>
           </div>
 
-          <div className="batch-form-row-2">
+          <div className="batch-form-row">
+            <div className="batch-form-field">
+              <label>Статус поставки</label>
+              <select
+                className="product-select"
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                <option value="received">Прибыло</option>
+                <option value="in_transit">В пути</option>
+              </select>
+            </div>
             <div className="batch-form-field">
               <label>Количество, шт</label>
               <input
@@ -152,7 +165,7 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
               )}
             </div>
             <div className="batch-form-field">
-              <label>Дата поступления</label>
+              <label>{status === 'in_transit' ? 'Ожидаемая дата поставки' : 'Дата поступления'}</label>
               <input
                 type="date"
                 value={receivedDate}
@@ -216,6 +229,12 @@ export default function Batches({ password, onClose }) {
   function handleDelete(id) {
     if (!window.confirm('Удалить эту поставку?')) return;
     deleteBatch(password, id)
+      .then(() => loadAll())
+      .catch((err) => setError(err.message));
+  }
+
+  function handleMarkReceived(id) {
+    markBatchReceived(password, id)
       .then(() => loadAll())
       .catch((err) => setError(err.message));
   }
@@ -322,6 +341,7 @@ export default function Batches({ password, onClose }) {
                     <tr>
                       <th>№ поставки</th>
                       <th>Товар</th>
+                      <th>Статус</th>
                       <th>Дата поступления</th>
                       <th className="num">Себестоимость</th>
                       <th className="num">Заявлено</th>
@@ -333,6 +353,7 @@ export default function Batches({ password, onClose }) {
                   <tbody>
                     {groupedByWarehouse[city].map((b) => {
                       const noLogistics = !b.logistics_cost || Number(b.logistics_cost) === 0;
+                      const inTransit = b.status === 'in_transit';
                       return (
                         <tr key={b.id} className="batch-row" onClick={() => openEdit(b)}>
                           <td className="num">#{b.id}</td>
@@ -342,19 +363,35 @@ export default function Batches({ password, onClose }) {
                               <span className="batch-missing-logistics">⚠ логистика не внесена</span>
                             )}
                           </td>
+                          <td>
+                            <span className={`batch-status-pill${inTransit ? ' in-transit' : ''}`}>
+                              {inTransit ? 'В пути' : 'Прибыло'}
+                            </span>
+                          </td>
                           <td>{formatDateDMY(b.received_date)}</td>
                           <td className="num">{formatMoney(b.cost_price)}</td>
                           <td className="num">{formatNumber(b.quantity)}</td>
                           <td className="num">{formatNumber(b.remaining_quantity)}</td>
                           <td className="batch-note-cell">{b.note || '—'}</td>
                           <td className="num">
-                            <button
-                              className="batch-delete"
-                              onClick={(e) => { e.stopPropagation(); handleDelete(b.id); }}
-                              title="Удалить поставку"
-                            >
-                              ✕
-                            </button>
+                            <div className="batch-row-actions">
+                              {inTransit && (
+                                <button
+                                  className="batch-receive"
+                                  onClick={(e) => { e.stopPropagation(); handleMarkReceived(b.id); }}
+                                  title="Отметить как прибывшую"
+                                >
+                                  Прибыло
+                                </button>
+                              )}
+                              <button
+                                className="batch-delete"
+                                onClick={(e) => { e.stopPropagation(); handleDelete(b.id); }}
+                                title="Удалить поставку"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );

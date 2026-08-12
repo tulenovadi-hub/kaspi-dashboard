@@ -24,9 +24,12 @@ const WAREHOUSE_SORT_ORDER = { 'Алматы': 0, 'Астана': 1 };
 // пересчитывается заново по факту продаж, эту функцию и нужно переиспользовать всюду, где нужен
 // реальный остаток (например, AI Финансист), а не читать remaining_quantity напрямую.
 async function computeWarehouseStock() {
+  // Партии со статусом 'in_transit' (заказаны у поставщика, физически ещё не приехали) не входят
+  // в реальный остаток склада — они учитываются отдельно на "Закупе" в колонке "В пути".
   const batchesResult = await pool.query(`
     SELECT id, product_id, product_name, cost_price, warehouse, quantity, received_date
     FROM product_batches
+    WHERE status = 'received'
     ORDER BY product_id, warehouse, received_date, id
   `);
 

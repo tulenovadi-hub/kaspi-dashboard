@@ -86,6 +86,25 @@ async function initDb() {
   // Для партий, добавленных до этой миграции, считаем, что это Алматы (можно поправить вручную).
   await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS warehouse TEXT NOT NULL DEFAULT 'Алматы';`);
 
+  // Статус партии — 'in_transit' (заказано у поставщика, физически ещё не на складе) или
+  // 'received' (уже приехало). Нужен для "Закупа": в реальный остаток (computeWarehouseStock)
+  // идут только received-партии, in_transit считаются отдельно в колонке "В пути".
+  // Раньше в приложении не было понятия "в пути" — любая внесённая поставка сразу считалась
+  // прибывшей, поэтому у всех старых партий статус по умолчанию 'received' (ничего не меняется).
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'received';`);
+
+  // Настройки формулы "Закупа" — общие на весь магазин (не по товарам), редактируются в UI
+  // ("Настройка параметров" на странице "Закуп"). Одна строка-синглтон с id=1.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS purchasing_settings (
+      id INT PRIMARY KEY DEFAULT 1,
+      lead_time_days INT NOT NULL DEFAULT 14,
+      buffer_pct NUMERIC NOT NULL DEFAULT 30,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`INSERT INTO purchasing_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;`);
+
   // Данные, импортированные из Excel-отчёта Kaspi Pay (детализация по операциям):
   // выручка, все виды комиссий и стоимость доставки Kaspi по каждой операции.
   // Используется для отчёта по прибыли/марже/ROI помесячно.

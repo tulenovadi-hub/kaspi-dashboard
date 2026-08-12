@@ -151,6 +151,22 @@ export function deleteBatch(password, id) {
   return apiRequest(`/api/batches/${id}`, password, { method: 'DELETE' });
 }
 
+export function markBatchReceived(password, id) {
+  return apiRequest(`/api/batches/${id}/receive`, password, { method: 'POST' });
+}
+
+export function fetchPurchasing(password) {
+  return apiRequest('/api/purchasing', password);
+}
+
+export function updatePurchasingSettings(password, settings) {
+  return apiRequest('/api/purchasing/settings', password, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+}
+
 export function uploadKaspiPayReport(password, file) {
   const formData = new FormData();
   formData.append('file', file);

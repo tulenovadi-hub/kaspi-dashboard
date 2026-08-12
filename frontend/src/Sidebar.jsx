@@ -17,6 +17,9 @@ const icons = {
   warehouse: (
     <svg viewBox="0 0 20 20" fill="none"><path d="M2 8l8-5 8 5v8a1 1 0 01-1 1H3a1 1 0 01-1-1V8z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><rect x="7.5" y="11" width="5" height="6" stroke="currentColor" strokeWidth="1.5"/></svg>
   ),
+  purchasing: (
+    <svg viewBox="0 0 20 20" fill="none"><path d="M3 4h1.5l1.2 8.4a1.5 1.5 0 001.5 1.3h6.2a1.5 1.5 0 001.5-1.2L16 7H5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="8" cy="17" r="1" fill="currentColor"/><circle cx="14" cy="17" r="1" fill="currentColor"/><path d="M11 8v3M9.5 9.5h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
+  ),
   marketing: (
     <svg viewBox="0 0 20 20" fill="none"><path d="M2 8v4h3l5 3V5L5 8H2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M14 7.5a3 3 0 010 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M16.3 5.5a6 6 0 010 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
   ),
@@ -51,7 +54,7 @@ const icons = {
 
 // Какие пункты меню видит каждая роль
 const ROLE_PAGES = {
-  admin: ['sales', 'report', 'selfbuy', 'orders', 'expenses', 'batches', 'warehouse', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'analyst', 'delivery_returns', 'settings'],
+  admin: ['sales', 'report', 'selfbuy', 'orders', 'expenses', 'batches', 'warehouse', 'purchasing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'analyst', 'delivery_returns', 'settings'],
   manager: ['sales', 'selfbuy', 'orders', 'warehouse'],
   marketer: ['sales', 'selfbuy', 'orders', 'warehouse', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews'],
 };
@@ -66,6 +69,7 @@ const NAV_ITEMS = [
   { key: 'expenses', label: 'Расходы', icon: 'expenses' },
   { key: 'batches', label: 'Поставки', icon: 'batches' },
   { key: 'warehouse', label: 'Склад', icon: 'warehouse' },
+  { key: 'purchasing', label: 'Закуп', icon: 'purchasing' },
   {
     section: 'Маркетинг',
     icon: 'marketing',

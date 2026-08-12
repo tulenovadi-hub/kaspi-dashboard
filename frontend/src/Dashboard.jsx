@@ -4,6 +4,7 @@ import SalesView from './SalesView.jsx';
 import Batches from './Batches.jsx';
 import Report from './Report.jsx';
 import Warehouse from './Warehouse.jsx';
+import Purchasing from './Purchasing.jsx';
 import Expenses from './Expenses.jsx';
 import Orders from './Orders.jsx';
 import Settings from './Settings.jsx';
@@ -78,6 +79,14 @@ export default function Dashboard({ password, username, role, onLogout }) {
       return (
         <div key={key} style={style}>
           <Warehouse password={password} />
+        </div>
+      );
+    }
+
+    if (key === 'purchasing') {
+      return (
+        <div key={key} style={style}>
+          <Purchasing password={password} onGoToBatches={() => setView('batches')} />
         </div>
       );
     }
