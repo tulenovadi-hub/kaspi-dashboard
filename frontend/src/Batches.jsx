@@ -345,7 +345,6 @@ export default function Batches({ password, onClose }) {
                       <th>Дата поступления</th>
                       <th className="num">Себестоимость</th>
                       <th className="num">Заявлено</th>
-                      <th className="num">Остаток</th>
                       <th>Примечание</th>
                       <th></th>
                     </tr>
@@ -371,7 +370,6 @@ export default function Batches({ password, onClose }) {
                           <td>{formatDateDMY(b.received_date)}</td>
                           <td className="num">{formatMoney(b.cost_price)}</td>
                           <td className="num">{formatNumber(b.quantity)}</td>
-                          <td className="num">{formatNumber(b.remaining_quantity)}</td>
                           <td className="batch-note-cell">{b.note || '—'}</td>
                           <td className="num">
                             <div className="batch-row-actions">
