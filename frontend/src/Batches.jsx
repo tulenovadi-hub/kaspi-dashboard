@@ -26,6 +26,7 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
   const [purchaseCurrency, setPurchaseCurrency] = useState(editingBatch?.purchase_currency || 'KZT');
   const [purchaseRate, setPurchaseRate] = useState(editingBatch?.purchase_rate != null ? String(editingBatch.purchase_rate) : '');
   const [logisticsAmountForeign, setLogisticsAmountForeign] = useState(editingBatch?.logistics_amount_foreign != null ? String(editingBatch.logistics_amount_foreign) : '');
+  const [logisticsCurrency, setLogisticsCurrency] = useState(editingBatch?.logistics_currency || 'KZT');
   const [logisticsRate, setLogisticsRate] = useState(editingBatch?.logistics_rate != null ? String(editingBatch.logistics_rate) : '');
   const [receivedDate, setReceivedDate] = useState(editingBatch ? String(editingBatch.received_date).slice(0, 10) : todayISO());
   const [status, setStatus] = useState(editingBatch ? editingBatch.status || 'received' : 'received');
@@ -48,11 +49,12 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
   useEffect(() => {
     const amount = Number(logisticsAmountForeign);
     const qty = Number(quantity);
-    const rate = Number(logisticsRate);
-    if (!amount || !qty || !rate) return;
+    if (!amount || !qty) return;
+    const rate = logisticsCurrency === 'KZT' ? 1 : Number(logisticsRate);
+    if (!rate) return;
     setLogisticsCost(String(Math.round((amount * rate / qty) * 100) / 100));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logisticsAmountForeign, logisticsRate, quantity]);
+  }, [logisticsAmountForeign, logisticsCurrency, logisticsRate, quantity]);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -68,8 +70,9 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
       purchase_currency: purchaseAmountForeign ? purchaseCurrency : null,
       purchase_amount_foreign: purchaseAmountForeign || null,
       purchase_rate: purchaseAmountForeign ? (purchaseCurrency === 'KZT' ? 1 : purchaseRate) : null,
+      logistics_currency: logisticsAmountForeign ? logisticsCurrency : null,
       logistics_amount_foreign: logisticsAmountForeign || null,
-      logistics_rate: logisticsAmountForeign ? logisticsRate : null,
+      logistics_rate: logisticsAmountForeign ? (logisticsCurrency === 'KZT' ? 1 : logisticsRate) : null,
     };
 
     setSaving(true);
@@ -182,6 +185,43 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
             </div>
           </div>
 
+          <div className="batch-form-row">
+            <div className="batch-form-field">
+              <label>Логистика за партию</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={logisticsAmountForeign}
+                onChange={(e) => setLogisticsAmountForeign(e.target.value)}
+                placeholder="Сколько заплатили за логистику всего"
+              />
+            </div>
+            <div className="batch-form-field">
+              <label>Валюта</label>
+              <select
+                className="product-select"
+                value={logisticsCurrency}
+                onChange={(e) => setLogisticsCurrency(e.target.value)}
+              >
+                <option value="KZT">₸ Тенге</option>
+                <option value="USD">$ Доллар</option>
+              </select>
+            </div>
+            <div className="batch-form-field">
+              <label>Курс</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={logisticsCurrency === 'KZT' ? '' : logisticsRate}
+                onChange={(e) => setLogisticsRate(e.target.value)}
+                disabled={logisticsCurrency === 'KZT'}
+                placeholder={logisticsCurrency === 'KZT' ? '—' : 'напр. 466'}
+              />
+            </div>
+          </div>
+
           <div className="batch-form-row-2">
             <div className="batch-form-field">
               <label>Закупочная цена за 1 шт, ₸</label>
@@ -203,31 +243,6 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
                 value={logisticsCost}
                 onChange={(e) => setLogisticsCost(e.target.value)}
                 placeholder="0"
-              />
-            </div>
-          </div>
-
-          <div className="batch-form-row-2">
-            <div className="batch-form-field">
-              <label>Логистика за партию, $</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={logisticsAmountForeign}
-                onChange={(e) => setLogisticsAmountForeign(e.target.value)}
-                placeholder="Сколько заплатили за логистику всего"
-              />
-            </div>
-            <div className="batch-form-field">
-              <label>Курс</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={logisticsRate}
-                onChange={(e) => setLogisticsRate(e.target.value)}
-                placeholder="напр. 466"
               />
             </div>
           </div>

@@ -101,6 +101,7 @@ async function initDb() {
   await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS purchase_currency TEXT;`);
   await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS purchase_amount_foreign NUMERIC;`);
   await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS purchase_rate NUMERIC;`);
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS logistics_currency TEXT;`);
   await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS logistics_amount_foreign NUMERIC;`);
   await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS logistics_rate NUMERIC;`);
 

@@ -37,7 +37,7 @@ router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-              purchase_currency, purchase_amount_foreign, purchase_rate, logistics_amount_foreign, logistics_rate
+              purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate
        FROM product_batches
        ORDER BY product_name, received_date, id`
     );
@@ -52,7 +52,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   const {
     product_id, product_name, purchase_price, logistics_cost, note, warehouse, quantity, received_date, status,
-    purchase_currency, purchase_amount_foreign, purchase_rate, logistics_amount_foreign, logistics_rate,
+    purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate,
   } = req.body;
 
   if (!product_id || !product_name) {
@@ -82,18 +82,19 @@ router.post('/', async (req, res) => {
   const purchaseCurrency = VALID_CURRENCIES.includes(purchase_currency) ? purchase_currency : null;
   const purchaseAmountForeign = optionalNumber(purchase_amount_foreign);
   const purchaseRate = optionalNumber(purchase_rate);
+  const logisticsCurrency = VALID_CURRENCIES.includes(logistics_currency) ? logistics_currency : null;
   const logisticsAmountForeign = optionalNumber(logistics_amount_foreign);
   const logisticsRate = optionalNumber(logistics_rate);
 
   try {
     const result = await pool.query(
       `INSERT INTO product_batches (product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status,
-                                     purchase_currency, purchase_amount_foreign, purchase_rate, logistics_amount_foreign, logistics_rate)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15)
+                                     purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_amount_foreign, logistics_rate`,
+                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate`,
       [product_id, product_name, costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, received_date, batchStatus,
-        purchaseCurrency, purchaseAmountForeign, purchaseRate, logisticsAmountForeign, logisticsRate]
+        purchaseCurrency, purchaseAmountForeign, purchaseRate, logisticsCurrency, logisticsAmountForeign, logisticsRate]
     );
     res.status(201).json({ batch: result.rows[0] });
   } catch (err) {
@@ -108,7 +109,7 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const {
     warehouse, purchase_price, logistics_cost, note, quantity, received_date, status,
-    purchase_currency, purchase_amount_foreign, purchase_rate, logistics_amount_foreign, logistics_rate,
+    purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate,
   } = req.body;
 
   if (!warehouse || !VALID_WAREHOUSES.includes(warehouse)) {
@@ -135,6 +136,7 @@ router.put('/:id', async (req, res) => {
   const purchaseCurrency = VALID_CURRENCIES.includes(purchase_currency) ? purchase_currency : null;
   const purchaseAmountForeign = optionalNumber(purchase_amount_foreign);
   const purchaseRate = optionalNumber(purchase_rate);
+  const logisticsCurrency = VALID_CURRENCIES.includes(logistics_currency) ? logistics_currency : null;
   const logisticsAmountForeign = optionalNumber(logistics_amount_foreign);
   const logisticsRate = optionalNumber(logistics_rate);
 
@@ -152,12 +154,12 @@ router.put('/:id', async (req, res) => {
        SET cost_price = $1, purchase_price = $2, logistics_cost = $3, note = $4, warehouse = $5,
            quantity = $6, remaining_quantity = $7, received_date = $8, status = $9,
            purchase_currency = $10, purchase_amount_foreign = $11, purchase_rate = $12,
-           logistics_amount_foreign = $13, logistics_rate = $14
-       WHERE id = $15
+           logistics_currency = $13, logistics_amount_foreign = $14, logistics_rate = $15
+       WHERE id = $16
        RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_amount_foreign, logistics_rate`,
+                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate`,
       [costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, newRemaining, received_date, batchStatus,
-        purchaseCurrency, purchaseAmountForeign, purchaseRate, logisticsAmountForeign, logisticsRate, id]
+        purchaseCurrency, purchaseAmountForeign, purchaseRate, logisticsCurrency, logisticsAmountForeign, logisticsRate, id]
     );
     res.json({ batch: result.rows[0] });
   } catch (err) {
@@ -176,7 +178,7 @@ router.post('/:id/receive', async (req, res) => {
       `UPDATE product_batches SET status = 'received', received_date = $1
        WHERE id = $2
        RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_amount_foreign, logistics_rate`,
+                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate`,
       [today, id]
     );
     if (result.rowCount === 0) {
