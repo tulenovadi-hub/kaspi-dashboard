@@ -16,6 +16,17 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
   const [purchasePrice, setPurchasePrice] = useState(editingBatch ? String(editingBatch.purchase_price) : '');
   const [logisticsCost, setLogisticsCost] = useState(editingBatch ? String(editingBatch.logistics_cost) : '');
   const [quantity, setQuantity] = useState(editingBatch ? String(editingBatch.quantity) : '');
+
+  // Калькулятор валюты: партия часто оплачивается в $ или ¥, а не в тенге.
+  // Вводим сумму за всю партию + курс на момент оплаты — ниже пересчитывается
+  // в себестоимость за 1 шт (сумма * курс / количество), но поле остаётся
+  // редактируемым вручную, если нужно поправить итог. Сумма/валюта/курс сохраняются
+  // в базе как справочная информация — только для партий, где калькулятор использовался.
+  const [purchaseAmountForeign, setPurchaseAmountForeign] = useState(editingBatch?.purchase_amount_foreign != null ? String(editingBatch.purchase_amount_foreign) : '');
+  const [purchaseCurrency, setPurchaseCurrency] = useState(editingBatch?.purchase_currency || 'KZT');
+  const [purchaseRate, setPurchaseRate] = useState(editingBatch?.purchase_rate != null ? String(editingBatch.purchase_rate) : '');
+  const [logisticsAmountForeign, setLogisticsAmountForeign] = useState(editingBatch?.logistics_amount_foreign != null ? String(editingBatch.logistics_amount_foreign) : '');
+  const [logisticsRate, setLogisticsRate] = useState(editingBatch?.logistics_rate != null ? String(editingBatch.logistics_rate) : '');
   const [receivedDate, setReceivedDate] = useState(editingBatch ? String(editingBatch.received_date).slice(0, 10) : todayISO());
   const [status, setStatus] = useState(editingBatch ? editingBatch.status || 'received' : 'received');
   const [note, setNote] = useState(editingBatch ? editingBatch.note || '' : '');
@@ -23,6 +34,25 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
   const [error, setError] = useState('');
 
   const costPrice = (Number(purchasePrice) || 0) + (Number(logisticsCost) || 0);
+
+  useEffect(() => {
+    const amount = Number(purchaseAmountForeign);
+    const qty = Number(quantity);
+    if (!amount || !qty) return;
+    const rate = purchaseCurrency === 'KZT' ? 1 : Number(purchaseRate);
+    if (!rate) return;
+    setPurchasePrice(String(Math.round((amount * rate / qty) * 100) / 100));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [purchaseAmountForeign, purchaseCurrency, purchaseRate, quantity]);
+
+  useEffect(() => {
+    const amount = Number(logisticsAmountForeign);
+    const qty = Number(quantity);
+    const rate = Number(logisticsRate);
+    if (!amount || !qty || !rate) return;
+    setLogisticsCost(String(Math.round((amount * rate / qty) * 100) / 100));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logisticsAmountForeign, logisticsRate, quantity]);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -35,6 +65,11 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
       quantity,
       received_date: receivedDate,
       status,
+      purchase_currency: purchaseAmountForeign ? purchaseCurrency : null,
+      purchase_amount_foreign: purchaseAmountForeign || null,
+      purchase_rate: purchaseAmountForeign ? (purchaseCurrency === 'KZT' ? 1 : purchaseRate) : null,
+      logistics_amount_foreign: logisticsAmountForeign || null,
+      logistics_rate: logisticsAmountForeign ? logisticsRate : null,
     };
 
     setSaving(true);
@@ -109,6 +144,44 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
             </div>
           </div>
 
+          <div className="batch-form-row">
+            <div className="batch-form-field">
+              <label>Сумма закупки за партию</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={purchaseAmountForeign}
+                onChange={(e) => setPurchaseAmountForeign(e.target.value)}
+                placeholder="Сколько заплатили всего"
+              />
+            </div>
+            <div className="batch-form-field">
+              <label>Валюта</label>
+              <select
+                className="product-select"
+                value={purchaseCurrency}
+                onChange={(e) => setPurchaseCurrency(e.target.value)}
+              >
+                <option value="KZT">₸ Тенге</option>
+                <option value="USD">$ Доллар</option>
+                <option value="CNY">¥ Юань</option>
+              </select>
+            </div>
+            <div className="batch-form-field">
+              <label>Курс</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={purchaseCurrency === 'KZT' ? '' : purchaseRate}
+                onChange={(e) => setPurchaseRate(e.target.value)}
+                disabled={purchaseCurrency === 'KZT'}
+                placeholder={purchaseCurrency === 'KZT' ? '—' : 'напр. 466'}
+              />
+            </div>
+          </div>
+
           <div className="batch-form-row-2">
             <div className="batch-form-field">
               <label>Закупочная цена за 1 шт, ₸</label>
@@ -130,6 +203,31 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
                 value={logisticsCost}
                 onChange={(e) => setLogisticsCost(e.target.value)}
                 placeholder="0"
+              />
+            </div>
+          </div>
+
+          <div className="batch-form-row-2">
+            <div className="batch-form-field">
+              <label>Логистика за партию, $</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={logisticsAmountForeign}
+                onChange={(e) => setLogisticsAmountForeign(e.target.value)}
+                placeholder="Сколько заплатили за логистику всего"
+              />
+            </div>
+            <div className="batch-form-field">
+              <label>Курс</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={logisticsRate}
+                onChange={(e) => setLogisticsRate(e.target.value)}
+                placeholder="напр. 466"
               />
             </div>
           </div>

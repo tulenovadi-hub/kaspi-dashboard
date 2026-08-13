@@ -93,6 +93,17 @@ async function initDb() {
   // прибывшей, поэтому у всех старых партий статус по умолчанию 'received' (ничего не меняется).
   await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'received';`);
 
+  // Валюта расчёта с поставщиком: закупка и логистика часто оплачиваются в $ или ¥,
+  // а purchase_price/logistics_cost всегда хранятся в ₸ за 1 шт (используются в формулах себестоимости).
+  // Эти поля — необязательная справочная информация (сумма за партию целиком + курс на момент оплаты),
+  // чтобы при повторном открытии поставки было видно, как получилась цена в тенге. NULL — для партий,
+  // где калькулятор валюты не использовался (цена в ₸ введена напрямую, как раньше).
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS purchase_currency TEXT;`);
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS purchase_amount_foreign NUMERIC;`);
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS purchase_rate NUMERIC;`);
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS logistics_amount_foreign NUMERIC;`);
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS logistics_rate NUMERIC;`);
+
   // Настройки формулы "Закупа" — общие на весь магазин (не по товарам), редактируются в UI
   // ("Настройка параметров" на странице "Закуп"). Одна строка-синглтон с id=1.
   await pool.query(`
