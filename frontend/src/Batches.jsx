@@ -59,6 +59,11 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
   function handleSubmit(e) {
     e.preventDefault();
 
+    if (!purchasePrice || Number(purchasePrice) <= 0) {
+      setError('Заполните сумму закупки, валюту, курс и количество — цена за 1 шт ещё не рассчиталась');
+      return;
+    }
+
     const payload = {
       warehouse,
       purchase_price: purchasePrice,
@@ -225,25 +230,11 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
           <div className="batch-form-row-2">
             <div className="batch-form-field">
               <label>Закупочная цена за 1 шт, ₸</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={purchasePrice}
-                onChange={(e) => setPurchasePrice(e.target.value)}
-                required
-              />
+              <div className="batch-computed-value">{purchasePrice ? formatMoney(purchasePrice) : '—'}</div>
             </div>
             <div className="batch-form-field">
               <label>Логистика за 1 шт, ₸</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={logisticsCost}
-                onChange={(e) => setLogisticsCost(e.target.value)}
-                placeholder="0"
-              />
+              <div className="batch-computed-value">{logisticsCost ? formatMoney(logisticsCost) : '0 ₸'}</div>
             </div>
           </div>
 
