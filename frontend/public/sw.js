@@ -1,10 +1,16 @@
 // Service worker: кэширует и статику сайта, и ответы backend-API, чтобы дашборд
-// открывался офлайн с последними загруженными данными (на телефоне это особенно
-// заметно — сеть часто нестабильна). Стратегия — "network first, cache fallback":
-// пока есть сеть, всегда показываем свежие данные и обновляем кэш; как только сети
-// нет, отдаём последнюю сохранённую версию вместо ошибки/пустого экрана.
-const STATIC_CACHE = 'kaspi-static-v1';
-const API_CACHE = 'kaspi-api-v1';
+// открывался быстро и работал офлайн с последними загруженными данными.
+//
+// Два разных подхода для двух разных источников задержек:
+// - STATIC (свой домен, Vercel) — "network first, cache fallback": Vercel и так быстрый,
+//   тут важнее не отстать от свежего деплоя, чем выиграть миллисекунды.
+// - API (backend на Render, чужой домен) — "stale while revalidate": именно тут бывают
+//   реальные задержки (Render на бесплатном тарифе засыпает и просыпается по 10-30 секунд).
+//   Поэтому и офлайн, и онлайн сразу отдаём то, что уже есть в кэше (без ожидания сети),
+//   а актуальные данные параллельно подгружаются в фоне и тихо ложатся в кэш — следующий
+//   запрос (обновление страницы, повторное открытие раздела) получит уже свежую версию.
+const STATIC_CACHE = 'kaspi-static-v2';
+const API_CACHE = 'kaspi-api-v2';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -37,6 +43,32 @@ async function networkFirst(request, cacheName) {
   }
 }
 
+async function staleWhileRevalidate(event, request, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+
+  const networkFetch = fetch(request)
+    .then((response) => {
+      if (response && response.ok) {
+        cache.put(request, response.clone());
+      }
+      return response;
+    })
+    .catch(() => null);
+
+  if (cached) {
+    // Не ждём сеть — сразу отдаём то, что уже есть. Фоновый фетч (см. waitUntil) успеет
+    // обновить кэш, даже если respondWith уже вернул ответ и страница получила данные.
+    event.waitUntil(networkFetch);
+    return cached;
+  }
+
+  // Кэша ещё нет (первое обращение к этому запросу) — отдать нечего, приходится ждать сеть.
+  const response = await networkFetch;
+  if (response) return response;
+  throw new Error('Нет сети и нет кэша для этого запроса');
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   // Мутации (создание/изменение/удаление) никогда не кэшируем и не подменяем офлайн-ответом —
@@ -46,7 +78,9 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   const isOwnOrigin = url.origin === self.location.origin;
 
-  // Свой домен (HTML/JS/CSS/иконки, включая переход между страницами SPA) — STATIC_CACHE.
-  // Чужой домен (backend API на Render) — API_CACHE, отдельно от статики.
-  event.respondWith(networkFirst(request, isOwnOrigin ? STATIC_CACHE : API_CACHE));
+  if (isOwnOrigin) {
+    event.respondWith(networkFirst(request, STATIC_CACHE));
+  } else {
+    event.respondWith(staleWhileRevalidate(event, request, API_CACHE));
+  }
 });
