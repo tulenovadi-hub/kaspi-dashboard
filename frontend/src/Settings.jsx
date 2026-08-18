@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { fetchUsers, createUser, updateUser, deleteUser } from './api.js';
-import { useLiveRefresh } from './useLiveRefresh.js';
 
 function CreateUserForm({ password, onCreated }) {
   const [username, setUsername] = useState('');
@@ -141,26 +140,28 @@ function UserRow({ password, user, currentUsername, onChanged }) {
   );
 }
 
-export default function Settings({ password, username }) {
+export default function Settings({ password, username, active = true, isOnline = true }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(false);
   const [error, setError] = useState('');
 
-  function loadUsers(silent) {
-    if (!silent) setLoading(true);
+  function loadUsers() {
+    setLoading(true);
     setError('');
     fetchUsers(password)
       .then((res) => setUsers(res.users))
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setHasData(true);
+      });
   }
 
   useEffect(() => {
-    loadUsers();
+    if (active) loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const liveRefreshing = useLiveRefresh(['/api/users'], () => loadUsers(true));
+  }, [active]);
 
   return (
     <div>
@@ -176,8 +177,8 @@ export default function Settings({ password, username }) {
       </div>
 
       <div className="section-title">Пользователи</div>
-      <div className="card" style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
-        {loading ? (
+      <div className="card" style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+        {loading && !hasData ? (
           <div className="empty-state">Загрузка...</div>
         ) : (
           <div className="table-scroll">

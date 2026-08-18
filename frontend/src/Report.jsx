@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { uploadKaspiPayReport, fetchMonthlyReport, fetchMonthProductBreakdown } from './api.js';
 import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
-import { useLiveRefresh } from './useLiveRefresh.js';
 
 // columns — массив { key, label }. key === 'month' форматируется отдельно (название месяца),
 // остальные — через formatMoney, кроме margin/roi (по имени колонки определяем формат).
@@ -195,11 +194,12 @@ const SELF_BUY_COLUMNS = [
   { key: 'taxes', label: 'Налоги (3%)' },
 ];
 
-export default function Report({ password }) {
+export default function Report({ password, active = true, isOnline = true }) {
   const [months, setMonths] = useState([]);
   const [monthsMainCities, setMonthsMainCities] = useState([]);
   const [monthsSelfBuyCities, setMonthsSelfBuyCities] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(false);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState('');
@@ -223,8 +223,8 @@ export default function Report({ password }) {
       .finally(() => setProductLoading((prev) => ({ ...prev, [month]: false })));
   }
 
-  function loadReport(silent) {
-    if (!silent) setLoading(true);
+  function loadReport() {
+    setLoading(true);
     setError('');
     fetchMonthlyReport(password)
       .then((res) => {
@@ -233,15 +233,16 @@ export default function Report({ password }) {
         setMonthsSelfBuyCities(res.monthsSelfBuyCities);
       })
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setHasData(true);
+      });
   }
 
   useEffect(() => {
-    loadReport();
+    if (active) loadReport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const liveRefreshing = useLiveRefresh(['/api/reports/monthly'], () => loadReport(true));
+  }, [active]);
 
   function handleFileChange(e) {
     const file = e.target.files[0];
@@ -295,10 +296,10 @@ export default function Report({ password }) {
 
       {error && <div className="error-banner">{error}</div>}
 
-      {loading ? (
+      {loading && !hasData ? (
         <div className="empty-state">Загрузка...</div>
       ) : (
-        <div style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+        <div style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
           <MonthlyTable
             title="Основной отчёт (Алматы, Астана)"
             months={monthsMainCities}

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchBatchProducts, fetchBatches, addBatch, updateBatch, deleteBatch, markBatchReceived } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, WAREHOUSES } from './dateUtils.js';
-import { useLiveRefresh } from './useLiveRefresh.js';
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -300,10 +299,11 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
   );
 }
 
-export default function Batches({ password, onClose }) {
+export default function Batches({ password, onClose, active = true, isOnline = true }) {
   const [products, setProducts] = useState([]);
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(false);
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingBatch, setEditingBatch] = useState(null);
@@ -314,8 +314,8 @@ export default function Batches({ password, onClose }) {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
-  function loadAll(silent) {
-    if (!silent) setLoading(true);
+  function loadAll() {
+    setLoading(true);
     setError('');
     Promise.all([fetchBatchProducts(password), fetchBatches(password)])
       .then(([productsRes, batchesRes]) => {
@@ -323,15 +323,18 @@ export default function Batches({ password, onClose }) {
         setBatches(batchesRes.batches);
       })
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setHasData(true);
+      });
   }
 
+  // active в зависимостях — перепроверяем данные каждый раз при возврате на этот раздел
+  // (страницы не размонтируются при переключении, см. Dashboard.jsx).
   useEffect(() => {
-    loadAll();
+    if (active) loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const liveRefreshing = useLiveRefresh(['/api/batches'], () => loadAll(true));
+  }, [active]);
 
   function handleDelete(id) {
     if (!window.confirm('Удалить эту поставку?')) return;
@@ -429,12 +432,13 @@ export default function Batches({ password, onClose }) {
         </button>
       </div>
 
-      <div style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
-      {loading ? (
+      {loading && !hasData ? (
         <div className="card">
           <div className="empty-state">Загрузка...</div>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : (
+      <div style={{ opacity: loading || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+      {filtered.length === 0 ? (
         <div className="card">
           <div className="empty-state">Поставок пока нет — нажмите «Создать новую поставку»</div>
         </div>
@@ -510,6 +514,7 @@ export default function Batches({ password, onClose }) {
         ))
       )}
       </div>
+      )}
 
       {showModal && (
         <BatchModal

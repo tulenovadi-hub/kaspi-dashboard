@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchExpenses, fetchExpensesMonthly, syncExpenses } from './api.js';
 import { formatMoney, formatMonthLabel, formatDateDMY } from './dateUtils.js';
-import { useLiveRefresh } from './useLiveRefresh.js';
 
-export default function Expenses({ password }) {
+export default function Expenses({ password, active = true, isOnline = true }) {
   const [expenses, setExpenses] = useState([]);
   const [months, setMonths] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [syncMessage, setSyncMessage] = useState('');
@@ -16,8 +16,8 @@ export default function Expenses({ password }) {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [monthFilter, setMonthFilter] = useState('');
 
-  function loadData(silent) {
-    if (!silent) setLoading(true);
+  function loadData() {
+    setLoading(true);
     setError('');
     Promise.all([fetchExpenses(password), fetchExpensesMonthly(password)])
       .then(([expRes, monthsRes]) => {
@@ -26,15 +26,16 @@ export default function Expenses({ password }) {
         setCategories(monthsRes.categories);
       })
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setHasData(true);
+      });
   }
 
   useEffect(() => {
-    loadData();
+    if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const liveRefreshing = useLiveRefresh(['/api/expenses'], () => loadData(true));
+  }, [active]);
 
   function handleSync() {
     setSyncing(true);
@@ -90,7 +91,7 @@ export default function Expenses({ password }) {
 
       {error && <div className="error-banner">{error}</div>}
 
-      <div style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+      <div style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
       <div className="section-title">По месяцам</div>
       <div className="card">
         {months.length === 0 ? (
@@ -155,7 +156,7 @@ export default function Expenses({ password }) {
       </div>
 
       <div className="card">
-        {loading ? (
+        {loading && !hasData ? (
           <div className="empty-state">Загрузка...</div>
         ) : filtered.length === 0 ? (
           <div className="empty-state">Ничего не найдено</div>

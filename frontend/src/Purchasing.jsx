@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchPurchasing, updatePurchasingSettings, fetchProductImages } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
-import { useLiveRefresh } from './useLiveRefresh.js';
 
 const STATUS_LABELS = { critical: 'Критично', soon: 'Скоро', normal: 'В норме' };
 const TABS = [
@@ -113,17 +112,18 @@ function exportCsv(products) {
   URL.revokeObjectURL(url);
 }
 
-export default function Purchasing({ password, onGoToBatches }) {
+export default function Purchasing({ password, onGoToBatches, active = true, isOnline = true }) {
   const [data, setData] = useState(null);
   const [images, setImages] = useState({});
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [showSettings, setShowSettings] = useState(false);
 
-  function loadAll(silent) {
-    if (!silent) setLoading(true);
+  function loadAll() {
+    setLoading(true);
     setError('');
     fetchPurchasing(password)
       .then((res) => {
@@ -136,15 +136,16 @@ export default function Purchasing({ password, onGoToBatches }) {
         }
       })
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setHasData(true);
+      });
   }
 
   useEffect(() => {
-    loadAll();
+    if (active) loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const liveRefreshing = useLiveRefresh(['/api/purchasing', '/api/product-images'], () => loadAll(true));
+  }, [active]);
 
   const products = data ? data.products : [];
   const filtered = products
@@ -210,8 +211,8 @@ export default function Purchasing({ password, onGoToBatches }) {
         </button>
       </div>
 
-      <div className="card" style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
-        {loading ? (
+      <div className="card" style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+        {loading && !hasData ? (
           <div className="empty-state">Загрузка...</div>
         ) : filtered.length === 0 ? (
           <div className="empty-state">Ничего не найдено по заданным фильтрам</div>

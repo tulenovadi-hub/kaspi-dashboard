@@ -3,19 +3,18 @@ import { fetchBonusExpenses } from './api.js';
 import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './dateUtils.js';
 import PeriodSelector from './PeriodSelector.jsx';
 import BonusChart from './BonusChart.jsx';
-import { useLiveRefresh } from './useLiveRefresh.js';
 
 // Одинаковая страница используется для двух разных программ бонусов Kaspi (от продавца и за
 // отзыв) — структура данных (расход по дням/по кампаниям, без выручки) у них идентична, разные
-// только источник данных (fetchExpenses), путь API для live-обновления (apiPath) и подписи.
-// fetchExpenses/apiPath по умолчанию — "Бонусы от продавца"; для "Бонусы за отзыв" снаружи
-// передаётся другая функция, другой путь и другие подписи (см. Dashboard.jsx).
+// только источник данных (fetchExpenses) и подписи. fetchExpenses по умолчанию — "Бонусы от
+// продавца"; для "Бонусы за отзыв" снаружи передаётся другая функция и подписи (см. Dashboard.jsx).
 export default function Bonuses({
   password,
   fetchExpenses = fetchBonusExpenses,
-  apiPath = '/api/bonus-expenses',
   subtitle = 'от продавца',
   pageLabel = '«Бонусы от продавца»',
+  active = true,
+  isOnline = true,
 }) {
   const [from, setFrom] = useState(() => toISODate(startOfMonth()));
   const [to, setTo] = useState(() => toISODate(daysAgo(0)));
@@ -27,8 +26,8 @@ export default function Bonuses({
   const [campaignLoading, setCampaignLoading] = useState(false);
   const [error, setError] = useState('');
 
-  function loadData(silent) {
-    if (!silent) setLoading(true);
+  function loadData() {
+    setLoading(true);
     setError('');
     fetchExpenses(password, from, to)
       .then((res) => setData(res))
@@ -37,11 +36,9 @@ export default function Bonuses({
   }
 
   useEffect(() => {
-    loadData();
+    if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [password, from, to, fetchExpenses]);
-
-  const liveRefreshing = useLiveRefresh([apiPath], () => loadData(true));
+  }, [active, password, from, to, fetchExpenses]);
 
   // Данные конкретной кампании — грузятся отдельно, только когда выбрана строка в таблице
   useEffect(() => {
@@ -73,7 +70,7 @@ export default function Bonuses({
 
       <div
         style={{
-          opacity: loading || liveRefreshing ? 0.55 : 1,
+          opacity: loading || !isOnline ? 0.55 : 1,
           transition: 'opacity 0.25s ease',
           pointerEvents: loading ? 'none' : 'auto',
         }}

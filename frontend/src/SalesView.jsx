@@ -6,9 +6,8 @@ import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
 import { fetchSummary, fetchProducts, fetchSummaryProfit, triggerSync } from './api.js';
 import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber } from './dateUtils.js';
-import { useLiveRefresh } from './useLiveRefresh.js';
 
-export default function SalesView({ password, onLogout, mode, title, showSync }) {
+export default function SalesView({ password, onLogout, mode, title, showSync, active = true, isOnline = true }) {
   const [from, setFrom] = useState(toISODate(startOfMonth()));
   const [to, setTo] = useState(toISODate(daysAgo(0)));
   const [presetKey, setPresetKey] = useState('month');
@@ -25,8 +24,8 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
   const [error, setError] = useState('');
   const [syncing, setSyncing] = useState(false);
 
-  function loadData(silent) {
-    if (!silent) setLoading(true);
+  function loadData() {
+    setLoading(true);
     setError('');
 
     const todayStr = toISODate(daysAgo(0));
@@ -68,12 +67,13 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
       .finally(() => setLoading(false));
   }
 
+  // active в зависимостях — не только реагируем на смену периода, но и перепроверяем данные
+  // каждый раз, когда пользователь возвращается на этот раздел (страницы не размонтируются
+  // при переключении, см. Dashboard.jsx, поэтому без этого повторный визит не обновил бы ничего).
   useEffect(() => {
-    loadData();
+    if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, mode]);
-
-  const liveRefreshing = useLiveRefresh(['/api/stats'], () => loadData(true));
+  }, [active, from, to, mode]);
 
   function handlePeriodChange({ from: newFrom, to: newTo, presetKey: newPreset }) {
     setFrom(newFrom);
@@ -122,7 +122,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
       ) : (
         <div
           style={{
-            opacity: loading || liveRefreshing ? 0.55 : 1,
+            opacity: loading || !isOnline ? 0.55 : 1,
             transition: 'opacity 0.25s ease',
             pointerEvents: loading ? 'none' : 'auto',
           }}
@@ -187,6 +187,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
               from={from}
               to={to}
               mode={mode}
+              isOnline={isOnline}
               onClose={() => setSelectedProduct(null)}
             />
           ) : (

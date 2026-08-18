@@ -14,6 +14,7 @@ import { fetchReviewBonusExpenses } from './api.js';
 import Analyst from './Analyst.jsx';
 import DeliveryReturns from './DeliveryReturns.jsx';
 import ComingSoon from './ComingSoon.jsx';
+import { useOnlineStatus } from './useOnlineStatus.js';
 
 const SECTION_TITLES = {};
 
@@ -32,6 +33,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
   // держим уже открывавшиеся разделы смонтированными и просто прячем неактивные через display:none —
   // так их состояние (и загруженные данные) не пропадает при переключении между разделами.
   const [visited, setVisited] = useState(() => new Set(['sales']));
+  const isOnline = useOnlineStatus();
 
   useEffect(() => {
     setVisited((prev) => {
@@ -57,12 +59,13 @@ export default function Dashboard({ password, username, role, onLogout }) {
   }
 
   function renderPage(key) {
-    const style = key === safeView ? undefined : { display: 'none' };
+    const active = key === safeView;
+    const style = active ? undefined : { display: 'none' };
 
     if (key === 'batches') {
       return (
         <div key={key} style={style}>
-          <Batches password={password} onClose={() => setView('sales')} />
+          <Batches password={password} active={active} isOnline={isOnline} onClose={() => setView('sales')} />
         </div>
       );
     }
@@ -70,7 +73,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
     if (key === 'report') {
       return (
         <div key={key} style={style}>
-          <Report password={password} />
+          <Report password={password} active={active} isOnline={isOnline} />
         </div>
       );
     }
@@ -78,7 +81,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
     if (key === 'warehouse') {
       return (
         <div key={key} style={style}>
-          <Warehouse password={password} />
+          <Warehouse password={password} active={active} isOnline={isOnline} />
         </div>
       );
     }
@@ -86,7 +89,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
     if (key === 'purchasing') {
       return (
         <div key={key} style={style}>
-          <Purchasing password={password} onGoToBatches={() => setView('batches')} />
+          <Purchasing password={password} active={active} isOnline={isOnline} onGoToBatches={() => setView('batches')} />
         </div>
       );
     }
@@ -94,7 +97,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
     if (key === 'expenses') {
       return (
         <div key={key} style={style}>
-          <Expenses password={password} />
+          <Expenses password={password} active={active} isOnline={isOnline} />
         </div>
       );
     }
@@ -102,7 +105,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
     if (key === 'orders') {
       return (
         <div key={key} style={style}>
-          <Orders password={password} />
+          <Orders password={password} active={active} isOnline={isOnline} />
         </div>
       );
     }
@@ -110,7 +113,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
     if (key === 'settings') {
       return (
         <div key={key} style={style}>
-          <Settings password={password} username={username} />
+          <Settings password={password} username={username} active={active} isOnline={isOnline} />
         </div>
       );
     }
@@ -118,7 +121,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
     if (key === 'marketing_ads') {
       return (
         <div key={key} style={style}>
-          <Marketing password={password} />
+          <Marketing password={password} active={active} isOnline={isOnline} />
         </div>
       );
     }
@@ -126,7 +129,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
     if (key === 'marketing_bonuses') {
       return (
         <div key={key} style={style}>
-          <Bonuses password={password} apiPath="/api/bonus-expenses" />
+          <Bonuses password={password} active={active} isOnline={isOnline} />
         </div>
       );
     }
@@ -137,9 +140,10 @@ export default function Dashboard({ password, username, role, onLogout }) {
           <Bonuses
             password={password}
             fetchExpenses={fetchReviewBonusExpenses}
-            apiPath="/api/review-bonus-expenses"
             subtitle="за отзыв"
             pageLabel="«Бонусы за отзыв»"
+            active={active}
+            isOnline={isOnline}
           />
         </div>
       );
@@ -156,7 +160,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
     if (key === 'delivery_returns') {
       return (
         <div key={key} style={style}>
-          <DeliveryReturns password={password} />
+          <DeliveryReturns password={password} active={active} isOnline={isOnline} />
         </div>
       );
     }
@@ -170,6 +174,8 @@ export default function Dashboard({ password, username, role, onLogout }) {
             mode="selfbuy"
             title={<>Самовыкупы <span>(Талдыкорган + Юбилейное)</span></>}
             showSync={false}
+            active={active}
+            isOnline={isOnline}
           />
         </div>
       );
@@ -192,6 +198,8 @@ export default function Dashboard({ password, username, role, onLogout }) {
           mode="main"
           title={<>Продажи <span>Kaspi</span></>}
           showSync
+          active={active}
+          isOnline={isOnline}
         />
       </div>
     );

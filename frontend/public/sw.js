@@ -43,35 +43,19 @@ async function networkFirst(request, cacheName) {
   }
 }
 
-// Уведомляем открытые страницы, что фоновое обновление принесло ДРУГИЕ данные (не просто
-// "запрос прошёл", а именно "тело ответа реально изменилось") — по этому сигналу страница
-// может сама перечитать (уже свежий) кэш и обновить экран, пока пользователь смотрит.
-// pathname, а не полный URL с query — чтобы страница могла подписаться на "/api/batches"
-// целиком, не завязываясь на конкретные даты/фильтры в строке запроса.
-async function notifyClients(pathname) {
-  const clientsList = await self.clients.matchAll({ type: 'window' });
-  for (const client of clientsList) {
-    client.postMessage({ type: 'kaspi-data-updated', pathname });
-  }
-}
-
 // cacheKey отдельно от request — нужно для POST-запроса картинок товаров (см. ниже),
 // где в кэш кладём/ищем не по URL (он у всех таких запросов одинаковый), а по телу запроса.
+//
+// Страницы сами решают, когда перепроверять данные (при переходе на раздел, см.
+// useOnlineStatus.js + проп active в компонентах) и показывают их притемнёнными, пока не
+// пришло подтверждение — поэтому здесь не нужно самим уведомлять клиентов об обновлениях.
 async function staleWhileRevalidate(event, request, cacheName, cacheKey = request) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(cacheKey);
 
   const networkFetch = fetch(request)
-    .then(async (response) => {
+    .then((response) => {
       if (response && response.ok) {
-        // Сравниваем с уже закэшированным, ДО того как перезаписать его — если это первый
-        // заход (cached нет) или тело не поменялось, никого дёргать не нужно.
-        if (cached) {
-          const [oldText, newText] = await Promise.all([cached.clone().text(), response.clone().text()]);
-          if (oldText !== newText) {
-            notifyClients(new URL(request.url).pathname);
-          }
-        }
         cache.put(cacheKey, response.clone());
       }
       return response;
@@ -80,8 +64,7 @@ async function staleWhileRevalidate(event, request, cacheName, cacheKey = reques
 
   if (cached) {
     // Не ждём сеть — сразу отдаём то, что уже есть. Фоновый фетч (см. waitUntil) успеет
-    // обновить кэш (и уведомить страницу, если данные реально другие), даже если respondWith
-    // уже вернул ответ и страница получила данные.
+    // обновить кэш, даже если respondWith уже вернул ответ и страница получила данные.
     event.waitUntil(networkFetch);
     return cached;
   }

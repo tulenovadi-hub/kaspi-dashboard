@@ -3,7 +3,6 @@ import { fetchAdExpenses, fetchSummary, fetchProducts } from './api.js';
 import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './dateUtils.js';
 import PeriodSelector from './PeriodSelector.jsx';
 import MarketingChart from './MarketingChart.jsx';
-import { useLiveRefresh } from './useLiveRefresh.js';
 
 // Считает суммарную выручку товаров, привязанных к кампании (по её product_ids, полученным
 // от Tampermonkey-скрипта через merchantSku) — точное совпадение, без угадывания по названию.
@@ -58,7 +57,7 @@ function AdRevenueShareCard({ adRevenue, totalRevenue }) {
   );
 }
 
-export default function Marketing({ password }) {
+export default function Marketing({ password, active = true, isOnline = true }) {
   const [from, setFrom] = useState(() => toISODate(startOfMonth()));
   const [to, setTo] = useState(() => toISODate(daysAgo(0)));
   const [presetKey, setPresetKey] = useState('month');
@@ -73,8 +72,8 @@ export default function Marketing({ password }) {
 
   // Общая сводка по рекламе + выручка магазина за тот же период (как на Главной) + список
   // товаров с их выручкой (нужен для сопоставления с кампанией при клике на строку).
-  function loadData(silent) {
-    if (!silent) setLoading(true);
+  function loadData() {
+    setLoading(true);
     setError('');
     Promise.all([
       fetchAdExpenses(password, from, to),
@@ -91,11 +90,9 @@ export default function Marketing({ password }) {
   }
 
   useEffect(() => {
-    loadData();
+    if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [password, from, to]);
-
-  const liveRefreshing = useLiveRefresh(['/api/ad-expenses', '/api/stats'], () => loadData(true));
+  }, [active, password, from, to]);
 
   // Данные конкретной кампании — грузятся отдельно, только когда выбран товар
   useEffect(() => {
@@ -128,7 +125,7 @@ export default function Marketing({ password }) {
 
       <div
         style={{
-          opacity: loading || liveRefreshing ? 0.55 : 1,
+          opacity: loading || !isOnline ? 0.55 : 1,
           transition: 'opacity 0.25s ease',
           pointerEvents: loading ? 'none' : 'auto',
         }}

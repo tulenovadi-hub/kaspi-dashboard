@@ -2,20 +2,19 @@ import React, { useEffect, useRef, useState } from 'react';
 import SalesChart from './SalesChart.jsx';
 import { fetchProductStats } from './api.js';
 import { formatMoney, formatNumber, percentChange } from './dateUtils.js';
-import { useLiveRefresh } from './useLiveRefresh.js';
 
-export default function ProductDetail({ password, product, from, to, mode = 'main', onClose }) {
+export default function ProductDetail({ password, product, from, to, mode = 'main', onClose, isOnline = true }) {
   const [days, setDays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [metric, setMetric] = useState('total_revenue');
-  // Счётчик запроса вместо простого cancelled-флага — нужен, чтобы ответ фонового
-  // live-refresh не перезаписал состояние, если пользователь уже успел переключить товар.
+  // Счётчик запроса вместо простого cancelled-флага — нужен, чтобы ответ на предыдущий товар
+  // не перезаписал состояние, если пользователь уже успел выбрать другой.
   const requestIdRef = useRef(0);
 
-  function loadDays(silent) {
+  function loadDays() {
     const requestId = ++requestIdRef.current;
-    if (!silent) setLoading(true);
+    setLoading(true);
     setError('');
 
     fetchProductStats(password, product.product_id, from, to, mode)
@@ -24,12 +23,11 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
       .finally(() => { if (requestIdRef.current === requestId) setLoading(false); });
   }
 
+  // Выбор другого товара/периода — это и есть "переход" на новые данные, перезапрашиваем всегда.
   useEffect(() => {
     loadDays();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [password, product.product_id, from, to, mode]);
-
-  const liveRefreshing = useLiveRefresh(['/api/stats/product'], () => loadDays(true));
 
   const half = Math.floor(days.length / 2);
   const key = metric;
@@ -119,7 +117,7 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
 
       {error && <div className="error-banner">{error}</div>}
       {!error && (
-        <div style={{ opacity: loading || liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+        <div style={{ opacity: loading || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
           {days.length === 0 && loading ? (
             <div className="empty-state">Загрузка...</div>
           ) : (

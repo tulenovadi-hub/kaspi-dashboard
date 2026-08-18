@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchWarehouse, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
-import { useLiveRefresh } from './useLiveRefresh.js';
 
 // Сжимаем картинку на клиенте перед отправкой — это просто маленькая иконка-превью на
 // "Складе", полное разрешение исходного фото не нужно, а без сжатия загрузка была бы
@@ -47,18 +46,19 @@ function createEmptyFilters() {
   };
 }
 
-export default function Warehouse({ password }) {
+export default function Warehouse({ password, active = true, isOnline = true }) {
   const [products, setProducts] = useState([]);
   const [images, setImages] = useState({});
   const [cutoffDate, setCutoffDate] = useState('');
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(false);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(null);
   const [filters, setFilters] = useState(createEmptyFilters);
   const [imageBusy, setImageBusy] = useState(null); // product_id, который сейчас загружается/удаляется
 
-  function loadAll(silent) {
-    if (!silent) setLoading(true);
+  function loadAll() {
+    setLoading(true);
     setError('');
     fetchWarehouse(password)
       .then((res) => {
@@ -73,15 +73,16 @@ export default function Warehouse({ password }) {
         }
       })
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setHasData(true);
+      });
   }
 
   useEffect(() => {
-    loadAll();
+    if (active) loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [password]);
-
-  const liveRefreshing = useLiveRefresh(['/api/warehouse', '/api/product-images'], () => loadAll(true));
+  }, [active, password]);
 
   function toggleExpand(key) {
     setExpanded((prev) => (prev === key ? null : key));
@@ -157,12 +158,13 @@ export default function Warehouse({ password }) {
         </div>
       )}
 
-      <div style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
-      {loading ? (
+      {loading && !hasData ? (
         <div className="card">
           <div className="empty-state">Загрузка...</div>
         </div>
-      ) : products.length === 0 ? (
+      ) : (
+      <div style={{ opacity: loading || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+      {products.length === 0 ? (
         <div className="card">
           <div className="empty-state">Пока нет данных — сначала добавьте партии на странице «Поставки»</div>
         </div>
@@ -292,6 +294,7 @@ export default function Warehouse({ password }) {
         })
       )}
       </div>
+      )}
 
       <div className="report-note">
         Остаток считается по методу FIFO отдельно для каждого склада, и учитывает только заказы {cutoffDate ? `с ${cutoffDate} и позже` : 'после даты отсечки'} —

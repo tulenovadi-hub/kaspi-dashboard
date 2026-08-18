@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { fetchOrders, fetchDeliveryAnomalies } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, formatPercent } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
-import { useLiveRefresh } from './useLiveRefresh.js';
 
 // С какой даты проверяем доставку — раньше этой даты данных недостаточно для сравнения.
 const DELIVERY_CHECK_FROM = '2026-01-01';
@@ -42,9 +41,10 @@ function createEmptyFilters() {
   };
 }
 
-export default function Orders({ password }) {
+export default function Orders({ password, active = true, isOnline = true }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(false);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState(createEmptyFilters);
 
@@ -61,21 +61,22 @@ export default function Orders({ password }) {
       .finally(() => setCheckingDelivery(false));
   }
 
-  function loadOrders(silent) {
-    if (!silent) setLoading(true);
+  function loadOrders() {
+    setLoading(true);
     setError('');
     fetchOrders(password)
       .then((res) => setOrders(res.orders))
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setHasData(true);
+      });
   }
 
   useEffect(() => {
-    loadOrders();
+    if (active) loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [password]);
-
-  const liveRefreshing = useLiveRefresh(['/api/orders'], () => loadOrders(true));
+  }, [active, password]);
 
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
   const resetFilters = () => setFilters(createEmptyFilters());
@@ -209,8 +210,8 @@ export default function Orders({ password }) {
         </div>
       )}
 
-      <div className="card" style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
-        {loading ? (
+      <div className="card" style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+        {loading && !hasData ? (
           <div className="empty-state">Загрузка...</div>
         ) : orders.length === 0 ? (
           <div className="empty-state">Ничего не найдено — убедитесь, что загружен отчёт Kaspi Pay на странице «Отчёт»</div>
