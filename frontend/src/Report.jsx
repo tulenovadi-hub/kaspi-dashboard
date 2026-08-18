@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { uploadKaspiPayReport, fetchMonthlyReport, fetchMonthProductBreakdown } from './api.js';
 import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
+import { useLiveRefresh } from './useLiveRefresh.js';
 
 // columns — массив { key, label }. key === 'month' форматируется отдельно (название месяца),
 // остальные — через formatMoney, кроме margin/roi (по имени колонки определяем формат).
@@ -222,8 +223,8 @@ export default function Report({ password }) {
       .finally(() => setProductLoading((prev) => ({ ...prev, [month]: false })));
   }
 
-  function loadReport() {
-    setLoading(true);
+  function loadReport(silent) {
+    if (!silent) setLoading(true);
     setError('');
     fetchMonthlyReport(password)
       .then((res) => {
@@ -239,6 +240,8 @@ export default function Report({ password }) {
     loadReport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const liveRefreshing = useLiveRefresh(['/api/reports/monthly'], () => loadReport(true));
 
   function handleFileChange(e) {
     const file = e.target.files[0];
@@ -295,7 +298,7 @@ export default function Report({ password }) {
       {loading ? (
         <div className="empty-state">Загрузка...</div>
       ) : (
-        <>
+        <div style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
           <MonthlyTable
             title="Основной отчёт (Алматы, Астана)"
             months={monthsMainCities}
@@ -313,7 +316,7 @@ export default function Report({ password }) {
             <MonthlyTable title="Общий отчёт" months={months} columns={GENERAL_COLUMNS} className="report-col" />
             <MonthlyTable title="Самовыкупы (Юбилейное, Талдыкорган)" months={monthsSelfBuyCities} columns={SELF_BUY_COLUMNS} className="report-col" />
           </div>
-        </>
+        </div>
       )}
 
       <div className="report-note">

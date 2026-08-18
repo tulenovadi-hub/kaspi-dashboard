@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { fetchWarehouse, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
+import { useLiveRefresh } from './useLiveRefresh.js';
 
 // Сжимаем картинку на клиенте перед отправкой — это просто маленькая иконка-превью на
 // "Складе", полное разрешение исходного фото не нужно, а без сжатия загрузка была бы
@@ -56,8 +57,8 @@ export default function Warehouse({ password }) {
   const [filters, setFilters] = useState(createEmptyFilters);
   const [imageBusy, setImageBusy] = useState(null); // product_id, который сейчас загружается/удаляется
 
-  useEffect(() => {
-    setLoading(true);
+  function loadAll(silent) {
+    if (!silent) setLoading(true);
     setError('');
     fetchWarehouse(password)
       .then((res) => {
@@ -73,7 +74,14 @@ export default function Warehouse({ password }) {
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [password]);
+
+  const liveRefreshing = useLiveRefresh(['/api/warehouse', '/api/product-images'], () => loadAll(true));
 
   function toggleExpand(key) {
     setExpanded((prev) => (prev === key ? null : key));
@@ -149,6 +157,7 @@ export default function Warehouse({ password }) {
         </div>
       )}
 
+      <div style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
       {loading ? (
         <div className="card">
           <div className="empty-state">Загрузка...</div>
@@ -282,6 +291,7 @@ export default function Warehouse({ password }) {
           );
         })
       )}
+      </div>
 
       <div className="report-note">
         Остаток считается по методу FIFO отдельно для каждого склада, и учитывает только заказы {cutoffDate ? `с ${cutoffDate} и позже` : 'после даты отсечки'} —

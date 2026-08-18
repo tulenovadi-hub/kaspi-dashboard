@@ -6,6 +6,7 @@ import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
 import { fetchSummary, fetchProducts, fetchSummaryProfit, triggerSync } from './api.js';
 import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber } from './dateUtils.js';
+import { useLiveRefresh } from './useLiveRefresh.js';
 
 export default function SalesView({ password, onLogout, mode, title, showSync }) {
   const [from, setFrom] = useState(toISODate(startOfMonth()));
@@ -24,8 +25,8 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
   const [error, setError] = useState('');
   const [syncing, setSyncing] = useState(false);
 
-  function loadData() {
-    setLoading(true);
+  function loadData(silent) {
+    if (!silent) setLoading(true);
     setError('');
 
     const todayStr = toISODate(daysAgo(0));
@@ -71,6 +72,8 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, mode]);
+
+  const liveRefreshing = useLiveRefresh(['/api/stats'], () => loadData(true));
 
   function handlePeriodChange({ from: newFrom, to: newTo, presetKey: newPreset }) {
     setFrom(newFrom);
@@ -119,7 +122,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync })
       ) : (
         <div
           style={{
-            opacity: loading ? 0.55 : 1,
+            opacity: loading || liveRefreshing ? 0.55 : 1,
             transition: 'opacity 0.25s ease',
             pointerEvents: loading ? 'none' : 'auto',
           }}

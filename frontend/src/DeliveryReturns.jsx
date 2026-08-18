@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { fetchDeliveryReturns, syncDeliveryReturns, deleteDeliveryReturn } from './api.js';
 import { formatMoney } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
+import { useLiveRefresh } from './useLiveRefresh.js';
 
 function formatDate(value) {
   if (!value) return '—';
@@ -220,8 +221,8 @@ export default function DeliveryReturns({ password }) {
   const [deletingId, setDeletingId] = useState(null);
   const [filters, setFilters] = useState(createEmptyFilters);
 
-  function loadData() {
-    setLoading(true);
+  function loadData(silent) {
+    if (!silent) setLoading(true);
     setError('');
     fetchDeliveryReturns(password)
       .then((res) => {
@@ -232,7 +233,12 @@ export default function DeliveryReturns({ password }) {
       .finally(() => setLoading(false));
   }
 
-  useEffect(loadData, [password]);
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [password]);
+
+  const liveRefreshing = useLiveRefresh(['/api/delivery-returns'], () => loadData(true));
 
   function handleSync() {
     setSyncing(true);
@@ -323,7 +329,7 @@ export default function DeliveryReturns({ password }) {
 
       {error && <div className="error-banner">{error}</div>}
 
-      <div className="card">
+      <div className="card" style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {loading ? (
           <div className="empty-state">Загрузка...</div>
         ) : orders.length === 0 ? (

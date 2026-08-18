@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { fetchOrders, fetchDeliveryAnomalies } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, formatPercent } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
+import { useLiveRefresh } from './useLiveRefresh.js';
 
 // С какой даты проверяем доставку — раньше этой даты данных недостаточно для сравнения.
 const DELIVERY_CHECK_FROM = '2026-01-01';
@@ -60,14 +61,21 @@ export default function Orders({ password }) {
       .finally(() => setCheckingDelivery(false));
   }
 
-  useEffect(() => {
-    setLoading(true);
+  function loadOrders(silent) {
+    if (!silent) setLoading(true);
     setError('');
     fetchOrders(password)
       .then((res) => setOrders(res.orders))
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [password]);
+
+  const liveRefreshing = useLiveRefresh(['/api/orders'], () => loadOrders(true));
 
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
   const resetFilters = () => setFilters(createEmptyFilters());
@@ -201,7 +209,7 @@ export default function Orders({ password }) {
         </div>
       )}
 
-      <div className="card">
+      <div className="card" style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {loading ? (
           <div className="empty-state">Загрузка...</div>
         ) : orders.length === 0 ? (

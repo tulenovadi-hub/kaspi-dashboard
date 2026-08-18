@@ -3,6 +3,7 @@ import { fetchAdExpenses, fetchSummary, fetchProducts } from './api.js';
 import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './dateUtils.js';
 import PeriodSelector from './PeriodSelector.jsx';
 import MarketingChart from './MarketingChart.jsx';
+import { useLiveRefresh } from './useLiveRefresh.js';
 
 // Считает суммарную выручку товаров, привязанных к кампании (по её product_ids, полученным
 // от Tampermonkey-скрипта через merchantSku) — точное совпадение, без угадывания по названию.
@@ -72,8 +73,8 @@ export default function Marketing({ password }) {
 
   // Общая сводка по рекламе + выручка магазина за тот же период (как на Главной) + список
   // товаров с их выручкой (нужен для сопоставления с кампанией при клике на строку).
-  useEffect(() => {
-    setLoading(true);
+  function loadData(silent) {
+    if (!silent) setLoading(true);
     setError('');
     Promise.all([
       fetchAdExpenses(password, from, to),
@@ -87,7 +88,14 @@ export default function Marketing({ password }) {
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [password, from, to]);
+
+  const liveRefreshing = useLiveRefresh(['/api/ad-expenses', '/api/stats'], () => loadData(true));
 
   // Данные конкретной кампании — грузятся отдельно, только когда выбран товар
   useEffect(() => {
@@ -120,7 +128,7 @@ export default function Marketing({ password }) {
 
       <div
         style={{
-          opacity: loading ? 0.55 : 1,
+          opacity: loading || liveRefreshing ? 0.55 : 1,
           transition: 'opacity 0.25s ease',
           pointerEvents: loading ? 'none' : 'auto',
         }}

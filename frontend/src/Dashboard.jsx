@@ -126,7 +126,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
     if (key === 'marketing_bonuses') {
       return (
         <div key={key} style={style}>
-          <Bonuses password={password} />
+          <Bonuses password={password} apiPath="/api/bonus-expenses" />
         </div>
       );
     }
@@ -137,6 +137,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
           <Bonuses
             password={password}
             fetchExpenses={fetchReviewBonusExpenses}
+            apiPath="/api/review-bonus-expenses"
             subtitle="за отзыв"
             pageLabel="«Бонусы за отзыв»"
           />

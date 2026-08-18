@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { fetchPurchasing, updatePurchasingSettings, fetchProductImages } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
+import { useLiveRefresh } from './useLiveRefresh.js';
 
 const STATUS_LABELS = { critical: 'Критично', soon: 'Скоро', normal: 'В норме' };
 const TABS = [
@@ -121,8 +122,8 @@ export default function Purchasing({ password, onGoToBatches }) {
   const [activeTab, setActiveTab] = useState('all');
   const [showSettings, setShowSettings] = useState(false);
 
-  function loadAll() {
-    setLoading(true);
+  function loadAll(silent) {
+    if (!silent) setLoading(true);
     setError('');
     fetchPurchasing(password)
       .then((res) => {
@@ -142,6 +143,8 @@ export default function Purchasing({ password, onGoToBatches }) {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const liveRefreshing = useLiveRefresh(['/api/purchasing', '/api/product-images'], () => loadAll(true));
 
   const products = data ? data.products : [];
   const filtered = products
@@ -207,7 +210,7 @@ export default function Purchasing({ password, onGoToBatches }) {
         </button>
       </div>
 
-      <div className="card">
+      <div className="card" style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {loading ? (
           <div className="empty-state">Загрузка...</div>
         ) : filtered.length === 0 ? (

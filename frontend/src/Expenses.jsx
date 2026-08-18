@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchExpenses, fetchExpensesMonthly, syncExpenses } from './api.js';
 import { formatMoney, formatMonthLabel, formatDateDMY } from './dateUtils.js';
+import { useLiveRefresh } from './useLiveRefresh.js';
 
 export default function Expenses({ password }) {
   const [expenses, setExpenses] = useState([]);
@@ -15,8 +16,8 @@ export default function Expenses({ password }) {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [monthFilter, setMonthFilter] = useState('');
 
-  function loadData() {
-    setLoading(true);
+  function loadData(silent) {
+    if (!silent) setLoading(true);
     setError('');
     Promise.all([fetchExpenses(password), fetchExpensesMonthly(password)])
       .then(([expRes, monthsRes]) => {
@@ -32,6 +33,8 @@ export default function Expenses({ password }) {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const liveRefreshing = useLiveRefresh(['/api/expenses'], () => loadData(true));
 
   function handleSync() {
     setSyncing(true);
@@ -87,6 +90,7 @@ export default function Expenses({ password }) {
 
       {error && <div className="error-banner">{error}</div>}
 
+      <div style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
       <div className="section-title">По месяцам</div>
       <div className="card">
         {months.length === 0 ? (
@@ -188,6 +192,7 @@ export default function Expenses({ password }) {
             </div>
           </>
         )}
+      </div>
       </div>
     </div>
   );

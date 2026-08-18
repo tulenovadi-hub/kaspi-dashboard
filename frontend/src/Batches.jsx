@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchBatchProducts, fetchBatches, addBatch, updateBatch, deleteBatch, markBatchReceived } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, WAREHOUSES } from './dateUtils.js';
+import { useLiveRefresh } from './useLiveRefresh.js';
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -313,8 +314,8 @@ export default function Batches({ password, onClose }) {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
-  function loadAll() {
-    setLoading(true);
+  function loadAll(silent) {
+    if (!silent) setLoading(true);
     setError('');
     Promise.all([fetchBatchProducts(password), fetchBatches(password)])
       .then(([productsRes, batchesRes]) => {
@@ -329,6 +330,8 @@ export default function Batches({ password, onClose }) {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const liveRefreshing = useLiveRefresh(['/api/batches'], () => loadAll(true));
 
   function handleDelete(id) {
     if (!window.confirm('Удалить эту поставку?')) return;
@@ -426,6 +429,7 @@ export default function Batches({ password, onClose }) {
         </button>
       </div>
 
+      <div style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
       {loading ? (
         <div className="card">
           <div className="empty-state">Загрузка...</div>
@@ -505,6 +509,7 @@ export default function Batches({ password, onClose }) {
           </React.Fragment>
         ))
       )}
+      </div>
 
       {showModal && (
         <BatchModal

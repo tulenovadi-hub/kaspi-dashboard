@@ -1,26 +1,35 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import SalesChart from './SalesChart.jsx';
 import { fetchProductStats } from './api.js';
 import { formatMoney, formatNumber, percentChange } from './dateUtils.js';
+import { useLiveRefresh } from './useLiveRefresh.js';
 
 export default function ProductDetail({ password, product, from, to, mode = 'main', onClose }) {
   const [days, setDays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [metric, setMetric] = useState('total_revenue');
+  // Счётчик запроса вместо простого cancelled-флага — нужен, чтобы ответ фонового
+  // live-refresh не перезаписал состояние, если пользователь уже успел переключить товар.
+  const requestIdRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
+  function loadDays(silent) {
+    const requestId = ++requestIdRef.current;
+    if (!silent) setLoading(true);
     setError('');
 
     fetchProductStats(password, product.product_id, from, to, mode)
-      .then((data) => { if (!cancelled) setDays(data.days); })
-      .catch((err) => { if (!cancelled) setError(err.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .then((data) => { if (requestIdRef.current === requestId) setDays(data.days); })
+      .catch((err) => { if (requestIdRef.current === requestId) setError(err.message); })
+      .finally(() => { if (requestIdRef.current === requestId) setLoading(false); });
+  }
 
-    return () => { cancelled = true; };
+  useEffect(() => {
+    loadDays();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [password, product.product_id, from, to, mode]);
+
+  const liveRefreshing = useLiveRefresh(['/api/stats/product'], () => loadDays(true));
 
   const half = Math.floor(days.length / 2);
   const key = metric;
@@ -110,7 +119,7 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
 
       {error && <div className="error-banner">{error}</div>}
       {!error && (
-        <div style={{ opacity: loading ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+        <div style={{ opacity: loading || liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
           {days.length === 0 && loading ? (
             <div className="empty-state">Загрузка...</div>
           ) : (

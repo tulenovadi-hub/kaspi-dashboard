@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchUsers, createUser, updateUser, deleteUser } from './api.js';
+import { useLiveRefresh } from './useLiveRefresh.js';
 
 function CreateUserForm({ password, onCreated }) {
   const [username, setUsername] = useState('');
@@ -145,8 +146,8 @@ export default function Settings({ password, username }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  function loadUsers() {
-    setLoading(true);
+  function loadUsers(silent) {
+    if (!silent) setLoading(true);
     setError('');
     fetchUsers(password)
       .then((res) => setUsers(res.users))
@@ -158,6 +159,8 @@ export default function Settings({ password, username }) {
     loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const liveRefreshing = useLiveRefresh(['/api/users'], () => loadUsers(true));
 
   return (
     <div>
@@ -173,7 +176,7 @@ export default function Settings({ password, username }) {
       </div>
 
       <div className="section-title">Пользователи</div>
-      <div className="card">
+      <div className="card" style={{ opacity: liveRefreshing ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {loading ? (
           <div className="empty-state">Загрузка...</div>
         ) : (
