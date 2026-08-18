@@ -43,14 +43,16 @@ async function networkFirst(request, cacheName) {
   }
 }
 
-async function staleWhileRevalidate(event, request, cacheName) {
+// cacheKey отдельно от request — нужно для POST-запроса картинок товаров (см. ниже),
+// где в кэш кладём/ищем не по URL (он у всех таких запросов одинаковый), а по телу запроса.
+async function staleWhileRevalidate(event, request, cacheName, cacheKey = request) {
   const cache = await caches.open(cacheName);
-  const cached = await cache.match(request);
+  const cached = await cache.match(cacheKey);
 
   const networkFetch = fetch(request)
     .then((response) => {
       if (response && response.ok) {
-        cache.put(request, response.clone());
+        cache.put(cacheKey, response.clone());
       }
       return response;
     })
@@ -69,18 +71,40 @@ async function staleWhileRevalidate(event, request, cacheName) {
   throw new Error('Нет сети и нет кэша для этого запроса');
 }
 
+// Единственное исключение из правила "кэшируем только GET": картинки товаров запрашиваются
+// через POST со списком product_id в теле (список бывает длинным, в GET-строку не убрать).
+// По сути это чтение, а не мутация, поэтому его тоже стоит кэшировать — иначе на "Складе"/
+// "Закупе" офлайн вместо фото остаются пустые плашки. Кэшировать по одному URL нельзя (он
+// один и тот же для любого списка id) — собираем синтетический ключ из отсортированных id,
+// чтобы разные страницы с разным набором товаров не подменяли друг другу картинки.
+async function cacheKeyForProductImages(request) {
+  let ids = [];
+  try {
+    const body = await request.clone().json();
+    if (Array.isArray(body.product_ids)) ids = body.product_ids.slice().sort();
+  } catch (err) {
+    // тело не распарсилось — используем пустой ключ, лучше промах кэша, чем чужие картинки
+  }
+  return new Request(`${request.url}?ids=${encodeURIComponent(ids.join(','))}`);
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  // Мутации (создание/изменение/удаление) никогда не кэшируем и не подменяем офлайн-ответом —
-  // если сети нет, такой запрос должен честно упасть с ошибкой, а не притвориться успешным.
-  if (request.method !== 'GET') return;
-
   const url = new URL(request.url);
   const isOwnOrigin = url.origin === self.location.origin;
 
-  if (isOwnOrigin) {
-    event.respondWith(networkFirst(request, STATIC_CACHE));
-  } else {
-    event.respondWith(staleWhileRevalidate(event, request, API_CACHE));
+  if (request.method === 'GET') {
+    event.respondWith(isOwnOrigin ? networkFirst(request, STATIC_CACHE) : staleWhileRevalidate(event, request, API_CACHE));
+    return;
   }
+
+  if (!isOwnOrigin && request.method === 'POST' && url.pathname === '/api/product-images') {
+    event.respondWith(
+      cacheKeyForProductImages(request).then((cacheKey) => staleWhileRevalidate(event, request, API_CACHE, cacheKey))
+    );
+    return;
+  }
+
+  // Остальные мутации (создание/изменение/удаление) никогда не кэшируем и не подменяем
+  // офлайн-ответом — если сети нет, такой запрос должен честно упасть с ошибкой.
 });
