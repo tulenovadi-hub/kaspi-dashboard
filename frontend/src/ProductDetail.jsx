@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import SalesChart from './SalesChart.jsx';
 import { fetchProductStats } from './api.js';
 import { formatMoney, formatNumber, percentChange } from './dateUtils.js';
+import { useStaleData } from './useDataFreshness.js';
 
 export default function ProductDetail({ password, product, from, to, mode = 'main', onClose, isOnline = true }) {
   const [days, setDays] = useState([]);
@@ -28,6 +29,8 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
     loadDays();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [password, product.product_id, from, to, mode]);
+
+  const stale = useStaleData(['/api/stats/product']);
 
   const half = Math.floor(days.length / 2);
   const key = metric;
@@ -117,7 +120,7 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
 
       {error && <div className="error-banner">{error}</div>}
       {!error && (
-        <div style={{ opacity: loading || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+        <div style={{ opacity: loading || !isOnline || stale ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
           {days.length === 0 && loading ? (
             <div className="empty-state">Загрузка...</div>
           ) : (

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { fetchOrders, fetchDeliveryAnomalies } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, formatPercent } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
+import { useStaleData } from './useDataFreshness.js';
 
 // С какой даты проверяем доставку — раньше этой даты данных недостаточно для сравнения.
 const DELIVERY_CHECK_FROM = '2026-01-01';
@@ -77,6 +78,8 @@ export default function Orders({ password, active = true, isOnline = true }) {
     if (active) loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, password]);
+
+  const stale = useStaleData(['/api/orders']);
 
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
   const resetFilters = () => setFilters(createEmptyFilters());
@@ -210,7 +213,7 @@ export default function Orders({ password, active = true, isOnline = true }) {
         </div>
       )}
 
-      <div className="card" style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+      <div className="card" style={{ opacity: (loading && hasData) || !isOnline || stale ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {loading && !hasData ? (
           <div className="empty-state">Загрузка...</div>
         ) : orders.length === 0 ? (

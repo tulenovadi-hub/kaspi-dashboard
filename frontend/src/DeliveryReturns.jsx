@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { fetchDeliveryReturns, syncDeliveryReturns, deleteDeliveryReturn } from './api.js';
 import { formatMoney } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
+import { useStaleData } from './useDataFreshness.js';
 
 function formatDate(value) {
   if (!value) return '—';
@@ -241,6 +242,8 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, password]);
 
+  const stale = useStaleData(['/api/delivery-returns']);
+
   function handleSync() {
     setSyncing(true);
     setError('');
@@ -330,7 +333,7 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
 
       {error && <div className="error-banner">{error}</div>}
 
-      <div className="card" style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+      <div className="card" style={{ opacity: (loading && hasData) || !isOnline || stale ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {loading && !hasData ? (
           <div className="empty-state">Загрузка...</div>
         ) : orders.length === 0 ? (

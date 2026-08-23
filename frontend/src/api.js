@@ -5,6 +5,24 @@
 // используется адрес локального сервера по умолчанию.
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
+// Время последнего ПОДТВЕРЖДЁННОГО ответа по каждому пути (ключ — путь без query-строки) —
+// используется для индикации "данные устарели" (см. useDataFreshness.js). Важно: это не
+// "когда я получил ответ в JS" (при stale-while-revalidate из sw.js это почти всегда "прямо
+// сейчас", даже если реально отдан кэш многочасовой давности), а заголовок Date из самого
+// HTTP-ответа — он "заморожен" в кэше на момент реальной генерации ответа сервером, поэтому
+// честно показывает возраст данных, а не скорость чтения из Cache Storage.
+const fetchTimestamps = new Map();
+
+export function getFetchedAt(pathPrefixes) {
+  let oldest = null;
+  for (const [pathname, ts] of fetchTimestamps) {
+    if (pathPrefixes.some((p) => pathname.startsWith(p))) {
+      if (oldest === null || ts < oldest) oldest = ts;
+    }
+  }
+  return oldest;
+}
+
 async function apiRequest(path, token, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -24,6 +42,13 @@ async function apiRequest(path, token, options = {}) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error || 'Ошибка запроса к серверу');
   }
+
+  const dateHeader = response.headers.get('date');
+  const fetchedAt = dateHeader ? new Date(dateHeader).getTime() : Date.now();
+  if (Number.isFinite(fetchedAt)) {
+    fetchTimestamps.set(path.split('?')[0], fetchedAt);
+  }
+
   return response.json();
 }
 

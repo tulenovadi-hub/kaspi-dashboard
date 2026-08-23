@@ -140,6 +140,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
           <Bonuses
             password={password}
             fetchExpenses={fetchReviewBonusExpenses}
+            apiPath="/api/review-bonus-expenses"
             subtitle="за отзыв"
             pageLabel="«Бонусы за отзыв»"
             active={active}

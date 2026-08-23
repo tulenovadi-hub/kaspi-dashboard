@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchUsers, createUser, updateUser, deleteUser } from './api.js';
+import { useStaleData } from './useDataFreshness.js';
 
 function CreateUserForm({ password, onCreated }) {
   const [username, setUsername] = useState('');
@@ -163,6 +164,8 @@ export default function Settings({ password, username, active = true, isOnline =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
+  const stale = useStaleData(['/api/users']);
+
   return (
     <div>
       <div className="app-header">
@@ -177,7 +180,7 @@ export default function Settings({ password, username, active = true, isOnline =
       </div>
 
       <div className="section-title">Пользователи</div>
-      <div className="card" style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+      <div className="card" style={{ opacity: (loading && hasData) || !isOnline || stale ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {loading && !hasData ? (
           <div className="empty-state">Загрузка...</div>
         ) : (

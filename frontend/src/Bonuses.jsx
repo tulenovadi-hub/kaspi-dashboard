@@ -3,14 +3,17 @@ import { fetchBonusExpenses } from './api.js';
 import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './dateUtils.js';
 import PeriodSelector from './PeriodSelector.jsx';
 import BonusChart from './BonusChart.jsx';
+import { useStaleData } from './useDataFreshness.js';
 
 // Одинаковая страница используется для двух разных программ бонусов Kaspi (от продавца и за
 // отзыв) — структура данных (расход по дням/по кампаниям, без выручки) у них идентична, разные
-// только источник данных (fetchExpenses) и подписи. fetchExpenses по умолчанию — "Бонусы от
-// продавца"; для "Бонусы за отзыв" снаружи передаётся другая функция и подписи (см. Dashboard.jsx).
+// только источник данных (fetchExpenses), путь API для проверки "устарели ли данные" (apiPath)
+// и подписи. По умолчанию — "Бонусы от продавца"; для "Бонусы за отзыв" снаружи передаётся
+// другая функция, другой путь и другие подписи (см. Dashboard.jsx).
 export default function Bonuses({
   password,
   fetchExpenses = fetchBonusExpenses,
+  apiPath = '/api/bonus-expenses',
   subtitle = 'от продавца',
   pageLabel = '«Бонусы от продавца»',
   active = true,
@@ -39,6 +42,8 @@ export default function Bonuses({
     if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, password, from, to, fetchExpenses]);
+
+  const stale = useStaleData([apiPath]);
 
   // Данные конкретной кампании — грузятся отдельно, только когда выбрана строка в таблице
   useEffect(() => {
@@ -70,7 +75,7 @@ export default function Bonuses({
 
       <div
         style={{
-          opacity: loading || !isOnline ? 0.55 : 1,
+          opacity: loading || !isOnline || stale ? 0.55 : 1,
           transition: 'opacity 0.25s ease',
           pointerEvents: loading ? 'none' : 'auto',
         }}

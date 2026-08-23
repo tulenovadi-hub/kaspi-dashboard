@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { uploadKaspiPayReport, fetchMonthlyReport, fetchMonthProductBreakdown } from './api.js';
 import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
+import { useStaleData } from './useDataFreshness.js';
 
 // columns — массив { key, label }. key === 'month' форматируется отдельно (название месяца),
 // остальные — через formatMoney, кроме margin/roi (по имени колонки определяем формат).
@@ -244,6 +245,8 @@ export default function Report({ password, active = true, isOnline = true }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
+  const stale = useStaleData(['/api/reports/monthly']);
+
   function handleFileChange(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -299,7 +302,7 @@ export default function Report({ password, active = true, isOnline = true }) {
       {loading && !hasData ? (
         <div className="empty-state">Загрузка...</div>
       ) : (
-        <div style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+        <div style={{ opacity: (loading && hasData) || !isOnline || stale ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
           <MonthlyTable
             title="Основной отчёт (Алматы, Астана)"
             months={monthsMainCities}

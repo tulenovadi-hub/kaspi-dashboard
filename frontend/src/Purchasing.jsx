@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { fetchPurchasing, updatePurchasingSettings, fetchProductImages } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
+import { useStaleData } from './useDataFreshness.js';
 
 const STATUS_LABELS = { critical: 'Критично', soon: 'Скоро', normal: 'В норме' };
 const TABS = [
@@ -147,6 +148,8 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
+  const stale = useStaleData(['/api/purchasing', '/api/product-images']);
+
   const products = data ? data.products : [];
   const filtered = products
     .filter((p) => !search || p.product_name.toLowerCase().includes(search.toLowerCase()))
@@ -211,7 +214,7 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
         </button>
       </div>
 
-      <div className="card" style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+      <div className="card" style={{ opacity: (loading && hasData) || !isOnline || stale ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {loading && !hasData ? (
           <div className="empty-state">Загрузка...</div>
         ) : filtered.length === 0 ? (
