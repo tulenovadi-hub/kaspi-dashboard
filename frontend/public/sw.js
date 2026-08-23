@@ -1,16 +1,15 @@
-// Service worker: кэширует и статику сайта, и ответы backend-API, чтобы дашборд
-// открывался быстро и работал офлайн с последними загруженными данными.
+// Service worker: кэш нужен ТОЛЬКО для офлайна. Пока есть сеть, всё (и статика, и API)
+// всегда идёт живым запросом на сервер — то есть онлайн пользователь видит только реально
+// свежие данные, ровно как без service worker'а. Кэш просто наполняется по пути и достаётся
+// лишь тогда, когда сеть недоступна.
 //
-// Два разных подхода для двух разных источников задержек:
-// - STATIC (свой домен, Vercel) — "network first, cache fallback": Vercel и так быстрый,
-//   тут важнее не отстать от свежего деплоя, чем выиграть миллисекунды.
-// - API (backend на Render, чужой домен) — "stale while revalidate": именно тут бывают
-//   реальные задержки (Render на бесплатном тарифе засыпает и просыпается по 10-30 секунд).
-//   Поэтому и офлайн, и онлайн сразу отдаём то, что уже есть в кэше (без ожидания сети),
-//   а актуальные данные параллельно подгружаются в фоне и тихо ложатся в кэш — следующий
-//   запрос (обновление страницы, повторное открытие раздела) получит уже свежую версию.
-const STATIC_CACHE = 'kaspi-static-v2';
-const API_CACHE = 'kaspi-api-v2';
+// Раньше API работал по "stale while revalidate" (мгновенно отдавал кэш даже онлайн, обновляя
+// его в фоне) — от этого отказались: экран мгновенно показывал старые цифры без какого-либо
+// видимого признака, что они старые, и это вводило в заблуждение. Попытки пометить такие
+// данные (притемнение по возрасту ответа) проблему не решили, поэтому вернулись к простой и
+// предсказуемой схеме: онлайн = только свежее (и обычный индикатор загрузки), офлайн = кэш.
+const STATIC_CACHE = 'kaspi-static-v3';
+const API_CACHE = 'kaspi-api-v3';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -27,52 +26,22 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-async function networkFirst(request, cacheName) {
+// cacheKey отдельно от request — нужно для POST-запроса картинок товаров (см. ниже),
+// где в кэш кладём/ищем не по URL (он у всех таких запросов одинаковый), а по телу запроса.
+async function networkFirst(request, cacheName, cacheKey = request) {
   const cache = await caches.open(cacheName);
   try {
     const response = await fetch(request);
-    // Кэшируем только успешные ответы — ошибку сервера или чужого 404 запоминать не нужно.
+    // Кэшируем только успешные ответы — ошибку сервера или чужой 404 запоминать не нужно.
     if (response && response.ok) {
-      cache.put(request, response.clone());
+      cache.put(cacheKey, response.clone());
     }
     return response;
   } catch (err) {
-    const cached = await cache.match(request);
+    const cached = await cache.match(cacheKey);
     if (cached) return cached;
     throw err;
   }
-}
-
-// cacheKey отдельно от request — нужно для POST-запроса картинок товаров (см. ниже),
-// где в кэш кладём/ищем не по URL (он у всех таких запросов одинаковый), а по телу запроса.
-//
-// Страницы сами решают, когда перепроверять данные (при переходе на раздел, см.
-// useOnlineStatus.js + проп active в компонентах) и показывают их притемнёнными, пока не
-// пришло подтверждение — поэтому здесь не нужно самим уведомлять клиентов об обновлениях.
-async function staleWhileRevalidate(event, request, cacheName, cacheKey = request) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(cacheKey);
-
-  const networkFetch = fetch(request)
-    .then((response) => {
-      if (response && response.ok) {
-        cache.put(cacheKey, response.clone());
-      }
-      return response;
-    })
-    .catch(() => null);
-
-  if (cached) {
-    // Не ждём сеть — сразу отдаём то, что уже есть. Фоновый фетч (см. waitUntil) успеет
-    // обновить кэш, даже если respondWith уже вернул ответ и страница получила данные.
-    event.waitUntil(networkFetch);
-    return cached;
-  }
-
-  // Кэша ещё нет (первое обращение к этому запросу) — отдать нечего, приходится ждать сеть.
-  const response = await networkFetch;
-  if (response) return response;
-  throw new Error('Нет сети и нет кэша для этого запроса');
 }
 
 // Единственное исключение из правила "кэшируем только GET": картинки товаров запрашиваются
@@ -98,13 +67,13 @@ self.addEventListener('fetch', (event) => {
   const isOwnOrigin = url.origin === self.location.origin;
 
   if (request.method === 'GET') {
-    event.respondWith(isOwnOrigin ? networkFirst(request, STATIC_CACHE) : staleWhileRevalidate(event, request, API_CACHE));
+    event.respondWith(networkFirst(request, isOwnOrigin ? STATIC_CACHE : API_CACHE));
     return;
   }
 
   if (!isOwnOrigin && request.method === 'POST' && url.pathname === '/api/product-images') {
     event.respondWith(
-      cacheKeyForProductImages(request).then((cacheKey) => staleWhileRevalidate(event, request, API_CACHE, cacheKey))
+      cacheKeyForProductImages(request).then((cacheKey) => networkFirst(request, API_CACHE, cacheKey))
     );
     return;
   }

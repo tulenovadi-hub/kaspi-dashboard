@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchWarehouse, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
-import { useStaleData } from './useDataFreshness.js';
 
 // Сжимаем картинку на клиенте перед отправкой — это просто маленькая иконка-превью на
 // "Складе", полное разрешение исходного фото не нужно, а без сжатия загрузка была бы
@@ -85,8 +84,6 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, password]);
 
-  const stale = useStaleData(['/api/warehouse', '/api/product-images']);
-
   function toggleExpand(key) {
     setExpanded((prev) => (prev === key ? null : key));
   }
@@ -166,7 +163,7 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
           <div className="empty-state">Загрузка...</div>
         </div>
       ) : (
-      <div style={{ opacity: loading || !isOnline || stale ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+      <div style={{ opacity: loading || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
       {products.length === 0 ? (
         <div className="card">
           <div className="empty-state">Пока нет данных — сначала добавьте партии на странице «Поставки»</div>

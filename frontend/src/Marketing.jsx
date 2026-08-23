@@ -3,7 +3,6 @@ import { fetchAdExpenses, fetchSummary, fetchProducts } from './api.js';
 import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './dateUtils.js';
 import PeriodSelector from './PeriodSelector.jsx';
 import MarketingChart from './MarketingChart.jsx';
-import { useStaleData } from './useDataFreshness.js';
 
 // Считает суммарную выручку товаров, привязанных к кампании (по её product_ids, полученным
 // от Tampermonkey-скрипта через merchantSku) — точное совпадение, без угадывания по названию.
@@ -95,8 +94,6 @@ export default function Marketing({ password, active = true, isOnline = true }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, password, from, to]);
 
-  const stale = useStaleData(['/api/ad-expenses', '/api/stats']);
-
   // Данные конкретной кампании — грузятся отдельно, только когда выбран товар
   useEffect(() => {
     if (!selectedCampaign) return;
@@ -128,7 +125,7 @@ export default function Marketing({ password, active = true, isOnline = true }) 
 
       <div
         style={{
-          opacity: loading || !isOnline || stale ? 0.55 : 1,
+          opacity: loading || !isOnline ? 0.55 : 1,
           transition: 'opacity 0.25s ease',
           pointerEvents: loading ? 'none' : 'auto',
         }}

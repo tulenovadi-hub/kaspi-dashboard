@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchBatchProducts, fetchBatches, addBatch, updateBatch, deleteBatch, markBatchReceived } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, WAREHOUSES } from './dateUtils.js';
-import { useStaleData } from './useDataFreshness.js';
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -337,8 +336,6 @@ export default function Batches({ password, onClose, active = true, isOnline = t
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
-  const stale = useStaleData(['/api/batches']);
-
   function handleDelete(id) {
     if (!window.confirm('Удалить эту поставку?')) return;
     deleteBatch(password, id)
@@ -440,7 +437,7 @@ export default function Batches({ password, onClose, active = true, isOnline = t
           <div className="empty-state">Загрузка...</div>
         </div>
       ) : (
-      <div style={{ opacity: loading || !isOnline || stale ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+      <div style={{ opacity: loading || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
       {filtered.length === 0 ? (
         <div className="card">
           <div className="empty-state">Поставок пока нет — нажмите «Создать новую поставку»</div>

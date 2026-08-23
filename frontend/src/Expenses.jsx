@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchExpenses, fetchExpensesMonthly, syncExpenses } from './api.js';
 import { formatMoney, formatMonthLabel, formatDateDMY } from './dateUtils.js';
-import { useStaleData } from './useDataFreshness.js';
 
 export default function Expenses({ password, active = true, isOnline = true }) {
   const [expenses, setExpenses] = useState([]);
@@ -37,8 +36,6 @@ export default function Expenses({ password, active = true, isOnline = true }) {
     if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
-
-  const stale = useStaleData(['/api/expenses']);
 
   function handleSync() {
     setSyncing(true);
@@ -94,7 +91,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
 
       {error && <div className="error-banner">{error}</div>}
 
-      <div style={{ opacity: (loading && hasData) || !isOnline || stale ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+      <div style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
       <div className="section-title">По месяцам</div>
       <div className="card">
         {months.length === 0 ? (

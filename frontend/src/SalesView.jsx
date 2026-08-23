@@ -6,7 +6,6 @@ import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
 import { fetchSummary, fetchProducts, fetchSummaryProfit, triggerSync } from './api.js';
 import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber } from './dateUtils.js';
-import { useStaleData } from './useDataFreshness.js';
 
 export default function SalesView({ password, onLogout, mode, title, showSync, active = true, isOnline = true }) {
   const [from, setFrom] = useState(toISODate(startOfMonth()));
@@ -76,8 +75,6 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, from, to, mode]);
 
-  const stale = useStaleData(['/api/stats']);
-
   function handlePeriodChange({ from: newFrom, to: newTo, presetKey: newPreset }) {
     setFrom(newFrom);
     setTo(newTo);
@@ -125,7 +122,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
       ) : (
         <div
           style={{
-            opacity: loading || !isOnline || stale ? 0.55 : 1,
+            opacity: loading || !isOnline ? 0.55 : 1,
             transition: 'opacity 0.25s ease',
             pointerEvents: loading ? 'none' : 'auto',
           }}
