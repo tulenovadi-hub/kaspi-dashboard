@@ -5,40 +5,84 @@
 // используется адрес локального сервера по умолчанию.
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
+// Таймаут на КАЖДЫЙ запрос. Без него подвисший мобильный запрос (сеть переключилась с Wi-Fi
+// на мобильную, соединение оборвалось без явной ошибки) висит бесконечно: промис не резолвится
+// и не реджектится, поэтому `.finally()` в форме никогда не выполняется — кнопка навсегда
+// остаётся заблокированной в состоянии "Сохраняем...", и выйти из этого можно только полным
+// перезапуском приложения. Лучше честно упасть с понятной ошибкой и дать повторить.
+const DEFAULT_TIMEOUT_MS = 45000; // с запасом на "просыпание" Render после простоя (~30 с)
+const LONG_TIMEOUT_MS = 5 * 60 * 1000; // синхронизации, загрузка Excel, генерация AI-отчёта
+
 async function apiRequest(path, token, options = {}) {
-  const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      ...options.headers,
-      'X-Session-Token': token,
-    },
-  });
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, ...fetchOptions } = options;
+  const controller = new AbortController();
+  // Таймер снимаем только после того, как тело ответа полностью прочитано (см. finally) —
+  // зависнуть можно не только в ожидании заголовков, но и на середине чтения ответа.
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (response.status === 401) {
-    throw new Error('UNAUTHORIZED');
-  }
-  if (response.status === 403) {
-    throw new Error('Недостаточно прав для этого действия');
-  }
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || 'Ошибка запроса к серверу');
-  }
+  try {
+    const response = await fetch(`${API_URL}${path}`, {
+      ...fetchOptions,
+      signal: controller.signal,
+      headers: {
+        ...fetchOptions.headers,
+        'X-Session-Token': token,
+      },
+    });
 
-  return response.json();
+    if (response.status === 401) {
+      throw new Error('UNAUTHORIZED');
+    }
+    if (response.status === 403) {
+      throw new Error('Недостаточно прав для этого действия');
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || 'Ошибка запроса к серверу');
+    }
+
+    return await response.json();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Сервер не ответил вовремя — проверьте интернет и попробуйте ещё раз');
+    }
+    // fetch отклоняется с TypeError на любых сетевых сбоях (нет соединения, DNS, CORS) —
+    // сообщение у него техническое ("Load failed"), заменяем на понятное человеку.
+    if (err instanceof TypeError) {
+      throw new Error('Нет связи с сервером — проверьте интернет и попробуйте ещё раз');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function login(username, password) {
-  const response = await fetch(`${API_URL}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(body.error || 'Не удалось войти');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_URL}/api/auth/login`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(body.error || 'Не удалось войти');
+    }
+    return body; // { token, username, role }
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Сервер не ответил вовремя — проверьте интернет и попробуйте ещё раз');
+    }
+    if (err instanceof TypeError) {
+      throw new Error('Нет связи с сервером — проверьте интернет и попробуйте ещё раз');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return body; // { token, username, role }
 }
 
 export function logout(token) {
@@ -101,7 +145,7 @@ export function fetchReviewBonusExpenses(password, from, to, campaignId) {
 }
 
 export function fetchAnalystReport(password, from, to) {
-  return apiRequest(`/api/analyst/report?from=${from}&to=${to}`, password);
+  return apiRequest(`/api/analyst/report?from=${from}&to=${to}`, password, { timeoutMs: LONG_TIMEOUT_MS });
 }
 
 export function fetchAnalystReportsList(password) {
@@ -121,7 +165,7 @@ export function fetchProductStats(password, productId, from, to, mode = 'main') 
 }
 
 export function triggerSync(password) {
-  return apiRequest('/api/sync', password, { method: 'POST' });
+  return apiRequest('/api/sync', password, { method: 'POST', timeoutMs: LONG_TIMEOUT_MS });
 }
 
 export function fetchBatchProducts(password) {
@@ -171,7 +215,7 @@ export function updatePurchasingSettings(password, settings) {
 export function uploadKaspiPayReport(password, file) {
   const formData = new FormData();
   formData.append('file', file);
-  return apiRequest('/api/reports/upload', password, { method: 'POST', body: formData });
+  return apiRequest('/api/reports/upload', password, { method: 'POST', body: formData, timeoutMs: LONG_TIMEOUT_MS });
 }
 
 export function fetchMonthlyReport(password) {
@@ -184,7 +228,7 @@ export function fetchMonthProductBreakdown(password, month) {
 
 export function fetchDeliveryAnomalies(password, from) {
   const query = from ? `?from=${encodeURIComponent(from)}` : '';
-  return apiRequest(`/api/reports/delivery-anomalies${query}`, password);
+  return apiRequest(`/api/reports/delivery-anomalies${query}`, password, { timeoutMs: LONG_TIMEOUT_MS });
 }
 
 export function fetchDeliveryReturns(password) {
@@ -192,7 +236,7 @@ export function fetchDeliveryReturns(password) {
 }
 
 export function syncDeliveryReturns(password) {
-  return apiRequest('/api/delivery-returns/sync', password, { method: 'POST' });
+  return apiRequest('/api/delivery-returns/sync', password, { method: 'POST', timeoutMs: LONG_TIMEOUT_MS });
 }
 
 export function deleteDeliveryReturn(password, orderNumber) {
@@ -215,7 +259,7 @@ export function uploadProductImage(password, productId, file) {
   const formData = new FormData();
   formData.append('product_id', productId);
   formData.append('image', file);
-  return apiRequest('/api/product-images/upload', password, { method: 'POST', body: formData });
+  return apiRequest('/api/product-images/upload', password, { method: 'POST', body: formData, timeoutMs: LONG_TIMEOUT_MS });
 }
 
 export function deleteProductImage(password, productId) {
@@ -235,5 +279,5 @@ export function fetchOrders(password) {
 }
 
 export function syncExpenses(password) {
-  return apiRequest('/api/expenses/sync', password, { method: 'POST' });
+  return apiRequest('/api/expenses/sync', password, { method: 'POST', timeoutMs: LONG_TIMEOUT_MS });
 }
