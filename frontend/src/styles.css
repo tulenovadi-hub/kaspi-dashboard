@@ -1347,6 +1347,8 @@ select:focus-visible {
   justify-content: center;
   padding: 20px;
   z-index: 100;
+  /* Прокрутка не должна "перетекать" на страницу под окном */
+  overscroll-behavior: contain;
 }
 
 .modal-box {
@@ -1358,6 +1360,11 @@ select:focus-visible {
   max-width: 460px;
   max-height: 90vh;
   overflow-y: auto;
+  /* Без contain прокрутка внутри окна, докрутившись до конца, продолжается на фоне —
+     пользователь тянет форму, а уезжает страница под ней (scroll chaining). */
+  overscroll-behavior: contain;
+  /* Инерционная прокрутка в iOS — без неё движение внутри окна выглядит рывками */
+  -webkit-overflow-scrolling: touch;
 }
 
 .modal-box-wide {

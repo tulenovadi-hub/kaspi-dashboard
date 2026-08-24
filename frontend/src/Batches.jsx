@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchBatchProducts, fetchBatches, addBatch, updateBatch, deleteBatch, markBatchReceived } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, WAREHOUSES } from './dateUtils.js';
+import { useBodyScrollLock } from './useBodyScrollLock.js';
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -25,6 +26,8 @@ function makeExpenseRow(saved) {
 // продукта не меняются, только цена/логистика/количество/дата/примечание/склад отгрузки).
 function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
   const isEdit = Boolean(editingBatch);
+
+  useBodyScrollLock();
 
   const [productId, setProductId] = useState(editingBatch ? editingBatch.product_id : '');
   const [warehouse, setWarehouse] = useState(editingBatch ? editingBatch.warehouse : 'Алматы');

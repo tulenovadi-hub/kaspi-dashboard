@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { fetchPurchasing, updatePurchasingSettings, fetchProductImages } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
+import { useBodyScrollLock } from './useBodyScrollLock.js';
 
 const STATUS_LABELS = { critical: 'Критично', soon: 'Скоро', normal: 'В норме' };
 const TABS = [
@@ -19,6 +20,8 @@ function SettingsModal({ password, settings, onClose, onSaved }) {
   const [bufferPct, setBufferPct] = useState(String(settings.buffer_pct));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useBodyScrollLock();
 
   function handleSubmit(e) {
     e.preventDefault();
