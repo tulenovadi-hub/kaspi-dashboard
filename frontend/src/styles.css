@@ -907,7 +907,7 @@ select:focus-visible {
   margin-top: 20px;
 }
 
-.form-section-result > .batch-form-row {
+.form-section-result > .batch-result-row {
   margin-top: 8px;
 }
 
@@ -919,6 +919,113 @@ select:focus-visible {
 
 /* Итоговая себестоимость — главное число всей формы, поэтому крупнее и контрастнее
    двух слагаемых рядом. */
+/* ===== Прочие расходы (произвольные строки: сертификаты, НДС, ...) ===== */
+/* Пять полей в одну линию не помещаются в ширину модалки (620px) — "Валюта" схлопывалась
+   до нечитаемого огрызка. Поэтому название занимает всю первую строку (ему и нужно больше
+   места), а сумма/валюта/курс идут второй строкой в три колонки — ровно как в блоках
+   "Закупка" и "Логистика" выше, чтобы поля визуально совпадали по вертикали. */
+.expense-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 44px;
+  grid-template-areas:
+    "name   name     name remove"
+    "amount currency rate rate";
+  gap: 12px;
+  margin-top: 12px;
+  /* Без align-items: подписи полей выравниваются по верху, как в блоках "Закупка"/"Логистика".
+     Отдельно опускаем только кнопку удаления — к нижнему краю поля с названием. */
+}
+
+.expense-name { grid-area: name; }
+.expense-amount { grid-area: amount; }
+.expense-currency { grid-area: currency; }
+.expense-rate { grid-area: rate; }
+.expense-remove { grid-area: remove; }
+
+@media (max-width: 780px) {
+  /* На телефоне пять колонок не помещаются — раскладываем в столбик, а каждую строку
+     расхода отделяем рамкой, иначе непонятно, где заканчивается один расход и
+     начинается следующий. */
+  .expense-row {
+    grid-template-columns: 1fr;
+    grid-template-areas: none; /* в одну колонку раскладка по областям не нужна */
+    gap: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    position: relative;
+  }
+
+  /* сбрасываем привязку к областям, иначе поля не встанут в столбик */
+  .expense-row .expense-name,
+  .expense-row .expense-amount,
+  .expense-row .expense-currency,
+  .expense-row .expense-rate,
+  .expense-row .expense-remove {
+    grid-area: auto;
+  }
+
+  /* Кнопка удаления уезжает в угол своей карточки, чтобы не занимать целую строку */
+  .expense-row .expense-remove {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+  }
+
+  .expense-row .expense-name {
+    padding-right: 44px; /* освобождаем место под кнопку удаления */
+  }
+}
+
+.expense-remove {
+  align-self: end;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  /* 44x44 — минимальная область нажатия, чтобы на телефоне палец не промахивался */
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.expense-remove:hover {
+  color: var(--accent-down);
+  border-color: var(--accent-down);
+}
+
+.expense-add {
+  margin-top: 14px;
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--text-secondary);
+  border-radius: 10px;
+  padding: 11px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  width: 100%;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.expense-add:hover {
+  color: var(--accent-brand);
+  border-color: var(--accent-brand);
+}
+
+/* Итоговая строка себестоимости: значений то 3, то 4 (когда есть прочие расходы),
+   поэтому не фиксированная сетка, а auto-fit — колонки подстраиваются сами. */
+.batch-result-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
 .batch-computed-total {
   font-weight: 700;
   font-size: 16px;

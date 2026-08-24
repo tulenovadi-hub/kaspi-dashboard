@@ -6,6 +6,21 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Строки "прочих расходов" можно удалять из середины списка, поэтому индекс массива
+// не годится как React-key (после удаления React переиспользовал бы поля не от той строки
+// и введённые значения "переехали" бы). Выдаём каждой строке свой стабильный id.
+let nextExpenseKey = 0;
+function makeExpenseRow(saved) {
+  return {
+    key: `expense-${nextExpenseKey++}`,
+    name: saved?.name || '',
+    amount: saved?.amount != null ? String(saved.amount) : '',
+    currency: saved?.currency || 'KZT',
+    // Для тенге курс не показываем и не храним — он всегда 1.
+    rate: saved?.rate != null && saved.currency !== 'KZT' ? String(saved.rate) : '',
+  };
+}
+
 // editingBatch === null -> режим создания. editingBatch объект -> режим редактирования (товар и склад
 // продукта не меняются, только цена/логистика/количество/дата/примечание/склад отгрузки).
 function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
@@ -30,11 +45,25 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
   const [logisticsRate, setLogisticsRate] = useState(editingBatch?.logistics_rate != null ? String(editingBatch.logistics_rate) : '');
   const [receivedDate, setReceivedDate] = useState(editingBatch ? String(editingBatch.received_date).slice(0, 10) : todayISO());
   const [status, setStatus] = useState(editingBatch ? editingBatch.status || 'received' : 'received');
+  // Прочие расходы на партию (сертификаты, НДС, растаможка...) — произвольный список,
+  // названия пользователь пишет сам. Суммы указываются за ВСЮ партию, как закупка и логистика.
+  const [extraExpenses, setExtraExpenses] = useState(() =>
+    Array.isArray(editingBatch?.extra_expenses) ? editingBatch.extra_expenses.map(makeExpenseRow) : []
+  );
   const [note, setNote] = useState(editingBatch ? editingBatch.note || '' : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const costPrice = (Number(purchasePrice) || 0) + (Number(logisticsCost) || 0);
+  // Условия отбора строк должны совпадать с normalizeExtraExpenses на бэкенде,
+  // иначе предпросмотр себестоимости разойдётся с тем, что реально сохранится.
+  const filledExpenses = extraExpenses.filter((e) => e.name.trim() && e.amount !== '' && Number(e.amount) >= 0);
+  const extraTotalKzt = filledExpenses.reduce(
+    (sum, e) => sum + (Number(e.amount) || 0) * (e.currency === 'KZT' ? 1 : (Number(e.rate) || 1)),
+    0
+  );
+  const extraPerUnit = Number(quantity) ? extraTotalKzt / Number(quantity) : 0;
+
+  const costPrice = (Number(purchasePrice) || 0) + (Number(logisticsCost) || 0) + extraPerUnit;
 
   useEffect(() => {
     const amount = Number(purchaseAmountForeign);
@@ -55,6 +84,18 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
     setLogisticsCost(String(Math.round((amount * rate / qty) * 100) / 100));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [logisticsAmountForeign, logisticsCurrency, logisticsRate, quantity]);
+
+  function updateExpense(key, field, value) {
+    setExtraExpenses((rows) => rows.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+  }
+
+  function addExpense() {
+    setExtraExpenses((rows) => [...rows, makeExpenseRow()]);
+  }
+
+  function removeExpense(key) {
+    setExtraExpenses((rows) => rows.filter((r) => r.key !== key));
+  }
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -78,6 +119,13 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
       logistics_currency: logisticsAmountForeign ? logisticsCurrency : null,
       logistics_amount_foreign: logisticsAmountForeign || null,
       logistics_rate: logisticsAmountForeign ? (logisticsCurrency === 'KZT' ? 1 : logisticsRate) : null,
+      // key — чисто клиентское поле для React, на сервер его не отправляем.
+      extra_expenses: filledExpenses.map((exp) => ({
+        name: exp.name.trim(),
+        amount: Number(exp.amount),
+        currency: exp.currency,
+        rate: exp.currency === 'KZT' ? 1 : (Number(exp.rate) || 1),
+      })),
     };
 
     setSaving(true);
@@ -289,11 +337,82 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
             </div>
           </div>
 
+          <div className="form-section">
+            <div className="form-section-title">Прочие расходы</div>
+            <div className="form-section-hint">
+              Всё остальное, что вошло в стоимость партии — сертификаты, НДС, растаможка и т.п.
+              Название придумываете сами, сумма указывается за всю партию
+            </div>
+
+            {extraExpenses.map((exp) => (
+              <div className="expense-row" key={exp.key}>
+                <div className="batch-form-field expense-name">
+                  <label>Название</label>
+                  <input
+                    type="text"
+                    value={exp.name}
+                    onChange={(e) => updateExpense(exp.key, 'name', e.target.value)}
+                    placeholder="Например, Сертификаты"
+                    maxLength={60}
+                  />
+                </div>
+                <div className="batch-form-field expense-amount">
+                  <label>Сумма за партию</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={exp.amount}
+                    onChange={(e) => updateExpense(exp.key, 'amount', e.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="batch-form-field expense-currency">
+                  <label>Валюта</label>
+                  <select
+                    className="product-select"
+                    value={exp.currency}
+                    onChange={(e) => updateExpense(exp.key, 'currency', e.target.value)}
+                  >
+                    <option value="KZT">₸ Тенге</option>
+                    <option value="USD">$ Доллар</option>
+                    <option value="CNY">¥ Юань</option>
+                  </select>
+                </div>
+                <div className="batch-form-field expense-rate">
+                  <label>Курс на день оплаты</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={exp.currency === 'KZT' ? '' : exp.rate}
+                    onChange={(e) => updateExpense(exp.key, 'rate', e.target.value)}
+                    disabled={exp.currency === 'KZT'}
+                    placeholder={exp.currency === 'KZT' ? 'не нужен' : 'напр. 466'}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="expense-remove"
+                  onClick={() => removeExpense(exp.key)}
+                  title="Удалить этот расход"
+                  aria-label="Удалить этот расход"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+
+            <button type="button" className="expense-add" onClick={addExpense}>
+              + Добавить расход
+            </button>
+          </div>
+
           <div className="form-section form-section-result">
             <div className="form-section-title">Себестоимость за 1 шт</div>
             <div className="form-section-hint">Считается сама: сумма × курс ÷ количество. Вручную не редактируется</div>
 
-            <div className="batch-form-row">
+            <div className="batch-result-row">
               <div className="batch-form-field">
                 <label>Закупка</label>
                 <div className="batch-computed-value">{purchasePrice ? formatMoney(purchasePrice) : '—'}</div>
@@ -302,6 +421,12 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
                 <label>Логистика</label>
                 <div className="batch-computed-value">{logisticsCost ? formatMoney(logisticsCost) : '0 ₸'}</div>
               </div>
+              {filledExpenses.length > 0 && (
+                <div className="batch-form-field">
+                  <label>Прочие</label>
+                  <div className="batch-computed-value">{formatMoney(extraPerUnit)}</div>
+                </div>
+              )}
               <div className="batch-form-field">
                 <label>Итого за 1 шт</label>
                 <div className="batch-computed-value batch-computed-total">{formatMoney(costPrice)}</div>

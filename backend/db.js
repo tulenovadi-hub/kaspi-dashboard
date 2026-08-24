@@ -105,6 +105,14 @@ async function initDb() {
   await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS logistics_amount_foreign NUMERIC;`);
   await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS logistics_rate NUMERIC;`);
 
+  // Произвольные дополнительные расходы на партию (сертификаты, НДС, растаможка, ...) —
+  // список неизвестной длины с названиями, которые пользователь придумывает сам, поэтому
+  // это JSONB, а не отдельные колонки. Формат: [{ name, amount, currency, rate }], где
+  // amount/rate — за ВСЮ партию (как у закупки и логистики), а не за штуку.
+  // Эти расходы входят в cost_price (см. routes/batches.js) — то есть автоматически
+  // попадают в FIFO-себестоимость, оценку склада и расчёт прибыли.
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS extra_expenses JSONB;`);
+
   // Настройки формулы "Закупа" — общие на весь магазин (не по товарам), редактируются в UI
   // ("Настройка параметров" на странице "Закуп"). Одна строка-синглтон с id=1.
   await pool.query(`

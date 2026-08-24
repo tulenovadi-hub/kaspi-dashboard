@@ -15,6 +15,40 @@ function optionalNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+// Прочие расходы на партию (сертификаты, НДС, растаможка и т.п.) — произвольный список,
+// названия придумывает пользователь. Приводим к чистому виду: выкидываем строки без
+// названия или без суммы, отрезаем слишком длинные названия, валюту берём только из
+// известного списка. Ошибку не кидаем: это необязательная часть формы, и одна кривая
+// строка не должна мешать сохранить всю поставку.
+const MAX_EXPENSE_NAME_LENGTH = 60;
+const MAX_EXTRA_EXPENSES = 20;
+
+function normalizeExtraExpenses(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const name = String(item.name || '').trim().slice(0, MAX_EXPENSE_NAME_LENGTH);
+      const amount = optionalNumber(item.amount);
+      if (!name || amount === null || amount < 0) return null;
+      const currency = VALID_CURRENCIES.includes(item.currency) ? item.currency : 'KZT';
+      // Для тенге курс всегда 1, для остальных валют — что указали (по умолчанию тоже 1,
+      // чтобы сумма не превратилась в ноль, если курс забыли заполнить).
+      const rate = currency === 'KZT' ? 1 : (optionalNumber(item.rate) || 1);
+      return { name, amount, currency, rate };
+    })
+    .filter(Boolean)
+    .slice(0, MAX_EXTRA_EXPENSES);
+}
+
+// Прочие расходы указываются суммой за ВСЮ партию, а cost_price — за 1 шт,
+// поэтому делим на количество (как закупку и логистику на фронтенде).
+function extraExpensesPerUnit(expenses, qty) {
+  if (!qty) return 0;
+  const totalKzt = expenses.reduce((sum, e) => sum + e.amount * e.rate, 0);
+  return totalKzt / qty;
+}
+
 // Список всех продуктов, которые когда-либо продавались — нужно для выпадающего
 // списка при добавлении новой партии, чтобы не вводить название вручную и не ошибиться.
 router.get('/products', async (req, res) => {
@@ -37,7 +71,7 @@ router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-              purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate
+              purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses
        FROM product_batches
        ORDER BY product_name, received_date, id`
     );
@@ -53,6 +87,7 @@ router.post('/', async (req, res) => {
   const {
     product_id, product_name, purchase_price, logistics_cost, note, warehouse, quantity, received_date, status,
     purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate,
+    extra_expenses,
   } = req.body;
 
   if (!product_id || !product_name) {
@@ -78,7 +113,10 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Дата поступления указана некорректно' });
   }
 
-  const costPrice = purchasePrice + logisticsCost;
+  const extraExpenses = normalizeExtraExpenses(extra_expenses);
+  // Прочие расходы входят в себестоимость наравне с закупкой и логистикой — значит
+  // автоматически учитываются в FIFO-списании, оценке склада и расчёте прибыли.
+  const costPrice = purchasePrice + logisticsCost + extraExpensesPerUnit(extraExpenses, qty);
   const purchaseCurrency = VALID_CURRENCIES.includes(purchase_currency) ? purchase_currency : null;
   const purchaseAmountForeign = optionalNumber(purchase_amount_foreign);
   const purchaseRate = optionalNumber(purchase_rate);
@@ -89,12 +127,13 @@ router.post('/', async (req, res) => {
   try {
     const result = await pool.query(
       `INSERT INTO product_batches (product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status,
-                                     purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                                     purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate`,
+                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses`,
       [product_id, product_name, costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, received_date, batchStatus,
-        purchaseCurrency, purchaseAmountForeign, purchaseRate, logisticsCurrency, logisticsAmountForeign, logisticsRate]
+        purchaseCurrency, purchaseAmountForeign, purchaseRate, logisticsCurrency, logisticsAmountForeign, logisticsRate,
+        JSON.stringify(extraExpenses)]
     );
     res.status(201).json({ batch: result.rows[0] });
   } catch (err) {
@@ -110,6 +149,7 @@ router.put('/:id', async (req, res) => {
   const {
     warehouse, purchase_price, logistics_cost, note, quantity, received_date, status,
     purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate,
+    extra_expenses,
   } = req.body;
 
   if (!warehouse || !VALID_WAREHOUSES.includes(warehouse)) {
@@ -132,7 +172,10 @@ router.put('/:id', async (req, res) => {
     return res.status(400).json({ error: 'Дата поступления указана некорректно' });
   }
 
-  const costPrice = purchasePrice + logisticsCost;
+  const extraExpenses = normalizeExtraExpenses(extra_expenses);
+  // Прочие расходы входят в себестоимость наравне с закупкой и логистикой — значит
+  // автоматически учитываются в FIFO-списании, оценке склада и расчёте прибыли.
+  const costPrice = purchasePrice + logisticsCost + extraExpensesPerUnit(extraExpenses, qty);
   const purchaseCurrency = VALID_CURRENCIES.includes(purchase_currency) ? purchase_currency : null;
   const purchaseAmountForeign = optionalNumber(purchase_amount_foreign);
   const purchaseRate = optionalNumber(purchase_rate);
@@ -154,12 +197,14 @@ router.put('/:id', async (req, res) => {
        SET cost_price = $1, purchase_price = $2, logistics_cost = $3, note = $4, warehouse = $5,
            quantity = $6, remaining_quantity = $7, received_date = $8, status = $9,
            purchase_currency = $10, purchase_amount_foreign = $11, purchase_rate = $12,
-           logistics_currency = $13, logistics_amount_foreign = $14, logistics_rate = $15
-       WHERE id = $16
+           logistics_currency = $13, logistics_amount_foreign = $14, logistics_rate = $15,
+           extra_expenses = $16
+       WHERE id = $17
        RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate`,
+                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses`,
       [costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, newRemaining, received_date, batchStatus,
-        purchaseCurrency, purchaseAmountForeign, purchaseRate, logisticsCurrency, logisticsAmountForeign, logisticsRate, id]
+        purchaseCurrency, purchaseAmountForeign, purchaseRate, logisticsCurrency, logisticsAmountForeign, logisticsRate,
+        JSON.stringify(extraExpenses), id]
     );
     res.json({ batch: result.rows[0] });
   } catch (err) {
@@ -178,7 +223,7 @@ router.post('/:id/receive', async (req, res) => {
       `UPDATE product_batches SET status = 'received', received_date = $1
        WHERE id = $2
        RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate`,
+                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses`,
       [today, id]
     );
     if (result.rowCount === 0) {
