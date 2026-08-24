@@ -865,19 +865,65 @@ select:focus-visible {
   margin-top: 16px;
 }
 
-.batch-cost-preview {
-  margin-top: 14px;
-  padding: 10px 14px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-size: 13px;
-  color: var(--text-secondary);
+/* ===== Смысловые блоки внутри формы ("Товар", "Партия", "Закупка", ...) =====
+   Форма поставки длинная (14 полей). Без разбивки на телефоне это сплошная лента
+   полей, в которой непонятно, что к чему относится. Разделяем тонкой линией
+   и заголовком — без вложенных рамок, чтобы не появлялся третий уровень
+   вложенности (модалка → блок → поле) и форма не выглядела тяжёлой. */
+.form-section {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
 }
 
-.batch-cost-preview strong {
-  color: var(--accent-brand);
-  font-family: var(--font-mono);
+.form-section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.form-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.form-section-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Блок с итогом (себестоимость) выделен фоном: это не то, что вводят, а то,
+   ради чего заполняли всё остальное. */
+.form-section-result {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+  margin-top: 20px;
+}
+
+.form-section-result > .batch-form-row {
+  margin-top: 8px;
+}
+
+/* Внутри выделенного блока поля идут на фоне var(--bg), поэтому им нужен
+   контрастный фон карточки, иначе они сливаются с блоком. */
+.form-section-result .batch-computed-value {
+  background: var(--bg-card);
+}
+
+/* Итоговая себестоимость — главное число всей формы, поэтому крупнее и контрастнее
+   двух слагаемых рядом. */
+.batch-computed-total {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--text-primary);
+  border-color: var(--accent-brand);
 }
 
 .batch-note-input {

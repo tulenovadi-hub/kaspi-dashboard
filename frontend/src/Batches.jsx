@@ -118,176 +118,209 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
         {error && <div className="error-banner">{error}</div>}
 
         <form onSubmit={handleSubmit}>
-          <div className="batch-form-row-2">
-            <div className="batch-form-field">
-              <label>Товар</label>
-              {isEdit ? (
-                <input type="text" value={editingBatch.product_name} disabled />
-              ) : (
+          {/* Форма длинная (14 полей), поэтому разбита на смысловые блоки с подписями —
+              иначе на телефоне это сплошная лента полей, в которой легко потеряться.
+              Порядок блоков = порядок мыслей: что везём → сколько штук → сколько заплатили
+              за товар → сколько за доставку → что в итоге вышло за штуку. */}
+          <div className="form-section">
+            <div className="form-section-title">Товар</div>
+
+            <div className="batch-form-row-2">
+              <div className="batch-form-field">
+                <label>Товар</label>
+                {isEdit ? (
+                  <input type="text" value={editingBatch.product_name} disabled />
+                ) : (
+                  <select
+                    className="product-select"
+                    value={productId}
+                    onChange={(e) => setProductId(e.target.value)}
+                    required
+                  >
+                    <option value="" disabled>Выберите товар...</option>
+                    {products.map((p) => (
+                      <option key={p.product_id} value={p.product_id}>{p.product_name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div className="batch-form-field">
+                <label>Склад</label>
                 <select
                   className="product-select"
-                  value={productId}
-                  onChange={(e) => setProductId(e.target.value)}
+                  value={warehouse}
+                  onChange={(e) => setWarehouse(e.target.value)}
                   required
                 >
-                  <option value="" disabled>Выберите товар...</option>
-                  {products.map((p) => (
-                    <option key={p.product_id} value={p.product_id}>{p.product_name}</option>
+                  {WAREHOUSES.map((w) => (
+                    <option key={w} value={w}>{w}</option>
                   ))}
                 </select>
-              )}
-            </div>
-            <div className="batch-form-field">
-              <label>Склад</label>
-              <select
-                className="product-select"
-                value={warehouse}
-                onChange={(e) => setWarehouse(e.target.value)}
-                required
-              >
-                {WAREHOUSES.map((w) => (
-                  <option key={w} value={w}>{w}</option>
-                ))}
-              </select>
+              </div>
             </div>
           </div>
 
-          <div className="batch-form-row">
-            <div className="batch-form-field">
-              <label>Сумма закупки за партию</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={purchaseAmountForeign}
-                onChange={(e) => setPurchaseAmountForeign(e.target.value)}
-                placeholder="Сколько заплатили всего"
-              />
-            </div>
-            <div className="batch-form-field">
-              <label>Валюта</label>
-              <select
-                className="product-select"
-                value={purchaseCurrency}
-                onChange={(e) => setPurchaseCurrency(e.target.value)}
-              >
-                <option value="KZT">₸ Тенге</option>
-                <option value="USD">$ Доллар</option>
-                <option value="CNY">¥ Юань</option>
-              </select>
-            </div>
-            <div className="batch-form-field">
-              <label>Курс</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={purchaseCurrency === 'KZT' ? '' : purchaseRate}
-                onChange={(e) => setPurchaseRate(e.target.value)}
-                disabled={purchaseCurrency === 'KZT'}
-                placeholder={purchaseCurrency === 'KZT' ? '—' : 'напр. 466'}
-              />
+          {/* Количество стоит ВЫШЕ блоков с суммами намеренно: обе суммы делятся именно на
+              него, поэтому сначала логично указать, сколько штук в партии. */}
+          <div className="form-section">
+            <div className="form-section-title">Партия</div>
+            <div className="form-section-hint">Сколько штук привезли и когда — на это количество делятся суммы ниже</div>
+
+            <div className="batch-form-row">
+              <div className="batch-form-field">
+                <label>Количество, шт</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  required
+                />
+                {isEdit && (
+                  <span className="batch-field-hint">Сейчас остаток: {formatNumber(editingBatch.remaining_quantity)} шт</span>
+                )}
+              </div>
+              <div className="batch-form-field">
+                <label>Статус поставки</label>
+                <select
+                  className="product-select"
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                >
+                  <option value="received">Прибыло</option>
+                  <option value="in_transit">В пути</option>
+                </select>
+              </div>
+              <div className="batch-form-field">
+                <label>{status === 'in_transit' ? 'Ожидаемая дата' : 'Дата поступления'}</label>
+                <input
+                  type="date"
+                  value={receivedDate}
+                  onChange={(e) => setReceivedDate(e.target.value)}
+                  required
+                />
+              </div>
             </div>
           </div>
 
-          <div className="batch-form-row">
-            <div className="batch-form-field">
-              <label>Логистика за партию</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={logisticsAmountForeign}
-                onChange={(e) => setLogisticsAmountForeign(e.target.value)}
-                placeholder="Сколько заплатили за логистику всего"
-              />
-            </div>
-            <div className="batch-form-field">
-              <label>Валюта</label>
-              <select
-                className="product-select"
-                value={logisticsCurrency}
-                onChange={(e) => setLogisticsCurrency(e.target.value)}
-              >
-                <option value="KZT">₸ Тенге</option>
-                <option value="USD">$ Доллар</option>
-              </select>
-            </div>
-            <div className="batch-form-field">
-              <label>Курс</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={logisticsCurrency === 'KZT' ? '' : logisticsRate}
-                onChange={(e) => setLogisticsRate(e.target.value)}
-                disabled={logisticsCurrency === 'KZT'}
-                placeholder={logisticsCurrency === 'KZT' ? '—' : 'напр. 466'}
-              />
+          <div className="form-section">
+            <div className="form-section-title">Закупка</div>
+            <div className="form-section-hint">Сколько всего заплатили поставщику за всю партию</div>
+
+            <div className="batch-form-row">
+              <div className="batch-form-field">
+                <label>Сумма за партию</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={purchaseAmountForeign}
+                  onChange={(e) => setPurchaseAmountForeign(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+              <div className="batch-form-field">
+                <label>Валюта</label>
+                <select
+                  className="product-select"
+                  value={purchaseCurrency}
+                  onChange={(e) => setPurchaseCurrency(e.target.value)}
+                >
+                  <option value="KZT">₸ Тенге</option>
+                  <option value="USD">$ Доллар</option>
+                  <option value="CNY">¥ Юань</option>
+                </select>
+              </div>
+              <div className="batch-form-field">
+                <label>Курс на день оплаты</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={purchaseCurrency === 'KZT' ? '' : purchaseRate}
+                  onChange={(e) => setPurchaseRate(e.target.value)}
+                  disabled={purchaseCurrency === 'KZT'}
+                  placeholder={purchaseCurrency === 'KZT' ? 'не нужен' : 'напр. 466'}
+                />
+              </div>
             </div>
           </div>
 
-          <div className="batch-form-row-2">
-            <div className="batch-form-field">
-              <label>Закупочная цена за 1 шт, ₸</label>
-              <div className="batch-computed-value">{purchasePrice ? formatMoney(purchasePrice) : '—'}</div>
-            </div>
-            <div className="batch-form-field">
-              <label>Логистика за 1 шт, ₸</label>
-              <div className="batch-computed-value">{logisticsCost ? formatMoney(logisticsCost) : '0 ₸'}</div>
+          <div className="form-section">
+            <div className="form-section-title">Логистика</div>
+            <div className="form-section-hint">Сколько всего заплатили за доставку этой партии</div>
+
+            <div className="batch-form-row">
+              <div className="batch-form-field">
+                <label>Сумма за партию</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={logisticsAmountForeign}
+                  onChange={(e) => setLogisticsAmountForeign(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+              <div className="batch-form-field">
+                <label>Валюта</label>
+                <select
+                  className="product-select"
+                  value={logisticsCurrency}
+                  onChange={(e) => setLogisticsCurrency(e.target.value)}
+                >
+                  <option value="KZT">₸ Тенге</option>
+                  <option value="USD">$ Доллар</option>
+                </select>
+              </div>
+              <div className="batch-form-field">
+                <label>Курс на день оплаты</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={logisticsCurrency === 'KZT' ? '' : logisticsRate}
+                  onChange={(e) => setLogisticsRate(e.target.value)}
+                  disabled={logisticsCurrency === 'KZT'}
+                  placeholder={logisticsCurrency === 'KZT' ? 'не нужен' : 'напр. 466'}
+                />
+              </div>
             </div>
           </div>
 
-          <div className="batch-cost-preview">
-            Себестоимость за 1 шт: <strong>{costPrice.toLocaleString('ru-RU')} ₸</strong>
+          <div className="form-section form-section-result">
+            <div className="form-section-title">Себестоимость за 1 шт</div>
+            <div className="form-section-hint">Считается сама: сумма × курс ÷ количество. Вручную не редактируется</div>
+
+            <div className="batch-form-row">
+              <div className="batch-form-field">
+                <label>Закупка</label>
+                <div className="batch-computed-value">{purchasePrice ? formatMoney(purchasePrice) : '—'}</div>
+              </div>
+              <div className="batch-form-field">
+                <label>Логистика</label>
+                <div className="batch-computed-value">{logisticsCost ? formatMoney(logisticsCost) : '0 ₸'}</div>
+              </div>
+              <div className="batch-form-field">
+                <label>Итого за 1 шт</label>
+                <div className="batch-computed-value batch-computed-total">{formatMoney(costPrice)}</div>
+              </div>
+            </div>
           </div>
 
-          <div className="batch-form-row">
+          <div className="form-section">
+            <div className="form-section-title">Примечание</div>
+
             <div className="batch-form-field">
-              <label>Статус поставки</label>
-              <select
-                className="product-select"
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              >
-                <option value="received">Прибыло</option>
-                <option value="in_transit">В пути</option>
-              </select>
-            </div>
-            <div className="batch-form-field">
-              <label>Количество, шт</label>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                required
+              <textarea
+                className="batch-note-input"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Необязательно — например, номер поставщика или комментарий"
+                rows={3}
               />
-              {isEdit && (
-                <span className="batch-field-hint">Сейчас остаток: {formatNumber(editingBatch.remaining_quantity)} шт</span>
-              )}
             </div>
-            <div className="batch-form-field">
-              <label>{status === 'in_transit' ? 'Ожидаемая дата поставки' : 'Дата поступления'}</label>
-              <input
-                type="date"
-                value={receivedDate}
-                onChange={(e) => setReceivedDate(e.target.value)}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="batch-form-field">
-            <label>Примечание</label>
-            <textarea
-              className="batch-note-input"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Необязательно — например, номер поставщика или комментарий"
-              rows={3}
-            />
           </div>
 
           <button className="primary-button batch-submit" type="submit" disabled={saving}>
