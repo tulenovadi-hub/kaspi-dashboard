@@ -5,10 +5,14 @@ const { pool } = require('../db');
 
 const router = express.Router();
 
-// Лист "Расход" в гугл-таблице владельца. Доступ открыт по ссылке ("Все у кого есть ссылка → Читатель"),
-// поэтому можно читать через публичный CSV-экспорт Google Sheets, без ключей и сервисных аккаунтов.
-const SPREADSHEET_ID = '1vFY-Oyp426_aPn41fEhLa9YqHchlqeQ8jMhs685IDEk';
-const SHEET_GID = '2038389366';
+// Лист "Бизнес" в гугл-таблице владельца (общая книга личных/семейных финансов, куда бизнес-расходы
+// пишет мобильное приложение — отсюда колонки "Время", "Кто", "ID"). Доступ открыт по ссылке
+// ("Все у кого есть ссылка → Читатель"), поэтому читаем через публичный CSV-экспорт Google Sheets,
+// без ключей и сервисных аккаунтов.
+// До 2026-08-27 источником был отдельный лист "Расход" в книге 1vFY-Oyp...685IDEk (gid 2038389366) —
+// вся его история перенесена сюда, старая книга оставлена только как эталон для сверки.
+const SPREADSHEET_ID = '1QZvZ8yS3os8rHyYWwmbe-WOS-fnpBoYj_Uj3ToiYPYY';
+const SHEET_GID = '306790768';
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=${SHEET_GID}`;
 
 function parseNumber(value) {
@@ -17,13 +21,56 @@ function parseNumber(value) {
   return Number.isFinite(num) ? num : 0;
 }
 
-// В таблице даты в формате ДД/ММ/ГГГГ
+// Даты в листе — текст. Приложение пишет их как ДД.ММ.ГГГГ, в перенесённой истории из старого
+// листа "Расход" тот же формат, но встречается и ДД/ММ/ГГГГ — принимаем оба, плюс ISO на случай,
+// если Google Таблицы сами превратят ячейку в настоящую дату.
 function parseSheetDate(value) {
   if (!value) return null;
-  const match = String(value).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!match) return null;
-  const [, day, month, year] = match;
+  const raw = String(value).trim();
+
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso) {
+    const [, year, month, day] = iso;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+
+  const dmy = raw.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
+  if (!dmy) return null;
+  const [, day, month, year] = dmy;
   return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+}
+
+// "Отчёт" завязан на ТОЧНЫЕ названия категорий: "Прочие затраты" вычитаются из чистой прибыли,
+// "Упаковка" идёт в отчёте отдельной колонкой, а "Товар" и "Вывод" из расходов исключаются
+// (товар уже учтён через себестоимость по партиям FIFO, вывод — дивиденды собственника, а не
+// расход бизнеса). В приложении, которое пишет в лист, названия категорий свои, поэтому
+// приводим их к каноническим здесь, в одном месте. Сравнение без учёта регистра.
+const CATEGORY_ALIASES = {
+  'прочие затраты': 'Прочие затраты',
+  'прочее': 'Прочие затраты',
+  'прочие': 'Прочие затраты',
+  'операционные расходы': 'Прочие затраты',
+  'товар': 'Товар',
+  'товары': 'Товар',
+  'закуп товара': 'Товар',
+  'закупка товара': 'Товар',
+  'вывод': 'Вывод',
+  'выводы': 'Вывод',
+  'дивиденды': 'Вывод',
+  'упаковка': 'Упаковка',
+  'фулфилмент': 'Упаковка',
+  'доставка': 'Доставка',
+};
+const KNOWN_CATEGORIES = new Set(Object.values(CATEGORY_ALIASES));
+
+// Незнакомую категорию НЕ выбрасываем и ни к чему не приравниваем — сохраняем как есть, чтобы
+// запись было видно на странице "Расходы", и отдельно возвращаем список таких категорий в ответе
+// синхронизации. Молча приписать её к "Прочим затратам" опаснее: так в расходы может попасть
+// закупка товара и отчёт задвоит себестоимость.
+function normalizeCategory(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return CATEGORY_ALIASES[raw.toLowerCase()] || raw;
 }
 
 function findCol(headers, ...candidates) {
@@ -63,18 +110,22 @@ router.post('/sync', async (req, res) => {
   const headers = rows[0].map((h) => String(h || ''));
   const idx = {
     date: findCol(headers, 'Дата'),
-    name: findCol(headers, 'Наименования', 'Наименование'),
+    // "Описание" — как колонка называется в новом листе, остальные варианты остались от старого
+    name: findCol(headers, 'Описание', 'Наименования', 'Наименование'),
     category: findCol(headers, 'Категория'),
-    source: findCol(headers, 'From', 'Откуда'),
+    source: findCol(headers, 'Источник', 'From', 'Откуда'),
     amount: findCol(headers, 'Сумма'),
-    comment: findCol(headers, 'Коментарий', 'Комментарий'),
+    // В старом листе в "Коментарий" писали, кто сделал расход — в новом для этого есть "Кто"
+    comment: findCol(headers, 'Кто', 'Коментарий', 'Комментарий'),
   };
 
   if (idx.date === -1 || idx.amount === -1) {
-    return res.status(400).json({ error: 'Не найдены ожидаемые колонки (Дата, Сумма) — проверьте структуру листа "Расход"' });
+    return res.status(400).json({ error: 'Не найдены ожидаемые колонки (Дата, Сумма) — проверьте структуру листа "Бизнес"' });
   }
 
   const records = [];
+  const unknownCategories = new Map(); // категория -> сколько строк
+  let withoutDate = 0;
   for (let i = 1; i < rows.length; i += 1) {
     const row = rows[i];
     if (!row || row.every((cell) => cell === '' || cell === null || cell === undefined)) continue;
@@ -83,10 +134,19 @@ router.post('/sync', async (req, res) => {
     const amount = parseNumber(row[idx.amount]);
     if (!date && !amount) continue; // пустая/технический мусор строка
 
+    // Запись без распознанной даты в базу попадёт, но выпадет и из сводки по месяцам, и из
+    // "Отчёта" — раньше это происходило молча, теперь считаем такие строки и показываем на странице.
+    if (!date) withoutDate += 1;
+
+    const category = idx.category !== -1 ? normalizeCategory(row[idx.category]) : '';
+    if (category && !KNOWN_CATEGORIES.has(category)) {
+      unknownCategories.set(category, (unknownCategories.get(category) || 0) + 1);
+    }
+
     records.push({
       date,
       name: idx.name !== -1 ? String(row[idx.name] || '') : '',
-      category: idx.category !== -1 ? String(row[idx.category] || '') : '',
+      category,
       source: idx.source !== -1 ? String(row[idx.source] || '') : '',
       amount,
       comment: idx.comment !== -1 ? String(row[idx.comment] || '') : '',
@@ -114,7 +174,12 @@ router.post('/sync', async (req, res) => {
     client.release();
   }
 
-  res.json({ ok: true, processed: records.length });
+  res.json({
+    ok: true,
+    processed: records.length,
+    withoutDate,
+    unknownCategories: Array.from(unknownCategories, ([name, count]) => ({ name, count })),
+  });
 });
 
 router.get('/', async (req, res) => {

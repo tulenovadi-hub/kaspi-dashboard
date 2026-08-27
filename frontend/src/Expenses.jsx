@@ -11,6 +11,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [syncMessage, setSyncMessage] = useState('');
+  const [syncWarnings, setSyncWarnings] = useState([]);
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -40,10 +41,30 @@ export default function Expenses({ password, active = true, isOnline = true }) {
   function handleSync() {
     setSyncing(true);
     setSyncMessage('');
+    setSyncWarnings([]);
     setError('');
     syncExpenses(password)
       .then((res) => {
         setSyncMessage(`Обновлено расходов: ${res.processed}`);
+
+        // Две вещи, которые раньше ломались молча: строка с непонятной датой выпадает и из сводки
+        // по месяцам, и из "Отчёта"; незнакомая категория не попадает ни в "прочие затраты",
+        // ни в "упаковку" отчёта. Показываем обе прямо здесь, чтобы это было видно сразу.
+        const warnings = [];
+        if (res.withoutDate > 0) {
+          warnings.push(
+            `Строк с нераспознанной датой: ${res.withoutDate}. Они не попадут ни в сводку по месяцам, ` +
+            'ни в «Отчёт» — проверьте формат даты в таблице (нужен ДД.ММ.ГГГГ).'
+          );
+        }
+        if (res.unknownCategories && res.unknownCategories.length > 0) {
+          const list = res.unknownCategories.map((c) => `«${c.name}» (${c.count})`).join(', ');
+          warnings.push(
+            `Незнакомые категории: ${list}. В «Отчёте» они не учитываются. Ожидаются: ` +
+            'Прочие затраты, Товар, Вывод, Упаковка, Доставка.'
+          );
+        }
+        setSyncWarnings(warnings);
         loadData();
       })
       .catch((err) => setError(err.message))
@@ -78,7 +99,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
           <div>
             <div className="report-upload-title">Синхронизация с Google Таблицей</div>
             <div className="report-upload-hint">
-              Данные подтягиваются напрямую из листа «Расход» вашей гугл-таблицы. Нажмите «Обновить», чтобы подтянуть свежие записи —
+              Данные подтягиваются напрямую из листа «Бизнес» вашей гугл-таблицы. Нажмите «Обновить», чтобы подтянуть свежие записи —
               вся таблица расходов на сайте перезапишется тем, что сейчас есть в гугл-таблице.
             </div>
           </div>
@@ -87,6 +108,9 @@ export default function Expenses({ password, active = true, isOnline = true }) {
           </button>
         </div>
         {syncMessage && <div className="report-upload-success">{syncMessage}</div>}
+        {syncWarnings.map((w) => (
+          <div key={w} className="expenses-sync-warning">{w}</div>
+        ))}
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -171,7 +195,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
                     <th>Категория</th>
                     <th>Источник</th>
                     <th className="num">Сумма</th>
-                    <th>Комментарий</th>
+                    <th>Кто</th>
                   </tr>
                 </thead>
                 <tbody>

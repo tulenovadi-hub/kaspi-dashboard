@@ -1842,6 +1842,19 @@ select:focus-visible {
   padding: 4px;
 }
 
+/* Предупреждения после синхронизации расходов: нераспознанные даты и незнакомые категории.
+   Это не ошибка загрузки (данные подтянулись), но такие строки выпадают из "Отчёта". */
+.expenses-sync-warning {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent-down);
+  background: rgba(255, 107, 107, 0.06);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  border-radius: 4px;
+}
+
 .expenses-total {
   margin-top: 14px;
   padding: 10px 14px;
