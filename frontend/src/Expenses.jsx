@@ -61,7 +61,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
           const list = res.unknownCategories.map((c) => `«${c.name}» (${c.count})`).join(', ');
           warnings.push(
             `Незнакомые категории: ${list}. В «Отчёте» они не учитываются. Ожидаются: ` +
-            'Прочие затраты, Товар, Вывод, Упаковка, Доставка.'
+            'Прочие затраты, Товар, Вывод, Упаковка, Логистика.'
           );
         }
         setSyncWarnings(warnings);
