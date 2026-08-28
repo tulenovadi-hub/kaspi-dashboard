@@ -81,9 +81,12 @@ const TAX_RATE = 0.03;
 // Обрабатывает ВСЮ историю (а не только запрошенный период) — иначе некорректно определится,
 // какая партия к этому моменту уже была списана более ранними продажами.
 async function computeCostsByOrderItem(mode) {
+  // Только прибывшие партии — тот же фильтр, что в costEngine.computeCosts и computeWarehouseStock.
+  // Партия "в пути" физически не на складе, списывать с неё себестоимость нельзя.
   const batchesResult = await pool.query(`
     SELECT product_id, warehouse, cost_price, quantity, received_date
     FROM product_batches
+    WHERE status = 'received'
     ORDER BY product_id, warehouse, received_date, id
   `);
   const batchesByKey = new Map();
@@ -377,7 +380,9 @@ router.get('/summary-profit', async (req, res) => {
 // ручках этого файла (mode selfbuy/main), а не через список конкретных городов.
 async function computeProductDailyCost(productId, mode) {
   const batchesResult = await pool.query(
-    `SELECT warehouse, cost_price, quantity FROM product_batches WHERE product_id = $1 ORDER BY warehouse, received_date, id`,
+    // status = 'received' — см. комментарий в computeCostsByOrderItem выше
+    `SELECT warehouse, cost_price, quantity FROM product_batches
+     WHERE product_id = $1 AND status = 'received' ORDER BY warehouse, received_date, id`,
     [productId]
   );
   const batchesByWarehouse = new Map();

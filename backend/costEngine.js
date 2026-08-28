@@ -26,9 +26,17 @@ const { STOCK_CUTOFF_DATE } = require('./constants');
 // cogsByProductMonth/returnsCostByProductMonth — та же себестоимость, но разбитая ещё и по
 // товару (нужно для разворачиваемого списка товаров на странице "Отчёт").
 async function computeCosts(warehouses) {
+  // Только ПРИБЫВШИЕ партии (status = 'received') — ровно тот же фильтр, что в computeWarehouseStock
+  // (routes/warehouse.js). Партия "в пути" физически ещё не на складе, продать с неё нельзя, значит
+  // и списывать себестоимость с неё нельзя. Без этого фильтра FIFO, исчерпав прибывшие партии,
+  // молча переходил на партию в пути и брал её цену: заказ 1047398639 (Проектор TOMMILI LUMIX HD,
+  // выручка 69 900 ₸) получил себестоимость 1 464 000 ₸ с партии id=27, которая ещё не приехала,
+  // и ушёл в минус на 2009%. Заодно это чинило бы и случай партии с БУДУЩЕЙ датой поступления:
+  // раньше сентябрьская партия могла списаться августовским заказом.
   const batchesResult = await pool.query(`
     SELECT product_id, warehouse, cost_price, quantity, received_date
     FROM product_batches
+    WHERE status = 'received'
     ORDER BY product_id, warehouse, received_date, id
   `);
 
