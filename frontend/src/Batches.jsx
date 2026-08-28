@@ -30,6 +30,14 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
   useBodyScrollLock();
 
   const [productId, setProductId] = useState(editingBatch ? editingBatch.product_id : '');
+  // Новый товар: карточка на Kaspi уже создана, партия едет, но продаж ещё не было — значит
+  // в выпадающем списке его нет. Тогда артикул и название вводятся руками.
+  const [manualProduct, setManualProduct] = useState(false);
+  const [manualProductId, setManualProductId] = useState('');
+  const [manualProductName, setManualProductName] = useState('');
+  const matchedManualProduct = manualProduct
+    ? products.find((p) => p.product_id === manualProductId.trim() && p.from_sales !== false)
+    : null;
   const [warehouse, setWarehouse] = useState(editingBatch ? editingBatch.warehouse : 'Алматы');
   const [purchasePrice, setPurchasePrice] = useState(editingBatch ? String(editingBatch.purchase_price) : '');
   const [logisticsCost, setLogisticsCost] = useState(editingBatch ? String(editingBatch.logistics_cost) : '');
@@ -142,15 +150,30 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
       return;
     }
 
-    const product = products.find((p) => p.product_id === productId);
-    if (!product) {
-      setError('Выберите товар из списка');
-      setSaving(false);
-      return;
+    let chosen;
+    if (manualProduct) {
+      const id = manualProductId.trim();
+      const name = manualProductName.trim();
+      if (!id || !name) {
+        setError('Для нового товара заполните артикул и название');
+        setSaving(false);
+        return;
+      }
+      // Если такой артикул уже есть в продажах — берём название оттуда: оно от Kaspi
+      // и точно совпадает с тем, что будет приходить в заказах.
+      const known = products.find((p) => p.product_id === id);
+      chosen = { product_id: id, product_name: known ? known.product_name : name };
+    } else {
+      chosen = products.find((p) => p.product_id === productId);
+      if (!chosen) {
+        setError('Выберите товар из списка');
+        setSaving(false);
+        return;
+      }
     }
     addBatch(password, {
-      product_id: product.product_id,
-      product_name: product.product_name,
+      product_id: chosen.product_id,
+      product_name: chosen.product_name,
       ...payload,
     })
       .then(() => onSaved())
@@ -181,6 +204,14 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
                 <label>Товар</label>
                 {isEdit ? (
                   <input type="text" value={editingBatch.product_name} disabled />
+                ) : manualProduct ? (
+                  <input
+                    type="text"
+                    value={manualProductName}
+                    onChange={(e) => setManualProductName(e.target.value)}
+                    placeholder="Название товара"
+                    maxLength={200}
+                  />
                 ) : (
                   <select
                     className="product-select"
@@ -190,9 +221,23 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
                   >
                     <option value="" disabled>Выберите товар...</option>
                     {products.map((p) => (
-                      <option key={p.product_id} value={p.product_id}>{p.product_name}</option>
+                      <option key={p.product_id} value={p.product_id}>
+                        {p.product_name}{p.from_sales === false ? ' — продаж ещё нет' : ''}
+                      </option>
                     ))}
                   </select>
+                )}
+                {!isEdit && (
+                  <button
+                    type="button"
+                    className="batch-manual-toggle"
+                    onClick={() => {
+                      setManualProduct(!manualProduct);
+                      setError('');
+                    }}
+                  >
+                    {manualProduct ? '← Выбрать из списка' : 'Товара нет в списке — ввести вручную'}
+                  </button>
                 )}
               </div>
               <div className="batch-form-field">
@@ -209,6 +254,33 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
                 </select>
               </div>
             </div>
+
+            {/* Артикул — единственное, что связывает партию с продажами при FIFO-списании.
+                Ошибка в нём не даст никакой ошибки при сохранении: партия просто ляжет в базу
+                и никогда ни с чем не свяжется, себестоимость по товару так и не спишется.
+                Поэтому поле идёт отдельной строкой во всю ширину и с подписью, откуда его взять. */}
+            {!isEdit && manualProduct && (
+              <div className="batch-form-field batch-form-field-full">
+                <label>Артикул (код товара)</label>
+                <input
+                  type="text"
+                  value={manualProductId}
+                  onChange={(e) => setManualProductId(e.target.value)}
+                  placeholder="например, TM-D34"
+                  maxLength={100}
+                />
+                {matchedManualProduct ? (
+                  <span className="batch-field-hint batch-field-hint-ok">
+                    Такой артикул уже есть в продажах: «{matchedManualProduct.product_name}» — возьмём это название
+                  </span>
+                ) : (
+                  <span className="batch-field-hint">
+                    Тот же артикул, что в карточке товара на Kaspi (в кабинете продавца — «Артикул»).
+                    Должен совпасть символ в символ, иначе продажи не привяжутся к этой партии.
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Количество стоит ВЫШЕ блоков с суммами намеренно: обе суммы делятся именно на

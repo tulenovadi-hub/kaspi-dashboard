@@ -21,6 +21,10 @@ function optionalNumber(value) {
 // известного списка. Ошибку не кидаем: это необязательная часть формы, и одна кривая
 // строка не должна мешать сохранить всю поставку.
 const MAX_EXPENSE_NAME_LENGTH = 60;
+// Артикул (product_id) — это offer.code из заказа Kaspi, ключ, по которому партия связывается
+// с продажами при FIFO-списании. Название — только для отображения.
+const MAX_PRODUCT_ID_LENGTH = 100;
+const MAX_PRODUCT_NAME_LENGTH = 200;
 const MAX_EXTRA_EXPENSES = 20;
 
 function normalizeExtraExpenses(value) {
@@ -49,14 +53,35 @@ function extraExpensesPerUnit(expenses, qty) {
   return totalKzt / qty;
 }
 
-// Список всех продуктов, которые когда-либо продавались — нужно для выпадающего
-// списка при добавлении новой партии, чтобы не вводить название вручную и не ошибиться.
+// Список товаров для выпадающего списка при добавлении партии — чтобы не вводить название
+// руками и не ошибиться в артикуле. Источников два:
+//   1) order_items — всё, что когда-либо продавалось (приходит из API Kaspi при синхронизации);
+//   2) product_batches — товары, добавленные вручную на "Поставках".
+// Второй источник нужен для НОВОГО товара: карточка на Kaspi уже создана, товар едет, но
+// продаж ещё не было — значит в order_items его нет и в списке он бы не появился. Один раз
+// введя его вручную, дальше его можно выбирать из списка как обычно.
+// from_sales показывает, есть ли по товару реальные продажи: у введённого вручную артикула
+// это false, и на фронтенде рядом с ним видна пометка — если артикул набран с ошибкой,
+// продажи к нему никогда не привяжутся, и такая пометка останется навсегда.
 router.get('/products', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT DISTINCT product_id, product_name
-       FROM order_items
-       WHERE product_id IS NOT NULL
+      `WITH all_products AS (
+         SELECT product_id, product_name, true AS from_sales
+         FROM order_items
+         WHERE product_id IS NOT NULL
+         UNION ALL
+         SELECT product_id, product_name, false
+         FROM product_batches
+         WHERE product_id IS NOT NULL
+       )
+       SELECT product_id,
+              -- если товар есть и в продажах, и в поставках, показываем название из продаж:
+              -- оно приходит от Kaspi и всегда актуальнее того, что набрали руками
+              (array_agg(product_name ORDER BY from_sales DESC))[1] AS product_name,
+              bool_or(from_sales) AS from_sales
+       FROM all_products
+       GROUP BY product_id
        ORDER BY product_name`
     );
     res.json({ products: result.rows });
@@ -90,7 +115,11 @@ router.post('/', async (req, res) => {
     extra_expenses,
   } = req.body;
 
-  if (!product_id || !product_name) {
+  // product_id/product_name могут прийти как из выпадающего списка, так и набранными вручную
+  // (новый товар, которого ещё не было в продажах), поэтому чистим и ограничиваем длину.
+  const productId = String(product_id || '').trim().slice(0, MAX_PRODUCT_ID_LENGTH);
+  const productName = String(product_name || '').trim().slice(0, MAX_PRODUCT_NAME_LENGTH);
+  if (!productId || !productName) {
     return res.status(400).json({ error: 'Не указан товар' });
   }
   if (!warehouse || !VALID_WAREHOUSES.includes(warehouse)) {
@@ -131,7 +160,7 @@ router.post('/', async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
                  purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses`,
-      [product_id, product_name, costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, received_date, batchStatus,
+      [productId, productName, costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, received_date, batchStatus,
         purchaseCurrency, purchaseAmountForeign, purchaseRate, logisticsCurrency, logisticsAmountForeign, logisticsRate,
         JSON.stringify(extraExpenses)]
     );
