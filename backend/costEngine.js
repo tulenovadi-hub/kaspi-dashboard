@@ -144,7 +144,20 @@ async function computeCosts(warehouses) {
       addProductCost(cogsByProductMonth, row.month, row.product_id, cost);
       addOrderCost(row.order_number, row.operation_type, cost);
     }
-    // если qtyToConsume всё ещё > 0 — партий не хватило (oversold), эта часть остаётся без себестоимости
+
+    // Продано больше, чем реально приехало (oversold). Раньше такая часть оставалась вообще без
+    // себестоимости — заказ показывал прибыль, равную всей выручке, что хуже любой оценки.
+    // Берём цену ПОСЛЕДНЕЙ прибывшей партии как временную: это ближайшая известная цена закупки
+    // этого товара. Оценка сама себя исправит — computeCosts() считает FIFO с нуля при каждом
+    // вызове, поэтому как только партия отмечена прибывшей, эти же продажи спишутся с неё
+    // по настоящей цене. Если прибывших партий нет вообще (весь товар ещё в пути), оценивать
+    // нечем — цену партии "в пути" не берём, именно это и было багом заказа 1047398639.
+    if (qtyToConsume > 0) {
+      const cost = qtyToConsume * batches[batches.length - 1].cost_price;
+      cogsByMonth[row.month] = (cogsByMonth[row.month] || 0) + cost;
+      addProductCost(cogsByProductMonth, row.month, row.product_id, cost);
+      addOrderCost(row.order_number, row.operation_type, cost);
+    }
   }
 
   return { cogsByMonth, returnsCostByMonth, cogsByProductMonth, returnsCostByProductMonth, byOrderKey };

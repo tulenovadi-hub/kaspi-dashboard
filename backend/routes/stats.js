@@ -149,6 +149,9 @@ async function computeCostsByOrderItem(mode) {
       qty -= consume;
       cost += consume * batch.cost_price;
     }
+    // Продано больше, чем приехало — оцениваем по цене последней прибывшей партии
+    // (см. подробный комментарий в costEngine.computeCosts).
+    if (qty > 0) cost += qty * batches[batches.length - 1].cost_price;
     costByOrderItem[itemKey] = (costByOrderItem[itemKey] || 0) + cost;
   }
 
@@ -432,6 +435,9 @@ async function computeProductDailyCost(productId, mode) {
       qty -= consume;
       costByDay[row.day] = (costByDay[row.day] || 0) + consume * batch.cost_price;
     }
+    // Продано больше, чем приехало — оцениваем по цене последней прибывшей партии
+    // (см. подробный комментарий в costEngine.computeCosts).
+    if (qty > 0) costByDay[row.day] = (costByDay[row.day] || 0) + qty * batches[batches.length - 1].cost_price;
   }
   return costByDay;
 }
