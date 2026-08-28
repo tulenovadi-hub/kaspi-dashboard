@@ -266,7 +266,7 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
                   type="text"
                   value={manualProductId}
                   onChange={(e) => setManualProductId(e.target.value)}
-                  placeholder="например, TM-D34"
+                  placeholder="например, 305435303"
                   maxLength={100}
                 />
                 {matchedManualProduct ? (
@@ -275,8 +275,10 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
                   </span>
                 ) : (
                   <span className="batch-field-hint">
-                    Тот же артикул, что в карточке товара на Kaspi (в кабинете продавца — «Артикул»).
-                    Должен совпасть символ в символ, иначе продажи не привяжутся к этой партии.
+                    Артикул из карточки товара на Kaspi (в кабинете продавца — «Артикул»),
+                    символ в символ. Проверить просто: после первой продажи товар должен
+                    пропасть из списка с пометкой «продаж ещё нет». Если пометка осталась —
+                    артикул не совпал, и партию нужно завести заново с правильным.
                   </span>
                 )}
               </div>
