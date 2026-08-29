@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { VIEW_BOX, REGION_SHAPES, CITY_REGIONS, CITY_POINTS } from './kazakhstanMap.js';
+import { VIEW_BOX, REGION_SHAPES, CITY_REGIONS, CITY_POINTS, projectLonLat } from './kazakhstanMap.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
 
 // Заливка области: чем больше значение, тем ярче фирменный синий. Степень 0.65, а не сама
@@ -42,15 +42,16 @@ export default function KazakhstanMap({ regions, cities, metric, view }) {
     [regions, metric]
   );
 
-  // Города, для которых есть координаты. Остальные (мелкие сёла, которых нет в справочнике
-  // координат) на карте не рисуются, но в таблице городов под картой они есть — поэтому
-  // ничего не теряется молча.
+  // Города, для которых есть координаты: сначала справочник geonames, затем координаты из
+  // самого заказа (Kaspi присылает их у своей доставки — как раз у мелких сёл, которых в
+  // справочнике нет). Что не легло ни туда, ни туда, на карте не рисуется, но в таблице
+  // городов под картой есть — поэтому ничего не теряется молча.
   const cityPoints = useMemo(() => {
     const list = [];
     for (const c of cities) {
-      const point = CITY_POINTS[c.key];
-      if (!point) continue;
       if (valueOf(c) <= 0) continue;
+      const point = CITY_POINTS[c.pointKey] || CITY_POINTS[c.key] || projectLonLat(c.lon, c.lat);
+      if (!point) continue;
       list.push({ ...c, x: point[0], y: point[1] });
     }
     // мелкие рисуем поверх крупных, иначе большой пузырь Алматы накрывает соседей

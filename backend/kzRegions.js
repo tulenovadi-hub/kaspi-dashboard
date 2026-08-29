@@ -9,6 +9,8 @@
 // Жетысу → Алматинская, Улытау → Карагандинская. Для задачи "куда идут заказы и где ставить
 // склад" это не мешает: география от переименования не изменилась.
 
+const { regionAt } = require('./kzRegionShapes');
+
 // id должны совпадать с id в frontend/src/kazakhstanMap.js — по ним карта раскрашивается.
 const REGIONS = [
   { id: 'astana', name: 'Астана', short: 'Астана', isCity: true },
@@ -80,6 +82,7 @@ const CITIES_BY_REGION = {
     'байсерке', 'узынагаш', 'шелек', 'чунджа', 'сарыозек', 'достык', 'алатау', 'боралдай',
     'коксу', 'каратал', 'жансугуров', 'кегень', 'нарынкол', 'бесагаш', 'туганбай',
     'абай (алматинская)', 'ушконыр', 'фабричный', 'кыргауылды', 'панфилов',
+    'туздыбастау', 'каргалы', 'коктобе', 'жетыген', 'николаевка', 'первомайка',
   ],
   atyrau: [
     'атырау', 'кульсары', 'доссор', 'индербор', 'индерборский', 'макат', 'миялы',
@@ -106,7 +109,7 @@ const CITIES_BY_REGION = {
     'караганда', 'караганды', 'темиртау', 'жезказган', 'балхаш', 'сатпаев', 'сарань',
     'шахтинск', 'абай', 'каражал', 'приозерск', 'каркаралинск', 'осакаровка', 'актогай',
     'улытау', 'атасу', 'жанаарка', 'дубовка', 'молодежный', 'топар', 'киевка', 'жезды',
-    'шетский', 'агадырь', 'акадыр', 'аксу-аюлы', 'ботакара', 'жартас',
+    'шетский', 'агадырь', 'акадыр', 'аксу-аюлы', 'ботакара', 'жартас', 'юбилейное',
   ],
   kostanay: [
     'костанай', 'кустанай', 'рудный', 'лисаковск', 'лисаковский', 'житикара', 'аркалык',
@@ -130,7 +133,7 @@ const CITIES_BY_REGION = {
   ],
   'north-kz': [
     'петропавловск', 'петропавл', 'булаево', 'тайынша', 'мамлютка', 'сергеевка',
-    'смирново', 'явленка', 'юбилейное', 'новоишимское', 'возвышенка', 'бишкуль',
+    'смирново', 'явленка', 'новоишимское', 'возвышенка', 'бишкуль',
     'соколовка', 'кызылжар', 'саумалколь', 'володарское', 'пресновка', 'чкалово',
     'корнеевка', 'астраханка (ско)', 'бесколь', 'токсан би', 'новорыбинка',
   ],
@@ -142,6 +145,41 @@ const CITIES_BY_REGION = {
     'жибек жолы', 'казыгурт', 'толеби', 'бадам', 'манкент', 'куркелес',
   ],
 };
+
+// Kaspi часто уточняет область прямо в названии населённого пункта: "Кайнар (Жамбыл.обл.)",
+// "Юбилейное(Карг.Обл)". Это самый надёжный источник — надёжнее нашего справочника, потому что
+// одноимённых сёл в стране много. Ключи ниже сравниваются с содержимым скобок по началу строки.
+const REGION_HINTS = {
+  akmola: ['акмолин', 'акм'],
+  aktobe: ['актюбин', 'актоб'],
+  'almaty-region': ['алматин', 'алм'],
+  atyrau: ['атырау'],
+  'east-kz': ['восточно', 'вко', 'вост', 'абай'],
+  zhambyl: ['жамбыл', 'жамб'],
+  'west-kz': ['западно', 'зко', 'зап'],
+  karaganda: ['караганд', 'карг', 'кар', 'улытау'],
+  kostanay: ['костанай', 'кост'],
+  kyzylorda: ['кызылорд', 'кзо', 'кызыл'],
+  mangystau: ['мангистау', 'мангыстау', 'манг'],
+  pavlodar: ['павлодар', 'павл'],
+  'north-kz': ['северо', 'ско', 'сев'],
+  turkestan: ['туркестан', 'турк', 'южно', 'юко'],
+};
+
+// Достаёт из "Кайнар (Жамбыл.обл.)" область. Возвращает id области или null.
+function regionFromHint(cityRaw) {
+  const match = String(cityRaw || '').match(/\(([^)]+)\)/);
+  if (!match) return null;
+  let hint = normalizeCity(match[1]).replace(/[.\s-]/g, '');
+  hint = hint.replace(/(область|обл|области|облть)$/, '');
+  if (!hint) return null;
+  for (const [regionId, aliases] of Object.entries(REGION_HINTS)) {
+    for (const alias of aliases) {
+      if (hint.startsWith(alias)) return regionId;
+    }
+  }
+  return null;
+}
 
 const CITY_TO_REGION = {};
 for (const [regionId, cities] of Object.entries(CITIES_BY_REGION)) {
@@ -174,23 +212,44 @@ Object.assign(CITY_TO_REGION, {
   каратал: 'almaty-region',
 });
 
-// Возвращает id области по названию города или null, если город неизвестен.
-function resolveRegion(cityRaw) {
+// Название города без уточнения в скобках и без района после запятой: "Кайнар (Жамбыл.обл.)"
+// и "Алматы, Бостандыкский район" -> "кайнар" и "алматы".
+function cityHead(cityRaw) {
+  return normalizeCity(String(cityRaw || '').split(/[,(]/)[0]);
+}
+
+// Возвращает id области по названию города или null, если определить не удалось.
+//
+// Порядок важен: подсказка Kaspi в скобках вернее нашего справочника (одноимённых сёл в стране
+// много, и именно так выяснилось, что Юбилейное — карагандинское, а не северо-казахстанское),
+// а координаты заказа — последний рубеж: они есть только у заказов своей доставки, зато как раз
+// у них в адресе стоят мелкие сёла, которых в справочнике нет.
+function resolveRegion(cityRaw, coords) {
+  const hinted = regionFromHint(cityRaw);
+  if (hinted) return hinted;
+
   const key = normalizeCity(cityRaw);
-  if (!key) return null;
-  if (CITY_TO_REGION[key]) return CITY_TO_REGION[key];
-  // Иногда приходит "Алматы, Бостандыкский район" или "Астана (Есильский р-н)" —
-  // пробуем первую часть до запятой/скобки.
-  const head = normalizeCity(key.split(/[,(]/)[0]);
+  if (key && CITY_TO_REGION[key]) return CITY_TO_REGION[key];
+
+  const head = cityHead(cityRaw);
   if (head && CITY_TO_REGION[head]) return CITY_TO_REGION[head];
+
+  if (coords) {
+    const byCoords = regionAt(coords.lon, coords.lat);
+    if (byCoords) return byCoords;
+  }
   return null;
 }
 
-// Красивое имя города для таблицы: с заглавной буквы, без приставки "г."
+// Красивое имя города для таблицы: с заглавной буквы, без приставки "г." и без уточнения
+// области в скобках — область и так стоит в соседней колонке.
 function displayCity(cityRaw) {
-  const s = String(cityRaw || '').trim().replace(PREFIXES, '');
+  const s = String(cityRaw || '').trim().replace(PREFIXES, '').replace(/\s*\([^)]*\)\s*$/, '').trim();
   if (!s) return '';
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-module.exports = { REGIONS, REGION_BY_ID, CITY_TO_REGION, normalizeCity, resolveRegion, displayCity };
+module.exports = {
+  REGIONS, REGION_BY_ID, CITY_TO_REGION,
+  normalizeCity, cityHead, resolveRegion, regionFromHint, displayCity,
+};

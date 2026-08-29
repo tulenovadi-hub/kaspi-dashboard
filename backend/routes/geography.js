@@ -1,7 +1,7 @@
 const express = require('express');
 const { pool } = require('../db');
 const { MAIN_CITIES, SELF_BUY_CITIES } = require('../warehouseMapping');
-const { REGIONS, REGION_BY_ID, resolveRegion, normalizeCity, displayCity } = require('../kzRegions');
+const { REGIONS, REGION_BY_ID, resolveRegion, normalizeCity, cityHead, displayCity } = require('../kzRegions');
 
 const router = express.Router();
 
@@ -12,26 +12,35 @@ function isValidDate(str) {
   return /^\d{4}-\d{2}-\d{2}$/.test(str);
 }
 
-// Читаемые названия режимов доставки Kaspi. Значения приходят в attributes.deliveryMode;
-// если Kaspi добавит новый режим, он не потеряется — покажем сам код (см. modeLabel).
-const DELIVERY_MODE_LABELS = {
-  DELIVERY_LOCAL: 'Доставка по городу',
-  DELIVERY_REGIONAL_TODOOR: 'Межгород, до двери',
-  DELIVERY_REGIONAL_PICKUP: 'Межгород, до пункта выдачи',
-  DELIVERY_PICKUP: 'Самовывоз от продавца',
-  DELIVERY_POSTOMAT: 'Постомат',
-};
+function num(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
 
+// Читаемые названия способов доставки.
+//
+// ВАЖНО про DELIVERY_PICKUP: это НЕ "покупатель зашёл к нам в магазин". У Kaspi это "покупатель
+// забирает сам", и в подавляющем большинстве случаев (isKaspiDelivery = true) заказ до пункта
+// выдачи везёт Kaspi, а нам за это выставляют счёт — проверено на живых заказах: заказ из
+// Алматы в Караганду с DELIVERY_PICKUP стоил нам 1507 ₸ доставки. Настоящий самовывоз от
+// продавца — это тот же режим, но с isKaspiDelivery = false.
 function modeLabel(mode, isKaspiDelivery) {
-  const base = DELIVERY_MODE_LABELS[mode] || mode || 'Способ не указан';
-  // Самовывоз от продавца по определению не бывает "Kaspi доставкой", уточнение там лишнее.
-  if (mode === 'DELIVERY_PICKUP' || isKaspiDelivery === null) return base;
+  if (mode === 'DELIVERY_PICKUP') {
+    return isKaspiDelivery === false ? 'Самовывоз от продавца' : 'Kaspi доставка, до пункта выдачи';
+  }
+  const base = {
+    DELIVERY_LOCAL: 'Доставка по городу',
+    DELIVERY_REGIONAL_TODOOR: 'Межгород, до двери',
+    DELIVERY_REGIONAL_PICKUP: 'Межгород, до пункта выдачи',
+    DELIVERY_POSTOMAT: 'Постомат',
+  }[mode] || mode || 'Способ не указан';
+  if (isKaspiDelivery === null) return base;
   return `${base} (${isKaspiDelivery ? 'Kaspi доставка' : 'своя доставка'})`;
 }
 
 // Города отгрузки для режима страницы. 'all' — вообще без фильтра по складу: в него попадают
-// и заказы без origin_city (это самовывоз напрямую у продавца, см. backend/routes/warehouse.js),
-// которых в остальных режимах не видно.
+// и заказы без origin_city, которых в остальных режимах не видно.
 function warehouseFilter(mode) {
   if (mode === 'all') return null;
   return mode === 'selfbuy' ? SELF_BUY_CITIES : MAIN_CITIES;
@@ -45,17 +54,21 @@ function cityFromFormattedAddress(address) {
 }
 
 function emptyBucket() {
-  return { orders: 0, revenue: 0, deliveryCost: 0, ordersWithReport: 0 };
+  return { orders: 0, revenue: 0, deliveryCost: 0, ordersWithCost: 0, lonSum: 0, latSum: 0, coordCount: 0 };
 }
 
 function addToBucket(bucket, row) {
   bucket.orders += 1;
-  bucket.revenue += Number(row.total_price) || 0;
-  if (row.has_report) {
-    bucket.ordersWithReport += 1;
-    // delivery_cost в Excel-отчёте Kaspi Pay хранится со знаком минус (это расход) —
-    // так же, как его читает stats.js. Наружу отдаём положительную сумму расхода.
-    bucket.deliveryCost += -(Number(row.delivery_cost) || 0);
+  bucket.revenue += num(row.total_price) || 0;
+  const cost = num(row.delivery_cost_for_seller);
+  if (cost !== null) {
+    bucket.ordersWithCost += 1;
+    bucket.deliveryCost += cost;
+  }
+  if (row.coords) {
+    bucket.lonSum += row.coords.lon;
+    bucket.latSum += row.coords.lat;
+    bucket.coordCount += 1;
   }
 }
 
@@ -65,8 +78,8 @@ function finishBucket(bucket) {
     revenue: Math.round(bucket.revenue),
     avgCheck: bucket.orders > 0 ? Math.round(bucket.revenue / bucket.orders) : 0,
     deliveryCost: Math.round(bucket.deliveryCost),
-    ordersWithReport: bucket.ordersWithReport,
-    avgDeliveryCost: bucket.ordersWithReport > 0 ? Math.round(bucket.deliveryCost / bucket.ordersWithReport) : null,
+    ordersWithCost: bucket.ordersWithCost,
+    avgDeliveryCost: bucket.ordersWithCost > 0 ? Math.round(bucket.deliveryCost / bucket.ordersWithCost) : null,
   };
 }
 
@@ -91,19 +104,21 @@ router.get('/', async (req, res) => {
          o.raw_data->'attributes'->>'deliveryMode' AS delivery_mode,
          o.raw_data->'attributes'->>'isKaspiDelivery' AS is_kaspi_delivery,
          o.raw_data->'attributes'->'kaspiDelivery'->>'express' AS express,
-         -- Куда уехал заказ. Основное поле у Kaspi — deliveryAddress.town, но у части заказов
-         -- (постоматы, пункты выдачи) города там может не быть, поэтому есть запасные варианты
-         -- и разбор строки адреса уже в JS.
+         -- Сколько Kaspi списал с НАС за доставку этого заказа. Есть у каждого заказа, в отличие
+         -- от Excel-отчёта Kaspi Pay, и совпадает с ним до тенге (сверено на живых заказах).
+         o.raw_data->'attributes'->>'deliveryCostForSeller' AS delivery_cost_for_seller,
+         -- Куда уехал заказ. Основное поле — deliveryAddress.town; у заказов Kaspi Delivery
+         -- улицы и координат в адресе нет, зато у своей доставки есть и они, и точные координаты.
          COALESCE(
            o.raw_data->'attributes'->'deliveryAddress'->>'town',
-           o.raw_data->'attributes'->'deliveryAddress'->'city'->>'name',
            CASE WHEN jsonb_typeof(o.raw_data->'attributes'->'deliveryAddress'->'city') = 'string'
                 THEN o.raw_data->'attributes'->'deliveryAddress'->>'city' END,
            o.raw_data->'attributes'->'deliveryAddress'->>'district'
          ) AS dest_city,
          o.raw_data->'attributes'->'deliveryAddress'->>'formattedAddress' AS formatted_address,
-         kpt.delivery_cost,
-         (kpt.order_number IS NOT NULL) AS has_report
+         o.raw_data->'attributes'->'deliveryAddress'->>'latitude' AS lat,
+         o.raw_data->'attributes'->'deliveryAddress'->>'longitude' AS lon,
+         kpt.delivery_cost AS report_delivery_cost
        FROM orders o
        LEFT JOIN (
          SELECT order_number, SUM(delivery_cost) AS delivery_cost
@@ -122,8 +137,13 @@ router.get('/', async (req, res) => {
     const totals = emptyBucket();
     let expressOrders = 0;
     let expressKnown = 0;
-    let pickupOrders = 0;
+    let sellerPickupOrders = 0;
+    let kaspiPickupOrders = 0;
     let destCityKnown = 0;
+    let coordsKnown = 0;
+    // Тот же расход, но по Excel-отчёту Kaspi Pay — держим рядом как контрольную цифру.
+    let reportDeliveryCost = 0;
+    let ordersWithReport = 0;
 
     const byRegion = new Map();
     const byCity = new Map();
@@ -131,14 +151,29 @@ router.get('/', async (req, res) => {
     const unknownCities = new Map();
 
     for (const row of rows) {
+      const lat = num(row.lat);
+      const lon = num(row.lon);
+      // Пустые координаты Kaspi присылает нулями — это не точка в Гвинейском заливе.
+      row.coords = lat && lon ? { lat, lon } : null;
+      if (row.coords) coordsKnown += 1;
+
       addToBucket(totals, row);
+
+      if (row.report_delivery_cost !== null) {
+        ordersWithReport += 1;
+        // В Excel расход лежит со знаком минус — как его читает stats.js.
+        reportDeliveryCost += -(num(row.report_delivery_cost) || 0);
+      }
 
       const isKaspiDelivery = row.is_kaspi_delivery === null ? null : row.is_kaspi_delivery === 'true';
       if (row.express !== null) {
         expressKnown += 1;
         if (row.express === 'true') expressOrders += 1;
       }
-      if (row.delivery_mode === 'DELIVERY_PICKUP') pickupOrders += 1;
+      if (row.delivery_mode === 'DELIVERY_PICKUP') {
+        if (isKaspiDelivery === false) sellerPickupOrders += 1;
+        else kaspiPickupOrders += 1;
+      }
 
       // --- разрез по способу доставки ---
       const modeKey = `${row.delivery_mode || 'UNKNOWN'}|${isKaspiDelivery}`;
@@ -151,7 +186,7 @@ router.get('/', async (req, res) => {
       const rawCity = row.dest_city || cityFromFormattedAddress(row.formatted_address);
       if (rawCity) destCityKnown += 1;
 
-      const regionId = resolveRegion(rawCity);
+      const regionId = resolveRegion(rawCity, row.coords);
       if (rawCity && !regionId) {
         const key = displayCity(rawCity);
         unknownCities.set(key, (unknownCities.get(key) || 0) + 1);
@@ -162,9 +197,17 @@ router.get('/', async (req, res) => {
       addToBucket(byRegion.get(regionKey), row);
 
       if (rawCity) {
+        // Ключ строки — с уточнением области в скобках: Кайнар в Жамбылской и Кайнар в
+        // Алматинской это разные сёла, склеивать их в одну строку нельзя.
         const cityKey = normalizeCity(rawCity);
         if (!byCity.has(cityKey)) {
-          byCity.set(cityKey, { key: cityKey, city: displayCity(rawCity), regionId, ...emptyBucket() });
+          byCity.set(cityKey, {
+            key: cityKey,
+            pointKey: cityHead(rawCity), // по нему фронтенд ищет координаты для точки на карте
+            city: displayCity(rawCity),
+            regionId,
+            ...emptyBucket(),
+          });
         }
         addToBucket(byCity.get(cityKey), row);
       }
@@ -193,9 +236,14 @@ router.get('/', async (req, res) => {
         const done = finishBucket(c);
         return {
           key: c.key,
+          pointKey: c.pointKey,
           city: c.city,
           regionId: c.regionId,
           regionName: c.regionId ? REGION_BY_ID[c.regionId].name : null,
+          // Средние координаты по заказам, где Kaspi их прислал — запасной способ поставить
+          // точку на карте для сёл, которых нет в справочнике координат.
+          lon: c.coordCount > 0 ? c.lonSum / c.coordCount : null,
+          lat: c.coordCount > 0 ? c.latSum / c.coordCount : null,
           ...done,
           revenueShare: totalsOut.revenue > 0 ? (done.revenue / totalsOut.revenue) * 100 : 0,
         };
@@ -216,7 +264,8 @@ router.get('/', async (req, res) => {
         ...totalsOut,
         expressOrders,
         expressKnown,
-        pickupOrders,
+        sellerPickupOrders,
+        kaspiPickupOrders,
         regionsWithSales,
         regionsTotal: REGIONS.length,
         citiesCount: citiesOut.length,
@@ -224,20 +273,24 @@ router.get('/', async (req, res) => {
       regions,
       cities: citiesOut,
       deliveryModes,
-      // Заказы, у которых город доставки не разобрался вообще (нет адреса в raw_data).
+      // Заказы, у которых область определить не удалось ничем.
       unknownRegion: unknownBucket ? finishBucket(unknownBucket) : null,
-      // Города, которых нет в справочнике kzRegions.js — их надо туда дописать, иначе они
-      // видны в таблице городов, но не попадают на карту.
+      // Города, которые не разобрались ни по подсказке Kaspi, ни по справочнику, ни по
+      // координатам — их надо дописать в backend/kzRegions.js.
       unknownCities: [...unknownCities.entries()]
         .map(([city, orders]) => ({ city, orders }))
         .sort((a, b) => b.orders - a.orders),
-      // Диагностика: по какой доле заказов Kaspi вообще отдал нужные поля. Без неё пустая
-      // карта выглядела бы как "нет продаж", хотя на деле просто нет адреса в данных.
+      // Диагностика: по какой доле заказов Kaspi отдал нужные поля, плюс контрольная сумма
+      // расходов на доставку по Excel-отчёту — она должна сходиться с основной цифрой на той
+      // части заказов, где отчёт загружен.
       coverage: {
         orders: rows.length,
         destCity: rows.length > 0 ? destCityKnown / rows.length : 0,
+        coords: rows.length > 0 ? coordsKnown / rows.length : 0,
         express: rows.length > 0 ? expressKnown / rows.length : 0,
-        payReport: rows.length > 0 ? totalsOut.ordersWithReport / rows.length : 0,
+        deliveryCost: rows.length > 0 ? totalsOut.ordersWithCost / rows.length : 0,
+        ordersWithReport,
+        reportDeliveryCost: Math.round(reportDeliveryCost),
       },
     });
   } catch (err) {
@@ -264,7 +317,12 @@ router.get('/fields', async (req, res) => {
       for (const k of Object.keys(attrs)) attrKeys.set(k, (attrKeys.get(k) || 0) + 1);
       const addr = attrs.deliveryAddress;
       if (addr && typeof addr === 'object') {
-        for (const k of Object.keys(addr)) addressKeys.set(k, (addressKeys.get(k) || 0) + 1);
+        // Считаем только НЕПУСТЫЕ значения: ключи Kaspi присылает всегда, а вот улица и
+        // координаты заполнены только у своей доставки.
+        for (const [k, v] of Object.entries(addr)) {
+          if (v === null || v === undefined || v === '' || v === 0) continue;
+          addressKeys.set(k, (addressKeys.get(k) || 0) + 1);
+        }
       }
     }
     const toList = (m) => [...m.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count);

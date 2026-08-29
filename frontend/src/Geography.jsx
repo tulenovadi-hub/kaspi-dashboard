@@ -72,7 +72,10 @@ export default function Geography({ password, active = true, isOnline = true }) 
   const regionsWithSales = useMemo(() => data.regions.filter((r) => r.orders > 0), [data.regions]);
 
   const expressShare = totals && totals.expressKnown > 0 ? (totals.expressOrders / totals.expressKnown) * 100 : null;
-  const pickupShare = totals && totals.orders > 0 ? (totals.pickupOrders / totals.orders) * 100 : null;
+  // Доля заказов, которые покупатель забирает сам из пункта выдачи. Именно она интересна для
+  // вопроса "где ставить склад", а не редкий самовывоз прямо от продавца — тот виден в таблице
+  // способов доставки отдельной строкой.
+  const pickupShare = totals && totals.orders > 0 ? (totals.kaspiPickupOrders / totals.orders) * 100 : null;
   const lowAddressCoverage = data.coverage && data.coverage.orders > 0 && data.coverage.destCity < 0.5;
 
   return (
@@ -132,7 +135,7 @@ export default function Geography({ password, active = true, isOnline = true }) 
               {formatMoney(totals ? totals.deliveryCost : 0)}
             </div>
             <div className="stat-sublabel" style={{ marginTop: 6 }}>
-              {totals ? `по ${formatNumber(totals.ordersWithReport)} заказам с отчётом Kaspi Pay` : ''}
+              {totals ? `сколько Kaspi списал с нас по ${formatNumber(totals.ordersWithCost)} заказам` : ''}
             </div>
           </div>
           <div className="stat-card">
@@ -152,10 +155,10 @@ export default function Geography({ password, active = true, isOnline = true }) 
             </div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Самовывоз от продавца</div>
+            <div className="stat-label">Забирают из пункта выдачи</div>
             <div className="stat-value">{pickupShare !== null ? `${pickupShare.toFixed(1)}%` : '—'}</div>
             <div className="stat-sublabel" style={{ marginTop: 6 }}>
-              {totals ? `${formatNumber(totals.pickupOrders)} заказов` : ''}
+              {totals ? `${formatNumber(totals.kaspiPickupOrders)} заказов` : ''}
             </div>
           </div>
         </div>
