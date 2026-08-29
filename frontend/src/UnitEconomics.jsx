@@ -13,8 +13,9 @@ const EMPTY_FORM = {
   purchaseForeign: '',
   currency: 'USD',
   rate: '',
-  weightPerUnit: '',
-  freightPerKg: '',
+  logisticsAmount: '',
+  logisticsCurrency: 'USD',
+  logisticsRate: '',
   dutyPercent: '0',
   vatPercent: '12',
   brokerPerBatch: '0',
@@ -45,8 +46,10 @@ function calculate(form) {
   const rate = form.currency === 'KZT' ? 1 : num(form.rate);
 
   const purchase = num(form.purchaseForeign) * rate;
-  const weight = num(form.weightPerUnit);
-  const freight = weight * num(form.freightPerKg);
+  // Логистика вводится суммой за ВСЮ партию (так её и выставляет карго) — на штуку делим сами.
+  const logisticsRate = form.logisticsCurrency === 'KZT' ? 1 : num(form.logisticsRate);
+  const logisticsTotal = num(form.logisticsAmount) * logisticsRate;
+  const freight = logisticsTotal / quantity;
 
   // Таможенная стоимость — товар плюс доставка до границы, от неё считаются пошлина и НДС.
   const customsValue = purchase + freight;
@@ -102,7 +105,7 @@ function calculate(form) {
     totalProfit: profit * quantity,
     // Сколько денег нужно вложить до первой продажи — реклама сюда не входит, она платится позже.
     upfront: (purchase + freight + importCost + variable) * quantity,
-    weightTotal: weight * quantity,
+    logisticsTotal,
     breakEven,
     detail: { duty, vat, clearance, customsValue },
   };
@@ -174,6 +177,9 @@ export default function UnitEconomics({ password, active = true, isOnline = true
           if (!next.commissionPercent && res.commissionPercent !== null) next.commissionPercent = String(res.commissionPercent);
           if (!next.kaspiDeliveryPerUnit && res.deliveryPerUnit !== null) next.kaspiDeliveryPerUnit = String(res.deliveryPerUnit);
           if (!next.rate && res.rates && res.rates[next.currency]) next.rate = String(res.rates[next.currency]);
+          if (!next.logisticsRate && res.rates && res.rates[next.logisticsCurrency]) {
+            next.logisticsRate = String(res.rates[next.logisticsCurrency]);
+          }
           if (!next.taxPercent) next.taxPercent = String(res.taxPercent);
           return next;
         });
@@ -207,6 +213,16 @@ export default function UnitEconomics({ password, active = true, isOnline = true
             ? String(product.purchasePrice)
             : prev.purchaseForeign,
       rate: product.purchaseRate !== null ? String(product.purchaseRate) : prev.rate,
+      // Логистику в партии записывали суммой за партию, а количество там было своё —
+      // поэтому берём цену за штуку и умножаем на количество ИЗ ЭТОГО расчёта.
+      logisticsCurrency: product.logisticsCurrency || (product.logisticsPerUnit ? 'KZT' : prev.logisticsCurrency),
+      logisticsAmount:
+        product.logisticsPerUnitForeign !== null
+          ? String(Number((product.logisticsPerUnitForeign * Math.max(1, num(prev.quantity))).toFixed(2)))
+          : product.logisticsPerUnit
+            ? String(product.logisticsPerUnit * Math.max(1, num(prev.quantity)))
+            : prev.logisticsAmount,
+      logisticsRate: product.logisticsRate !== null ? String(product.logisticsRate) : prev.logisticsRate,
       otherPerUnit: product.extraPerUnit !== null ? String(product.extraPerUnit) : prev.otherPerUnit,
     }));
   }
@@ -308,13 +324,38 @@ export default function UnitEconomics({ password, active = true, isOnline = true
                 suffix={`₸ за 1 ${form.currency}`}
                 hint={form.currency === 'KZT' ? 'для тенге курс не нужен' : 'из последней поставки'}
               />
-              <Field label="Вес единицы" value={form.weightPerUnit} onChange={set('weightPerUnit')} suffix="кг" />
+              <div className="ue-field">
+                <label>Цена логистики за партию</label>
+                <div className="ue-input-wrap">
+                  <input type="text" inputMode="decimal" value={form.logisticsAmount} onChange={(e) => set('logisticsAmount')(e.target.value)} />
+                  <select
+                    className="ue-currency"
+                    value={form.logisticsCurrency}
+                    onChange={(e) => {
+                      const currency = e.target.value;
+                      setForm((prev) => ({
+                        ...prev,
+                        logisticsCurrency: currency,
+                        logisticsRate:
+                          currency === 'KZT' ? '1' : (defaults && defaults.rates[currency] ? String(defaults.rates[currency]) : prev.logisticsRate),
+                      }));
+                    }}
+                  >
+                    {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="ue-hint">
+                  {result.logisticsTotal > 0
+                    ? `${formatMoney(result.logisticsTotal)} за партию, ${formatMoney(result.perUnit.freight)} на штуку`
+                    : 'вся доставка от поставщика до склада'}
+                </div>
+              </div>
               <Field
-                label="Доставка из Китая"
-                value={form.freightPerKg}
-                onChange={set('freightPerKg')}
-                suffix="₸ за кг"
-                hint={result.weightTotal > 0 ? `вся партия — ${formatNumber(Math.round(result.weightTotal))} кг` : 'ставку берём у карго'}
+                label="Курс логистики"
+                value={form.logisticsCurrency === 'KZT' ? '1' : form.logisticsRate}
+                onChange={set('logisticsRate')}
+                suffix={`₸ за 1 ${form.logisticsCurrency}`}
+                hint={form.logisticsCurrency === 'KZT' ? 'для тенге курс не нужен' : 'из последней поставки'}
               />
             </div>
           </div>
@@ -340,9 +381,9 @@ export default function UnitEconomics({ password, active = true, isOnline = true
               </>
             ) : (
               <div className="form-section-hint" style={{ marginTop: 0 }}>
-                В серую отдельных платежей на таможне нет — всё уже сидит в ставке карго за килограмм.
-                Проверьте, что ставка выше указана именно «под ключ», иначе расчёт получится слишком
-                оптимистичным.
+                В серую отдельных платежей на таможне нет — всё уже сидит в цене карго за партию.
+                Проверьте, что она указана именно «под ключ», с доставкой до склада, иначе расчёт
+                получится слишком оптимистичным.
               </div>
             )}
           </div>

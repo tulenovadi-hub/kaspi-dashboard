@@ -83,13 +83,15 @@ router.get('/defaults', async (req, res) => {
          last_batch AS (
            SELECT DISTINCT ON (product_id)
              product_id, cost_price, purchase_price, logistics_cost, quantity,
-             purchase_currency, purchase_amount_foreign, purchase_rate, extra_expenses
+             purchase_currency, purchase_amount_foreign, purchase_rate, extra_expenses,
+             logistics_currency, logistics_amount_foreign, logistics_rate
            FROM product_batches
            ORDER BY product_id, received_date DESC, id DESC
          )
          SELECT r.product_id, r.name, r.revenue, r.quantity,
                 b.cost_price, b.purchase_price, b.logistics_cost, b.quantity AS batch_quantity,
-                b.purchase_currency, b.purchase_amount_foreign, b.purchase_rate, b.extra_expenses
+                b.purchase_currency, b.purchase_amount_foreign, b.purchase_rate, b.extra_expenses,
+                b.logistics_currency, b.logistics_amount_foreign, b.logistics_rate
          FROM recent r
          LEFT JOIN last_batch b ON b.product_id = r.product_id
          ORDER BY r.revenue DESC
@@ -133,6 +135,14 @@ router.get('/defaults', async (req, res) => {
             ? Number((Number(row.purchase_amount_foreign) / batchQuantity).toFixed(2))
             : null,
         purchaseRate: row.purchase_rate !== null ? Number(row.purchase_rate) : null,
+        // Логистика в партии записана суммой за всю партию — приводим к штуке, чтобы в
+        // калькуляторе умножить обратно на ЕГО количество, а не на количество той поставки.
+        logisticsCurrency: row.logistics_currency,
+        logisticsPerUnitForeign:
+          row.logistics_amount_foreign !== null && batchQuantity > 0
+            ? Number((Number(row.logistics_amount_foreign) / batchQuantity).toFixed(2))
+            : null,
+        logisticsRate: row.logistics_rate !== null ? Number(row.logistics_rate) : null,
         extraPerUnit: batchQuantity > 0 ? Math.round(extraTotal / batchQuantity) : null,
       };
     });
