@@ -28,7 +28,9 @@ const EMPTY_FORM = {
   otherPerBatch: '0',
   commissionPercent: '',
   kaspiDeliveryPerUnit: '',
-  marketingPercent: '0',
+  adPercent: '0',
+  sellerBonusPercent: '0',
+  reviewBonusPerUnit: '0',
   taxPercent: '3',
 };
 
@@ -69,7 +71,12 @@ function calculate(form) {
 
   // "Постфактум" — то, что забирают уже ПОСЛЕ продажи, с каждой проданной штуки.
   const commission = (sellPrice * num(form.commissionPercent)) / 100;
-  const marketing = (sellPrice * num(form.marketingPercent)) / 100;
+  // Реклама и бонусы от продавца — процент от цены, бонус за отзыв — фиксированная сумма
+  // с продажи: за отзыв платят деньгами, а не долей чека.
+  const ads = (sellPrice * num(form.adPercent)) / 100;
+  const sellerBonus = (sellPrice * num(form.sellerBonusPercent)) / 100;
+  const reviewBonus = num(form.reviewBonusPerUnit);
+  const marketing = ads + sellerBonus + reviewBonus;
   const kaspiDelivery = num(form.kaspiDeliveryPerUnit);
   const tax = (sellPrice * num(form.taxPercent)) / 100;
 
@@ -81,8 +88,9 @@ function calculate(form) {
 
   // Цена, при которой прибыль обращается в ноль. Комиссия, реклама и налог зависят от цены,
   // поэтому решается уравнение, а не просто складываются расходы.
-  const priceShare = (num(form.commissionPercent) + num(form.marketingPercent) + num(form.taxPercent)) / 100;
-  const fixedPerUnit = purchase + freight + importCost + variable + kaspiDelivery;
+  const priceShare =
+    (num(form.commissionPercent) + num(form.adPercent) + num(form.sellerBonusPercent) + num(form.taxPercent)) / 100;
+  const fixedPerUnit = purchase + freight + importCost + variable + kaspiDelivery + reviewBonus;
   const breakEven = priceShare < 1 ? fixedPerUnit / (1 - priceShare) : null;
 
   const parts = [
@@ -92,14 +100,16 @@ function calculate(form) {
     { key: 'variable', label: 'Переменные расходы', value: variable, color: '#b38bff' },
     { key: 'commission', label: 'Комиссия Kaspi', value: commission, color: '#ff8fab' },
     { key: 'kaspiDelivery', label: 'Доставка Kaspi', value: kaspiDelivery, color: '#ff6b6b' },
-    { key: 'marketing', label: 'Реклама и бонусы', value: marketing, color: '#ffd166' },
+    { key: 'ads', label: 'Реклама', value: ads, color: '#ffd166' },
+    { key: 'sellerBonus', label: 'Бонусы от продавца', value: sellerBonus, color: '#ffb347' },
+    { key: 'reviewBonus', label: 'Бонусы за отзыв', value: reviewBonus, color: '#e8b04b' },
     { key: 'tax', label: 'Налог', value: tax, color: '#8d99ae' },
   ];
 
   return {
     quantity,
     sellPrice,
-    perUnit: { purchase, freight, importCost, variable, commission, marketing, kaspiDelivery, tax, profit, investment },
+    perUnit: { purchase, freight, importCost, variable, commission, ads, sellerBonus, reviewBonus, marketing, kaspiDelivery, tax, profit, investment },
     parts,
     profit,
     margin: sellPrice > 0 ? (profit / sellPrice) * 100 : 0,
@@ -124,6 +134,12 @@ function migrateForm(saved) {
     form.purchaseAmount = String(Number((num(saved.purchaseForeign) * Math.max(1, num(form.quantity))).toFixed(2)));
   }
   delete form.purchaseForeign;
+  // Раньше маркетинг был одним полем "Реклама и бонусы" в процентах — переносим его в рекламу,
+  // а не теряем: в старых расчётах в этот процент закладывали всё сразу.
+  if (saved && saved.marketingPercent && num(form.adPercent) === 0) {
+    form.adPercent = String(saved.marketingPercent);
+  }
+  delete form.marketingPercent;
   return form;
 }
 
@@ -488,11 +504,25 @@ export default function UnitEconomics({ password, active = true, isOnline = true
           </div>
 
           <div className="card">
+            <div className="form-section-title">Маркетинг</div>
+            <div className="ue-grid">
+              <Field label="Реклама" value={form.adPercent} onChange={set('adPercent')} suffix="% от цены" />
+              <Field label="Бонусы от продавца" value={form.sellerBonusPercent} onChange={set('sellerBonusPercent')} suffix="% от цены" />
+              <Field
+                label="Бонусы за отзыв"
+                value={form.reviewBonusPerUnit}
+                onChange={set('reviewBonusPerUnit')}
+                suffix="₸/шт"
+                hint="фиксированная сумма с продажи, а не процент"
+              />
+            </div>
+          </div>
+
+          <div className="card">
             <div className="form-section-title">Kaspi и налоги</div>
             <div className="ue-grid">
               <Field label="Комиссия Kaspi" value={form.commissionPercent} onChange={set('commissionPercent')} suffix="%" hint="факт по вашим продажам" />
               <Field label="Доставка Kaspi" value={form.kaspiDeliveryPerUnit} onChange={set('kaspiDeliveryPerUnit')} suffix="₸/шт" hint="факт по вашим продажам" />
-              <Field label="Реклама и бонусы" value={form.marketingPercent} onChange={set('marketingPercent')} suffix="% от цены" />
               <Field label="Налог" value={form.taxPercent} onChange={set('taxPercent')} suffix="%" hint="упрощёнка — 3% с оборота" />
             </div>
           </div>
