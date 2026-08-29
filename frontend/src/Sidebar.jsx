@@ -47,6 +47,9 @@ const icons = {
   analyst: (
     <svg viewBox="0 0 20 20" fill="none"><path d="M10 2.5a5.5 5.5 0 013 10.1V14a1 1 0 01-1 1H8a1 1 0 01-1-1v-1.4A5.5 5.5 0 0110 2.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M8.5 17h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M9 8.5l1 1.5 2-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
   ),
+  geography: (
+    <svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 10h15" stroke="currentColor" strokeWidth="1.5"/><path d="M10 2.5c2 2.2 3 4.7 3 7.5s-1 5.3-3 7.5c-2-2.2-3-4.7-3-7.5s1-5.3 3-7.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg>
+  ),
   deliveryReturns: (
     <svg viewBox="0 0 20 20" fill="none"><path d="M6 8l-3 2 3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M3 10h8a3 3 0 003-3V6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="14.5" cy="14.5" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M14.5 13v1.5l1 1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
   ),
@@ -54,9 +57,9 @@ const icons = {
 
 // Какие пункты меню видит каждая роль
 const ROLE_PAGES = {
-  admin: ['sales', 'report', 'selfbuy', 'orders', 'expenses', 'batches', 'warehouse', 'purchasing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'analyst', 'delivery_returns', 'settings'],
+  admin: ['sales', 'report', 'selfbuy', 'orders', 'geography', 'expenses', 'batches', 'warehouse', 'purchasing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'analyst', 'delivery_returns', 'settings'],
   manager: ['sales', 'selfbuy', 'orders', 'warehouse'],
-  marketer: ['sales', 'selfbuy', 'orders', 'warehouse', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews'],
+  marketer: ['sales', 'selfbuy', 'orders', 'geography', 'warehouse', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews'],
 };
 
 // "Маркетинг" — не отдельная страница, а раздел с тремя подстраницами (children). Раздел
@@ -66,6 +69,7 @@ const NAV_ITEMS = [
   { key: 'report', label: 'Отчёт', icon: 'report' },
   { key: 'selfbuy', label: 'Самовыкупы', icon: 'selfbuy' },
   { key: 'orders', label: 'Заказы', icon: 'orders' },
+  { key: 'geography', label: 'География', icon: 'geography' },
   { key: 'expenses', label: 'Расходы', icon: 'expenses' },
   { key: 'batches', label: 'Поставки', icon: 'batches' },
   { key: 'warehouse', label: 'Склад', icon: 'warehouse' },

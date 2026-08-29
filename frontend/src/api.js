@@ -231,6 +231,10 @@ export function fetchDeliveryAnomalies(password, from) {
   return apiRequest(`/api/reports/delivery-anomalies${query}`, password, { timeoutMs: LONG_TIMEOUT_MS });
 }
 
+export function fetchGeography(password, from, to, mode) {
+  return apiRequest(`/api/geography?from=${from}&to=${to}&mode=${encodeURIComponent(mode || 'main')}`, password);
+}
+
 export function fetchDeliveryReturns(password) {
   return apiRequest('/api/delivery-returns', password);
 }

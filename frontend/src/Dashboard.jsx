@@ -13,6 +13,7 @@ import Bonuses from './Bonuses.jsx';
 import { fetchReviewBonusExpenses } from './api.js';
 import Analyst from './Analyst.jsx';
 import DeliveryReturns from './DeliveryReturns.jsx';
+import Geography from './Geography.jsx';
 import ComingSoon from './ComingSoon.jsx';
 import { useOnlineStatus } from './useOnlineStatus.js';
 
@@ -157,6 +158,14 @@ export default function Dashboard({ password, username, role, onLogout }) {
       );
     }
 
+    if (key === 'geography') {
+      return (
+        <div key={key} style={style}>
+          <Geography password={password} active={active} isOnline={isOnline} />
+        </div>
+      );
+    }
+
     if (key === 'delivery_returns') {
       return (
         <div key={key} style={style}>
@@ -216,7 +225,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
         role={role}
       />
       <div className="main-content">
-        <div className={`app${(safeView === 'orders' || safeView === 'report') ? ' app-wide' : ''}`}>
+        <div className={`app${(safeView === 'orders' || safeView === 'report' || safeView === 'geography') ? ' app-wide' : ''}`}>
           {Array.from(visited).map((key) => renderPage(key))}
         </div>
       </div>
