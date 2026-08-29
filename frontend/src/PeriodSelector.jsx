@@ -7,6 +7,7 @@ const PRESETS = [
   { key: '7days', label: '7 дней', from: () => daysAgo(6), to: () => daysAgo(0) },
   { key: '14days', label: '14 дней', from: () => daysAgo(13), to: () => daysAgo(0) },
   { key: '30days', label: '30 дней', from: () => daysAgo(29), to: () => daysAgo(0) },
+  { key: '90days', label: '90 дней', from: () => daysAgo(89), to: () => daysAgo(0) },
   { key: 'month', label: 'С начала месяца', from: () => startOfMonth(), to: () => daysAgo(0) },
 ];
 

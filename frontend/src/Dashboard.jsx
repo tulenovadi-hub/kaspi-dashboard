@@ -14,6 +14,7 @@ import { fetchReviewBonusExpenses } from './api.js';
 import Analyst from './Analyst.jsx';
 import DeliveryReturns from './DeliveryReturns.jsx';
 import Geography from './Geography.jsx';
+import AbcXyz from './AbcXyz.jsx';
 import ComingSoon from './ComingSoon.jsx';
 import { useOnlineStatus } from './useOnlineStatus.js';
 
@@ -166,6 +167,14 @@ export default function Dashboard({ password, username, role, onLogout }) {
       );
     }
 
+    if (key === 'abc') {
+      return (
+        <div key={key} style={style}>
+          <AbcXyz password={password} active={active} isOnline={isOnline} />
+        </div>
+      );
+    }
+
     if (key === 'delivery_returns') {
       return (
         <div key={key} style={style}>
@@ -225,7 +234,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
         role={role}
       />
       <div className="main-content">
-        <div className={`app${(safeView === 'orders' || safeView === 'report' || safeView === 'geography') ? ' app-wide' : ''}`}>
+        <div className={`app${(safeView === 'orders' || safeView === 'report' || safeView === 'geography' || safeView === 'abc') ? ' app-wide' : ''}`}>
           {Array.from(visited).map((key) => renderPage(key))}
         </div>
       </div>

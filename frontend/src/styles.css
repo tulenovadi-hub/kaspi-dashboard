@@ -2442,3 +2442,176 @@ select:focus-visible {
     box-shadow: none;
   }
 }
+
+/* ===== Страница "ABC/XYZ" ===== */
+
+.abc-toolbar {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.abc-toolbar .geo-chips {
+  margin-bottom: 20px;
+}
+
+/* --- матрица 3x3 --- */
+.abc-matrix {
+  border-collapse: separate;
+  border-spacing: 8px;
+  width: 100%;
+  min-width: 520px;
+}
+
+.abc-matrix thead th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 4px 0 8px;
+}
+
+.abc-matrix thead th span {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 3px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.abc-matrix-row-head {
+  width: 90px;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-align: left;
+  padding-left: 4px;
+}
+
+.abc-matrix-row-head span {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.abc-cell {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 10px;
+  text-align: center;
+  vertical-align: middle;
+  min-width: 110px;
+}
+
+.abc-cell.has-products {
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.abc-cell.has-products:hover {
+  border-color: var(--accent-brand);
+}
+
+.abc-cell.selected {
+  border-color: var(--accent-brand);
+  box-shadow: 0 0 0 1px var(--accent-brand) inset;
+}
+
+/* Клетка, где товары суммарно в минусе, — это не "мало прибыли", а прямой убыток,
+   и синей заливкой её показывать нельзя. */
+.abc-cell.loss {
+  background: var(--accent-down-dim) !important;
+}
+
+.abc-cell-count {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.abc-cell-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.abc-cell-empty {
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+.abc-legend {
+  margin-top: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.abc-legend p {
+  margin: 0;
+}
+
+.abc-legend b {
+  color: var(--text-secondary);
+}
+
+/* --- бейджи классов в таблице --- */
+.abc-badge {
+  display: inline-block;
+  min-width: 22px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.abc-badge-A,
+.abc-badge-X {
+  background: var(--accent-up-dim);
+  color: var(--accent-up);
+}
+
+.abc-badge-B,
+.abc-badge-Y {
+  background: var(--accent-warn-dim);
+  color: var(--accent-warn);
+}
+
+.abc-badge-C,
+.abc-badge-Z {
+  background: var(--accent-down-dim);
+  color: var(--accent-down);
+}
+
+.abc-badge-none {
+  background: var(--bg);
+  color: var(--text-muted);
+}
+
+.abc-reset {
+  margin-left: 12px;
+  background: none;
+  border: none;
+  color: var(--accent-brand);
+  font-size: 11px;
+  font-family: var(--font-display);
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+.abc-reset:hover {
+  text-decoration: underline;
+}
