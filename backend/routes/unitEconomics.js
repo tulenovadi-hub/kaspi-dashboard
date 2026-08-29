@@ -76,7 +76,12 @@ router.get('/defaults', async (req, res) => {
            SELECT oi.product_id,
                   MAX(oi.product_name) AS name,
                   SUM(oi.total_price) AS revenue,
-                  SUM(oi.quantity) AS quantity
+                  SUM(oi.quantity) AS quantity,
+                  -- Отдельно продажи основного магазина: цену продажи и ДРР считаем по ним.
+                  -- Самовыкуп — это покупка у самого себя, часто по акционной цене, и средняя
+                  -- цена вместе с ним уезжает вниз (у HY320 было 24 193 ₸, стало бы 18 076 ₸).
+                  SUM(oi.total_price) FILTER (WHERE o.origin_city = ANY($3::text[])) AS main_revenue,
+                  SUM(oi.quantity) FILTER (WHERE o.origin_city = ANY($3::text[])) AS main_quantity
            FROM order_items oi
            JOIN orders o ON o.id = oi.order_id
            WHERE oi.creation_date >= now() - ($1 || ' days')::interval
@@ -91,7 +96,7 @@ router.get('/defaults', async (req, res) => {
            FROM product_batches
            ORDER BY product_id, received_date DESC, id DESC
          )
-         SELECT r.product_id, r.name, r.revenue, r.quantity,
+         SELECT r.product_id, r.name, r.revenue, r.quantity, r.main_revenue, r.main_quantity,
                 b.cost_price, b.purchase_price, b.logistics_cost, b.quantity AS batch_quantity,
                 b.purchase_currency, b.purchase_amount_foreign, b.purchase_rate, b.extra_expenses,
                 b.logistics_currency, b.logistics_amount_foreign, b.logistics_rate
@@ -99,7 +104,7 @@ router.get('/defaults', async (req, res) => {
          LEFT JOIN last_batch b ON b.product_id = r.product_id
          ORDER BY r.revenue DESC
          LIMIT 50`,
-        [String(WINDOW_DAYS), VALID_STATUSES]
+        [String(WINDOW_DAYS), VALID_STATUSES, MAIN_CITIES]
       ),
       // Ранее сохранённые расчёты — отдаём вместе со всем остальным, чтобы страница делала
       // один запрос, а не два.
@@ -152,7 +157,13 @@ router.get('/defaults', async (req, res) => {
         const rate = Number(e.rate) || 1;
         return sum + amount * (e.currency && e.currency !== 'KZT' ? rate : 1);
       }, 0);
-      const productRevenue = Number(row.revenue) || 0;
+      // Для цены и ДРР берём продажи основного магазина; если товар шёл только самовыкупами
+      // (так было с утюжком HS-918), падаем на общие — иначе цены не будет вовсе.
+      const mainRevenue = Number(row.main_revenue) || 0;
+      const mainQuantity = Number(row.main_quantity) || 0;
+      const priceRevenue = mainQuantity > 0 ? mainRevenue : Number(row.revenue) || 0;
+      const priceQuantity = mainQuantity > 0 ? mainQuantity : Number(row.quantity) || 0;
+      const productRevenue = mainRevenue > 0 ? mainRevenue : Number(row.revenue) || 0;
       const adCost = adCostByProduct[row.product_id] || 0;
 
       return {
@@ -163,7 +174,7 @@ router.get('/defaults', async (req, res) => {
         adPercent: productRevenue > 0 && adCost > 0 ? Number(((adCost / productRevenue) * 100).toFixed(2)) : null,
         adCost: Math.round(adCost),
         // Средняя цена продажи за штуку по недавним продажам — стартовая цена в калькуляторе.
-        sellPrice: Number(row.quantity) > 0 ? Math.round(Number(row.revenue) / Number(row.quantity)) : null,
+        sellPrice: priceQuantity > 0 ? Math.round(priceRevenue / priceQuantity) : null,
         purchasePrice: row.purchase_price !== null ? Math.round(Number(row.purchase_price)) : null,
         logisticsPerUnit: row.logistics_cost !== null ? Math.round(Number(row.logistics_cost)) : null,
         costPrice: row.cost_price !== null ? Math.round(Number(row.cost_price)) : null,
