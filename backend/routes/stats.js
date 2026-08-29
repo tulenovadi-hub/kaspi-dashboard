@@ -624,3 +624,7 @@ router.get('/product/:productId', async (req, res) => {
 });
 
 module.exports = router;
+// Расчёт себестоимости по каждой паре "заказ+товар" переиспользует страница ABC/XYZ —
+// дублировать FIFO по партиям нельзя, иначе прибыль на двух страницах разъедется.
+module.exports.computeCostsByOrderItem = computeCostsByOrderItem;
+module.exports.TAX_RATE = TAX_RATE;

@@ -23,6 +23,7 @@ const reviewBonusExpensesRoutes = require('./routes/reviewBonusExpenses');
 const analystRoutes = require('./routes/analyst');
 const deliveryReturnsRoutes = require('./routes/deliveryReturns');
 const geographyRoutes = require('./routes/geography');
+const abcRoutes = require('./routes/abc');
 const purchasingRoutes = require('./routes/purchasing');
 
 const app = express();
@@ -93,6 +94,7 @@ app.use('/api/review-bonus-expenses', requireRole('admin', 'marketer'), reviewBo
 app.use('/api/analyst', requireRole('admin'), analystRoutes);
 app.use('/api/delivery-returns', requireRole('admin'), deliveryReturnsRoutes);
 app.use('/api/geography', requireRole('admin', 'marketer'), geographyRoutes);
+app.use('/api/abc', requireRole('admin'), abcRoutes);
 app.use('/api/debug', requireRole('admin'), debugRoutes);
 
 // Эндпоинт, чтобы вручную запустить синхронизацию из дашборда (кнопка "Обновить сейчас")
