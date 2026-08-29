@@ -301,8 +301,9 @@ export default function UnitEconomics({ password, active = true, isOnline = true
             : prev.logisticsAmount,
       logisticsRate: product.logisticsRate !== null ? String(product.logisticsRate) : prev.logisticsRate,
       otherPerUnit: product.extraPerUnit !== null ? String(product.extraPerUnit) : prev.otherPerUnit,
-      // ДРР этого товара — доля рекламы в его выручке, ровно как на странице "Реклама товаров".
-      adPercent: product.adPercent !== null ? String(product.adPercent) : prev.adPercent,
+      // ДРР товара сюда НЕ подставляется намеренно (владелец попросил 2026-08-29): реклама
+      // в расчёте перед закупкой — это план, а не факт прошлых 90 дней. Фактический ДРР
+      // показывается подсказкой под полем, чтобы было с чем сверяться.
     }));
   }
 
