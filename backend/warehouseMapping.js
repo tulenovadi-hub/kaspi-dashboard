@@ -20,6 +20,7 @@
 const WAREHOUSES = [
   { pickupPointId: '18619047_PP2', city: 'Алматы', role: 'main', display: true },
   { pickupPointId: '18619047_PP3', city: 'Астана', role: 'main', display: true },
+  { pickupPointId: '18619047_PP5', city: 'Явленка', role: 'selfbuy', display: false },
   { pickupPointId: '18619047_PP6', city: 'Юбилейное', role: 'selfbuy', display: false },
   { pickupPointId: '18619047_PP7', city: 'Талдыкорган', role: 'selfbuy', display: false },
   { pickupPointId: '18619047_PP8', city: 'Атырау', role: 'selfbuy', display: false },
