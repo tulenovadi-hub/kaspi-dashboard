@@ -84,7 +84,7 @@ function calculate(form) {
 
   const parts = [
     { key: 'purchase', label: 'Закупка товара', value: purchase, color: '#6e8bff' },
-    { key: 'freight', label: 'Доставка из Китая', value: freight, color: '#4ec9f5' },
+    { key: 'freight', label: 'Логистика до склада', value: freight, color: '#4ec9f5' },
     { key: 'import', label: 'Ввоз и оформление', value: importCost, color: '#f5a623' },
     { key: 'variable', label: 'Переменные расходы', value: variable, color: '#b38bff' },
     { key: 'commission', label: 'Комиссия Kaspi', value: commission, color: '#ff8fab' },
