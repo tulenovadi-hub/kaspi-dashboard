@@ -235,6 +235,14 @@ export function fetchUnitEconomicsDefaults(password) {
   return apiRequest('/api/unit-economics/defaults', password);
 }
 
+export function saveUnitEconomicsPreset(password, productId, productName, form) {
+  return apiRequest(`/api/unit-economics/presets/${encodeURIComponent(productId)}`, password, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ productName, form }),
+  });
+}
+
 export function fetchAbcXyz(password, from, to, mode, basis) {
   return apiRequest(
     `/api/abc?from=${from}&to=${to}&mode=${encodeURIComponent(mode || 'main')}&basis=${encodeURIComponent(basis || 'profit')}`,

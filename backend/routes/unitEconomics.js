@@ -20,7 +20,7 @@ const WINDOW_DAYS = 90;
 // (ставки логистики, схемы ввоза) взять неоткуда — это руками.
 router.get('/defaults', async (req, res) => {
   try {
-    const [feesResult, ratesResult, productsResult] = await Promise.all([
+    const [feesResult, ratesResult, productsResult, presetsResult] = await Promise.all([
       // Комиссия и доставка по заказам с загруженным отчётом Kaspi Pay. Обе колонки хранятся
       // отрицательными (это расход) — переворачиваем в плюс.
       pool.query(
@@ -98,6 +98,9 @@ router.get('/defaults', async (req, res) => {
          LIMIT 30`,
         [String(WINDOW_DAYS), VALID_STATUSES, MAIN_CITIES]
       ),
+      // Ранее сохранённые расчёты — отдаём вместе со всем остальным, чтобы страница делала
+      // один запрос, а не два.
+      pool.query('SELECT product_id, form, updated_at FROM unit_economics_presets'),
     ]);
 
     const fees = feesResult.rows[0] || {};
@@ -161,10 +164,49 @@ router.get('/defaults', async (req, res) => {
       },
       rates,
       products,
+      presets: Object.fromEntries(
+        presetsResult.rows.map((row) => [row.product_id, { form: row.form, updatedAt: row.updated_at }])
+      ),
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить данные для калькулятора' });
+  }
+});
+
+// Сохранить расчёт по конкретному товару. Один товар — одна запись: сохраняем поверх,
+// потому что нужен именно последний вариант, а не история попыток.
+router.put('/presets/:productId', async (req, res) => {
+  const { productId } = req.params;
+  const { form, productName } = req.body || {};
+  if (!productId || !form || typeof form !== 'object' || Array.isArray(form)) {
+    return res.status(400).json({ error: 'Нужны productId и form' });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO unit_economics_presets (product_id, product_name, form, updated_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (product_id) DO UPDATE SET
+         product_name = EXCLUDED.product_name,
+         form = EXCLUDED.form,
+         updated_at = now()
+       RETURNING updated_at`,
+      [productId, productName || null, JSON.stringify(form)]
+    );
+    res.json({ ok: true, updatedAt: result.rows[0].updated_at });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось сохранить расчёт' });
+  }
+});
+
+router.delete('/presets/:productId', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM unit_economics_presets WHERE product_id = $1', [req.params.productId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось удалить расчёт' });
   }
 });
 

@@ -2648,6 +2648,18 @@ select:focus-visible {
   max-width: 320px;
 }
 
+.ue-save {
+  padding: 9px 20px;
+  font-size: 13px;
+}
+
+/* Подпись про сохранение уходит в конец строки, чтобы не толкать кнопки при смене текста. */
+.ue-save-state {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
 .ue-reset {
   background: none;
   border: none;

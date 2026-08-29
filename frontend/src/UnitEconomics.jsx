@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { fetchUnitEconomicsDefaults } from './api.js';
+import { fetchUnitEconomicsDefaults, saveUnitEconomicsPreset } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
 
 const STORAGE_KEY = 'unit_economics_input';
+const PRODUCT_KEY = 'unit_economics_product';
 
 // Пустая форма. Всё, что можно взять из собственных продаж (комиссия, доставка, курс),
 // подставляется поверх неё из /api/unit-economics/defaults.
@@ -161,6 +162,10 @@ export default function UnitEconomics({ password, active = true, isOnline = true
     return EMPTY_FORM;
   });
   const [defaults, setDefaults] = useState(null);
+  // Какой товар сейчас выбран — от него зависит, куда сохранять расчёт и что подтягивать.
+  const [productId, setProductId] = useState(() => localStorage.getItem(PRODUCT_KEY) || '');
+  const [presets, setPresets] = useState({});
+  const [saveState, setSaveState] = useState(''); // '' | 'saving' | 'saved' | текст ошибки
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -170,6 +175,7 @@ export default function UnitEconomics({ password, active = true, isOnline = true
     fetchUnitEconomicsDefaults(password)
       .then((res) => {
         setDefaults(res);
+        setPresets(res.presets || {});
         // Подставляем реальные комиссию/доставку/курс только в пустые поля — то, что человек
         // уже ввёл руками, перетирать нельзя.
         setForm((prev) => {
@@ -197,7 +203,45 @@ export default function UnitEconomics({ password, active = true, isOnline = true
     }
   }, [form]);
 
-  const set = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value }));
+  const set = (key) => (value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    // Как только что-то поправили, надпись "Расчёт сохранён" перестаёт быть правдой.
+    setSaveState('');
+  };
+
+  function selectProduct(nextId) {
+    setProductId(nextId);
+    setSaveState('');
+    try {
+      localStorage.setItem(PRODUCT_KEY, nextId);
+    } catch (err) {
+      // приватный режим браузера может запрещать запись
+    }
+    if (!nextId) return;
+
+    // Если по этому товару расчёт уже сохраняли — подставляем его целиком, а не заново
+    // собираем из закупочных цен: человек мог поправить руками что угодно, и именно эти
+    // правки он и хочет увидеть в следующий раз.
+    const preset = presets[nextId];
+    if (preset && preset.form) {
+      setForm({ ...EMPTY_FORM, ...preset.form });
+      return;
+    }
+    applyProduct(nextId);
+  }
+
+  async function savePreset() {
+    if (!productId) return;
+    const product = (defaults && defaults.products || []).find((p) => p.productId === productId);
+    setSaveState('saving');
+    try {
+      const res = await saveUnitEconomicsPreset(password, productId, product ? product.name : null, form);
+      setPresets((prev) => ({ ...prev, [productId]: { form, updatedAt: res.updatedAt } }));
+      setSaveState('saved');
+    } catch (err) {
+      setSaveState(err.message);
+    }
+  }
 
   function applyProduct(productId) {
     const product = (defaults && defaults.products || []).find((p) => p.productId === productId);
@@ -236,7 +280,20 @@ export default function UnitEconomics({ password, active = true, isOnline = true
       base.taxPercent = String(defaults.taxPercent);
     }
     setForm(base);
+    setSaveState('');
   }
+
+  const currentPreset = productId ? presets[productId] : null;
+  const saveHint = (() => {
+    if (saveState === 'saved') return 'Расчёт сохранён';
+    if (saveState && saveState !== 'saving') return saveState;
+    if (!productId) return 'Выберите товар, чтобы сохранить расчёт';
+    if (currentPreset && currentPreset.updatedAt) {
+      const d = new Date(currentPreset.updatedAt);
+      return `Сохранено ${d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })} в ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    return 'По этому товару расчёт ещё не сохраняли';
+  })();
 
   const result = useMemo(() => calculate(form), [form]);
   const white = form.importMode === 'white';
@@ -271,14 +328,25 @@ export default function UnitEconomics({ password, active = true, isOnline = true
           <button className={`period-chip ${white ? 'active' : ''}`} onClick={() => set('importMode')('white')}>В белую</button>
         </div>
         {defaults && defaults.products.length > 0 && (
-          <select className="ue-product-select" defaultValue="" onChange={(e) => { applyProduct(e.target.value); e.target.value = ''; }}>
-            <option value="">Подставить из своего товара…</option>
+          <select className="ue-product-select" value={productId} onChange={(e) => selectProduct(e.target.value)}>
+            <option value="">Выбрать товар…</option>
             {defaults.products.map((p) => (
-              <option key={p.productId} value={p.productId}>{p.name}</option>
+              <option key={p.productId} value={p.productId}>
+                {presets[p.productId] ? '✓ ' : ''}{p.name}
+              </option>
             ))}
           </select>
         )}
+        <button
+          className="primary-button ue-save"
+          onClick={savePreset}
+          disabled={!productId || saveState === 'saving'}
+          title={productId ? '' : 'Сначала выберите товар — расчёт сохраняется для него'}
+        >
+          {saveState === 'saving' ? 'Сохраняем…' : 'Сохранить'}
+        </button>
         <button className="ue-reset" onClick={reset}>Сбросить</button>
+        <span className="ue-save-state">{saveHint}</span>
       </div>
 
       {defaults && defaults.commissionPercent !== null && (

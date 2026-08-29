@@ -320,6 +320,19 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_analyst_reports_created ON analyst_reports(created_at DESC);`);
 
+  // Сохранённые расчёты юнит-экономики — по одному на товар. Храним на сервере, а не в
+  // localStorage: расчёт делают за компьютером, а проверяют потом с телефона, и в браузере
+  // телефона его бы просто не было. Форма лежит целиком в JSONB, потому что набор полей
+  // меняется вместе со страницей, а заводить под каждое поле колонку смысла нет.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS unit_economics_presets (
+      product_id TEXT PRIMARY KEY,
+      product_name TEXT,
+      form JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
   // Заказы, отменённые при доставке (Kaspi Доставка) — либо ещё в процессе (state=KASPI_DELIVERY/
   // status=CANCELLING), либо уже в архиве (state=ARCHIVE/status=CANCELLED). Kaspi должен вернуть
   // такой заказ на склад продавца, но иногда теряет его в пути. kaspiDelivery.returnedToWarehouse
