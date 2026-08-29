@@ -58,6 +58,13 @@ export default function KazakhstanMap({ regions, cities, metric, view }) {
     return list.sort((a, b) => valueOf(b) - valueOf(a));
   }, [cities, metric]);
 
+  // Сколько городов с продажами не удалось поставить на карту. Молча терять их нельзя —
+  // в таблице под картой они есть, и человек должен понимать, почему точек меньше.
+  const hiddenCities = useMemo(
+    () => cities.filter((c) => valueOf(c) > 0).length - cityPoints.length,
+    [cities, cityPoints, metric]
+  );
+
   const maxCity = useMemo(() => Math.max(0, ...cityPoints.map(valueOf)), [cityPoints, metric]);
 
   const active = hovered || pinned;
@@ -180,6 +187,11 @@ export default function KazakhstanMap({ regions, cities, metric, view }) {
         <span>{metric === 'orders' ? 'Заказов' : 'Выручка'}: меньше</span>
         <i className="kz-map-legend-bar" />
         <span>больше</span>
+        {view === 'cities' && hiddenCities > 0 && (
+          <span className="kz-map-legend-note">
+            {hiddenCities} {hiddenCities === 1 ? 'город без точки' : 'городов без точки'} — они в таблице ниже
+          </span>
+        )}
       </div>
     </div>
   );

@@ -2246,6 +2246,11 @@ select:focus-visible {
   background: linear-gradient(90deg, rgba(110, 139, 255, 0.18), rgba(110, 139, 255, 1));
 }
 
+.kz-map-legend-note {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
 .geo-map-hint {
   font-size: 12px;
   color: var(--text-muted);
