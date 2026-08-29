@@ -15,6 +15,7 @@ import Analyst from './Analyst.jsx';
 import DeliveryReturns from './DeliveryReturns.jsx';
 import Geography from './Geography.jsx';
 import AbcXyz from './AbcXyz.jsx';
+import UnitEconomics from './UnitEconomics.jsx';
 import ComingSoon from './ComingSoon.jsx';
 import { useOnlineStatus } from './useOnlineStatus.js';
 
@@ -171,6 +172,14 @@ export default function Dashboard({ password, username, role, onLogout }) {
       return (
         <div key={key} style={style}>
           <AbcXyz password={password} active={active} isOnline={isOnline} />
+        </div>
+      );
+    }
+
+    if (key === 'unit_economics') {
+      return (
+        <div key={key} style={style}>
+          <UnitEconomics password={password} active={active} isOnline={isOnline} />
         </div>
       );
     }

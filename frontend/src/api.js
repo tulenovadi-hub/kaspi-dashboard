@@ -231,6 +231,10 @@ export function fetchDeliveryAnomalies(password, from) {
   return apiRequest(`/api/reports/delivery-anomalies${query}`, password, { timeoutMs: LONG_TIMEOUT_MS });
 }
 
+export function fetchUnitEconomicsDefaults(password) {
+  return apiRequest('/api/unit-economics/defaults', password);
+}
+
 export function fetchAbcXyz(password, from, to, mode, basis) {
   return apiRequest(
     `/api/abc?from=${from}&to=${to}&mode=${encodeURIComponent(mode || 'main')}&basis=${encodeURIComponent(basis || 'profit')}`,

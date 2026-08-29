@@ -53,6 +53,9 @@ const icons = {
   abc: (
     <svg viewBox="0 0 20 20" fill="none"><rect x="2.5" y="2.5" width="15" height="15" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 7.5h15M2.5 12.5h15M7.5 2.5v15M12.5 2.5v15" stroke="currentColor" strokeWidth="1.2"/><rect x="3.5" y="3.5" width="3" height="3" rx="0.5" fill="currentColor"/></svg>
   ),
+  unitEconomics: (
+    <svg viewBox="0 0 20 20" fill="none"><rect x="3" y="2.5" width="14" height="15" rx="2" stroke="currentColor" strokeWidth="1.5"/><rect x="5.5" y="5" width="9" height="3" rx="0.8" stroke="currentColor" strokeWidth="1.3"/><circle cx="6.8" cy="11" r="1" fill="currentColor"/><circle cx="10" cy="11" r="1" fill="currentColor"/><circle cx="13.2" cy="11" r="1" fill="currentColor"/><circle cx="6.8" cy="14.2" r="1" fill="currentColor"/><circle cx="10" cy="14.2" r="1" fill="currentColor"/><circle cx="13.2" cy="14.2" r="1" fill="currentColor"/></svg>
+  ),
   deliveryReturns: (
     <svg viewBox="0 0 20 20" fill="none"><path d="M6 8l-3 2 3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M3 10h8a3 3 0 003-3V6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="14.5" cy="14.5" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M14.5 13v1.5l1 1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
   ),
@@ -60,7 +63,7 @@ const icons = {
 
 // Какие пункты меню видит каждая роль
 const ROLE_PAGES = {
-  admin: ['sales', 'report', 'selfbuy', 'orders', 'geography', 'abc', 'expenses', 'batches', 'warehouse', 'purchasing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'analyst', 'delivery_returns', 'settings'],
+  admin: ['sales', 'report', 'selfbuy', 'orders', 'geography', 'abc', 'unit_economics', 'expenses', 'batches', 'warehouse', 'purchasing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'analyst', 'delivery_returns', 'settings'],
   manager: ['sales', 'selfbuy', 'orders', 'warehouse'],
   marketer: ['sales', 'selfbuy', 'orders', 'geography', 'warehouse', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews'],
 };
@@ -74,6 +77,7 @@ const NAV_ITEMS = [
   { key: 'orders', label: 'Заказы', icon: 'orders' },
   { key: 'geography', label: 'География', icon: 'geography' },
   { key: 'abc', label: 'ABC/XYZ', icon: 'abc' },
+  { key: 'unit_economics', label: 'Юнит-экономика', icon: 'unitEconomics' },
   { key: 'expenses', label: 'Расходы', icon: 'expenses' },
   { key: 'batches', label: 'Поставки', icon: 'batches' },
   { key: 'warehouse', label: 'Склад', icon: 'warehouse' },

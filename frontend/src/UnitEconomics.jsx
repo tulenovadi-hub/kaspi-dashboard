@@ -1,0 +1,472 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { fetchUnitEconomicsDefaults } from './api.js';
+import { formatMoney, formatNumber } from './dateUtils.js';
+
+const STORAGE_KEY = 'unit_economics_input';
+
+// Пустая форма. Всё, что можно взять из собственных продаж (комиссия, доставка, курс),
+// подставляется поверх неё из /api/unit-economics/defaults.
+const EMPTY_FORM = {
+  importMode: 'grey', // 'grey' — всё в ставке за кг, 'white' — с пошлиной, НДС и оформлением
+  sellPrice: '',
+  quantity: '100',
+  purchaseForeign: '',
+  currency: 'USD',
+  rate: '',
+  weightPerUnit: '',
+  freightPerKg: '',
+  dutyPercent: '0',
+  vatPercent: '12',
+  brokerPerBatch: '0',
+  customsWarehousePerBatch: '0',
+  certificationPerBatch: '0',
+  fulfillmentPerUnit: '0',
+  cityDeliveryPerUnit: '0',
+  otherPerUnit: '0',
+  otherPerBatch: '0',
+  commissionPercent: '',
+  kaspiDeliveryPerUnit: '',
+  marketingPercent: '0',
+  taxPercent: '3',
+};
+
+const CURRENCIES = ['USD', 'CNY', 'KZT'];
+
+function num(value) {
+  const n = Number(String(value).replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+}
+
+// Все деньги считаются НА ОДНУ ШТУКУ, а на партию умножаются в конце: так формулы читаются
+// глазами и совпадают с тем, как продавец думает про товар.
+function calculate(form) {
+  const quantity = Math.max(1, num(form.quantity));
+  const sellPrice = num(form.sellPrice);
+  const rate = form.currency === 'KZT' ? 1 : num(form.rate);
+
+  const purchase = num(form.purchaseForeign) * rate;
+  const weight = num(form.weightPerUnit);
+  const freight = weight * num(form.freightPerKg);
+
+  // Таможенная стоимость — товар плюс доставка до границы, от неё считаются пошлина и НДС.
+  const customsValue = purchase + freight;
+  const white = form.importMode === 'white';
+  const duty = white ? (customsValue * num(form.dutyPercent)) / 100 : 0;
+  const vat = white ? ((customsValue + duty) * num(form.vatPercent)) / 100 : 0;
+  const clearance = white
+    ? (num(form.brokerPerBatch) + num(form.customsWarehousePerBatch) + num(form.certificationPerBatch)) / quantity
+    : 0;
+  const importCost = duty + vat + clearance;
+
+  const variable =
+    num(form.fulfillmentPerUnit) + num(form.cityDeliveryPerUnit) + num(form.otherPerUnit) + num(form.otherPerBatch) / quantity;
+
+  // "Постфактум" — то, что забирают уже ПОСЛЕ продажи, с каждой проданной штуки.
+  const commission = (sellPrice * num(form.commissionPercent)) / 100;
+  const marketing = (sellPrice * num(form.marketingPercent)) / 100;
+  const kaspiDelivery = num(form.kaspiDeliveryPerUnit);
+  const tax = (sellPrice * num(form.taxPercent)) / 100;
+
+  const profit = sellPrice - purchase - freight - importCost - variable - commission - marketing - kaspiDelivery - tax;
+
+  // ROI — по той же формуле, что во всём дашборде: прибыль делится только на вложения в товар.
+  // Комиссия, доставка Kaspi и налоги в знаменатель не входят — это не инвестиция, а издержки сделки.
+  const investment = purchase + freight + importCost + variable + marketing;
+
+  // Цена, при которой прибыль обращается в ноль. Комиссия, реклама и налог зависят от цены,
+  // поэтому решается уравнение, а не просто складываются расходы.
+  const priceShare = (num(form.commissionPercent) + num(form.marketingPercent) + num(form.taxPercent)) / 100;
+  const fixedPerUnit = purchase + freight + importCost + variable + kaspiDelivery;
+  const breakEven = priceShare < 1 ? fixedPerUnit / (1 - priceShare) : null;
+
+  const parts = [
+    { key: 'purchase', label: 'Закупка товара', value: purchase, color: '#6e8bff' },
+    { key: 'freight', label: 'Доставка из Китая', value: freight, color: '#4ec9f5' },
+    { key: 'import', label: 'Ввоз и оформление', value: importCost, color: '#f5a623' },
+    { key: 'variable', label: 'Переменные расходы', value: variable, color: '#b38bff' },
+    { key: 'commission', label: 'Комиссия Kaspi', value: commission, color: '#ff8fab' },
+    { key: 'kaspiDelivery', label: 'Доставка Kaspi', value: kaspiDelivery, color: '#ff6b6b' },
+    { key: 'marketing', label: 'Реклама и бонусы', value: marketing, color: '#ffd166' },
+    { key: 'tax', label: 'Налог', value: tax, color: '#8d99ae' },
+  ];
+
+  return {
+    quantity,
+    sellPrice,
+    perUnit: { purchase, freight, importCost, variable, commission, marketing, kaspiDelivery, tax, profit, investment },
+    parts,
+    profit,
+    margin: sellPrice > 0 ? (profit / sellPrice) * 100 : 0,
+    roi: investment > 0 ? (profit / investment) * 100 : null,
+    revenue: sellPrice * quantity,
+    totalProfit: profit * quantity,
+    // Сколько денег нужно вложить до первой продажи — реклама сюда не входит, она платится позже.
+    upfront: (purchase + freight + importCost + variable) * quantity,
+    weightTotal: weight * quantity,
+    breakEven,
+    detail: { duty, vat, clearance, customsValue },
+  };
+}
+
+function Field({ label, value, onChange, suffix, hint, wide }) {
+  return (
+    <div className={`ue-field${wide ? ' ue-field-wide' : ''}`}>
+      <label>{label}</label>
+      <div className="ue-input-wrap">
+        <input type="text" inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} />
+        {suffix && <span className="ue-suffix">{suffix}</span>}
+      </div>
+      {hint && <div className="ue-hint">{hint}</div>}
+    </div>
+  );
+}
+
+function Gauge({ margin }) {
+  // Полукруг от -20% до +50%: за пределами этого диапазона стрелка просто упирается в край.
+  const clamped = Math.max(-20, Math.min(50, margin));
+  const fraction = (clamped + 20) / 70;
+  const radius = 62;
+  const circumference = Math.PI * radius;
+  const color = margin < 0 ? 'var(--accent-down)' : margin < 15 ? 'var(--accent-warn)' : 'var(--accent-up)';
+  return (
+    <div className="ue-gauge">
+      <svg viewBox="0 0 160 92" width="160" height="92">
+        <path d="M18 80 A62 62 0 0 1 142 80" fill="none" stroke="var(--bg)" strokeWidth="12" strokeLinecap="round" />
+        <path
+          d="M18 80 A62 62 0 0 1 142 80"
+          fill="none"
+          stroke={color}
+          strokeWidth="12"
+          strokeLinecap="round"
+          strokeDasharray={`${(circumference * fraction).toFixed(1)} ${circumference.toFixed(1)}`}
+        />
+      </svg>
+      <div className="ue-gauge-value" style={{ color }}>{margin.toFixed(1)}%</div>
+      <div className="ue-gauge-label">маржинальность</div>
+    </div>
+  );
+}
+
+export default function UnitEconomics({ password, active = true, isOnline = true }) {
+  const [form, setForm] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+      if (saved && typeof saved === 'object') return { ...EMPTY_FORM, ...saved };
+    } catch (err) {
+      // повреждённое содержимое localStorage не должно ронять страницу
+    }
+    return EMPTY_FORM;
+  });
+  const [defaults, setDefaults] = useState(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!active) return;
+    setLoading(true);
+    fetchUnitEconomicsDefaults(password)
+      .then((res) => {
+        setDefaults(res);
+        // Подставляем реальные комиссию/доставку/курс только в пустые поля — то, что человек
+        // уже ввёл руками, перетирать нельзя.
+        setForm((prev) => {
+          const next = { ...prev };
+          if (!next.commissionPercent && res.commissionPercent !== null) next.commissionPercent = String(res.commissionPercent);
+          if (!next.kaspiDeliveryPerUnit && res.deliveryPerUnit !== null) next.kaspiDeliveryPerUnit = String(res.deliveryPerUnit);
+          if (!next.rate && res.rates && res.rates[next.currency]) next.rate = String(res.rates[next.currency]);
+          if (!next.taxPercent) next.taxPercent = String(res.taxPercent);
+          return next;
+        });
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [active, password]);
+
+  // Ввод сохраняется локально: расчёт часто бросают на середине и возвращаются к нему позже.
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
+    } catch (err) {
+      // приватный режим браузера может запрещать запись — это не повод ломать страницу
+    }
+  }, [form]);
+
+  const set = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  function applyProduct(productId) {
+    const product = (defaults && defaults.products || []).find((p) => p.productId === productId);
+    if (!product) return;
+    setForm((prev) => ({
+      ...prev,
+      sellPrice: product.sellPrice !== null ? String(product.sellPrice) : prev.sellPrice,
+      currency: product.purchaseCurrency || (product.purchasePrice !== null ? 'KZT' : prev.currency),
+      purchaseForeign:
+        product.purchasePriceForeign !== null
+          ? String(product.purchasePriceForeign)
+          : product.purchasePrice !== null
+            ? String(product.purchasePrice)
+            : prev.purchaseForeign,
+      rate: product.purchaseRate !== null ? String(product.purchaseRate) : prev.rate,
+      otherPerUnit: product.extraPerUnit !== null ? String(product.extraPerUnit) : prev.otherPerUnit,
+    }));
+  }
+
+  function reset() {
+    const base = { ...EMPTY_FORM };
+    if (defaults) {
+      if (defaults.commissionPercent !== null) base.commissionPercent = String(defaults.commissionPercent);
+      if (defaults.deliveryPerUnit !== null) base.kaspiDeliveryPerUnit = String(defaults.deliveryPerUnit);
+      if (defaults.rates && defaults.rates.USD) base.rate = String(defaults.rates.USD);
+      base.taxPercent = String(defaults.taxPercent);
+    }
+    setForm(base);
+  }
+
+  const result = useMemo(() => calculate(form), [form]);
+  const white = form.importMode === 'white';
+  // Расчёт показываем только когда введено главное — цена продажи и цена закупки.
+  const filled = num(form.sellPrice) > 0 && num(form.purchaseForeign) > 0;
+
+  const expenseRows = [
+    ...result.parts.map((p) => ({ ...p })),
+    { key: 'profit', label: 'Прибыль', value: result.perUnit.profit, color: '#3ddc97', isProfit: true },
+  ];
+
+  // Полосы структуры цены: при убытке вместо зелёной прибыли рисуем красную нехватку.
+  const barParts = [
+    ...result.parts,
+    result.perUnit.profit >= 0
+      ? { key: 'profit', label: 'Прибыль', value: result.perUnit.profit, color: '#3ddc97' }
+      : { key: 'loss', label: 'Не хватает до нуля', value: -result.perUnit.profit, color: '#ff6b6b' },
+  ];
+  const barTotal = barParts.reduce((sum, p) => sum + Math.max(0, p.value), 0);
+
+  return (
+    <div>
+      <div className="app-header">
+        <h1 className="app-title">Юнит-экономика <span>стоит ли брать товар</span></h1>
+      </div>
+
+      {error && <div className="error-banner">{error}</div>}
+
+      <div className="ue-toolbar">
+        <div className="geo-chips">
+          <button className={`period-chip ${!white ? 'active' : ''}`} onClick={() => set('importMode')('grey')}>В серую</button>
+          <button className={`period-chip ${white ? 'active' : ''}`} onClick={() => set('importMode')('white')}>В белую</button>
+        </div>
+        {defaults && defaults.products.length > 0 && (
+          <select className="ue-product-select" defaultValue="" onChange={(e) => { applyProduct(e.target.value); e.target.value = ''; }}>
+            <option value="">Подставить из своего товара…</option>
+            {defaults.products.map((p) => (
+              <option key={p.productId} value={p.productId}>{p.name}</option>
+            ))}
+          </select>
+        )}
+        <button className="ue-reset" onClick={reset}>Сбросить</button>
+      </div>
+
+      {defaults && defaults.commissionPercent !== null && (
+        <div className="ue-source-note">
+          Комиссия {defaults.commissionPercent}% и доставка {formatMoney(defaults.deliveryPerUnit)} за штуку
+          подставлены не наугад — это факт по вашим {formatNumber(defaults.basedOn.orders)} заказам
+          за последние {defaults.basedOn.days} дней. Поменять можно вручную.
+        </div>
+      )}
+
+      <div className="ue-layout" style={{ opacity: loading || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+        <div className="ue-inputs">
+          <div className="card">
+            <div className="form-section-title">Товар и партия</div>
+            <div className="ue-grid">
+              <Field label="Цена продажи на Kaspi" value={form.sellPrice} onChange={set('sellPrice')} suffix="₸/шт" />
+              <Field label="Количество в партии" value={form.quantity} onChange={set('quantity')} suffix="шт" />
+              <div className="ue-field">
+                <label>Цена закупки</label>
+                <div className="ue-input-wrap">
+                  <input type="text" inputMode="decimal" value={form.purchaseForeign} onChange={(e) => set('purchaseForeign')(e.target.value)} />
+                  <select
+                    className="ue-currency"
+                    value={form.currency}
+                    onChange={(e) => {
+                      const currency = e.target.value;
+                      setForm((prev) => ({
+                        ...prev,
+                        currency,
+                        rate: currency === 'KZT' ? '1' : (defaults && defaults.rates[currency] ? String(defaults.rates[currency]) : prev.rate),
+                      }));
+                    }}
+                  >
+                    {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="ue-hint">за штуку у поставщика</div>
+              </div>
+              <Field
+                label="Курс"
+                value={form.currency === 'KZT' ? '1' : form.rate}
+                onChange={set('rate')}
+                suffix={`₸ за 1 ${form.currency}`}
+                hint={form.currency === 'KZT' ? 'для тенге курс не нужен' : 'из последней поставки'}
+              />
+              <Field label="Вес единицы" value={form.weightPerUnit} onChange={set('weightPerUnit')} suffix="кг" />
+              <Field
+                label="Доставка из Китая"
+                value={form.freightPerKg}
+                onChange={set('freightPerKg')}
+                suffix="₸ за кг"
+                hint={result.weightTotal > 0 ? `вся партия — ${formatNumber(Math.round(result.weightTotal))} кг` : 'ставку берём у карго'}
+              />
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="form-section-title">
+              Ввоз {white ? '— в белую' : '— в серую'}
+            </div>
+            {white ? (
+              <>
+                <div className="ue-grid">
+                  <Field label="Пошлина" value={form.dutyPercent} onChange={set('dutyPercent')} suffix="%" hint="от таможенной стоимости, по коду ТН ВЭД" />
+                  <Field label="НДС при импорте" value={form.vatPercent} onChange={set('vatPercent')} suffix="%" hint="на упрощёнке к зачёту не берётся" />
+                  <Field label="Брокер" value={form.brokerPerBatch} onChange={set('brokerPerBatch')} suffix="₸ за партию" />
+                  <Field label="СВХ и хранение" value={form.customsWarehousePerBatch} onChange={set('customsWarehousePerBatch')} suffix="₸ за партию" />
+                  <Field label="Сертификация" value={form.certificationPerBatch} onChange={set('certificationPerBatch')} suffix="₸ за партию" />
+                </div>
+                <div className="form-section-hint">
+                  Таможенная стоимость единицы — {formatMoney(result.detail.customsValue)} (закупка плюс доставка).
+                  Пошлина {formatMoney(result.detail.duty)}, НДС {formatMoney(result.detail.vat)},
+                  оформление {formatMoney(result.detail.clearance)} на штуку.
+                </div>
+              </>
+            ) : (
+              <div className="form-section-hint" style={{ marginTop: 0 }}>
+                В серую отдельных платежей на таможне нет — всё уже сидит в ставке карго за килограмм.
+                Проверьте, что ставка выше указана именно «под ключ», иначе расчёт получится слишком
+                оптимистичным.
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="form-section-title">Свои расходы</div>
+            <div className="ue-grid">
+              <Field label="Фулфилмент и упаковка" value={form.fulfillmentPerUnit} onChange={set('fulfillmentPerUnit')} suffix="₸/шт" />
+              <Field label="Доставка по городу" value={form.cityDeliveryPerUnit} onChange={set('cityDeliveryPerUnit')} suffix="₸/шт" />
+              <Field label="Прочее на штуку" value={form.otherPerUnit} onChange={set('otherPerUnit')} suffix="₸/шт" />
+              <Field label="Прочее на партию" value={form.otherPerBatch} onChange={set('otherPerBatch')} suffix="₸" hint="нотариат, перевод, образцы" />
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="form-section-title">Kaspi и налоги</div>
+            <div className="ue-grid">
+              <Field label="Комиссия Kaspi" value={form.commissionPercent} onChange={set('commissionPercent')} suffix="%" hint="факт по вашим продажам" />
+              <Field label="Доставка Kaspi" value={form.kaspiDeliveryPerUnit} onChange={set('kaspiDeliveryPerUnit')} suffix="₸/шт" hint="факт по вашим продажам" />
+              <Field label="Реклама и бонусы" value={form.marketingPercent} onChange={set('marketingPercent')} suffix="% от цены" />
+              <Field label="Налог" value={form.taxPercent} onChange={set('taxPercent')} suffix="%" hint="упрощёнка — 3% с оборота" />
+            </div>
+          </div>
+        </div>
+
+        <div className="ue-results">
+          <div className="card ue-summary">
+            <Gauge margin={filled ? result.margin : 0} />
+            {/* Пока не введены цена продажи и закупки, любые цифры здесь врут: комиссия и
+                доставка Kaspi уже подставлены, и "прибыль" вышла бы минусовой на пустой форме. */}
+            <div className="ue-summary-rows">
+              <div><span>Прибыль с одной штуки</span><b className={!filled ? undefined : result.profit < 0 ? 'ue-negative' : 'ue-positive'}>{filled ? formatMoney(result.perUnit.profit) : '—'}</b></div>
+              <div><span>Прибыль с партии</span><b className={!filled ? undefined : result.totalProfit < 0 ? 'ue-negative' : 'ue-positive'}>{filled ? formatMoney(result.totalProfit) : '—'}</b></div>
+              <div><span>Выручка с партии</span><b>{filled ? formatMoney(result.revenue) : '—'}</b></div>
+              <div><span>ROI</span><b>{filled && result.roi !== null ? `${result.roi.toFixed(1)}%` : '—'}</b></div>
+              <div><span>Вложить до первой продажи</span><b>{filled ? formatMoney(result.upfront) : '—'}</b></div>
+              <div>
+                <span>Цена в ноль</span>
+                <b>{filled && result.breakEven !== null ? formatMoney(result.breakEven) : '—'}</b>
+              </div>
+            </div>
+            {filled && result.breakEven !== null && (
+              <div className="ue-verdict">
+                {result.profit < 0
+                  ? `Товар в минусе: чтобы выйти в ноль, продавать нужно минимум за ${formatMoney(result.breakEven)}.`
+                  : `Запас по цене — ${formatMoney(result.sellPrice - result.breakEven)} на штуку: ниже этого падать нельзя.`}
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="form-section-title">Структура цены</div>
+            {filled ? (
+              <>
+                {/* Ширины считаются от суммы САМИХ полос, а не от цены: когда товар в минусе,
+                    расходы больше цены, и доли от цены дали бы в сумме больше 100% — полоса
+                    поехала бы. При убытке последний сегмент красный: видно, сколько не хватает
+                    цене, чтобы покрыть расходы. */}
+                <div className="ue-bar">
+                  {barParts.map((row) => {
+                    const width = barTotal > 0 ? (row.value / barTotal) * 100 : 0;
+                    if (width <= 0) return null;
+                    return (
+                      <div
+                        key={row.key}
+                        className="ue-bar-part"
+                        style={{ width: `${width}%`, background: row.color }}
+                        title={`${row.label}: ${formatMoney(row.value)}`}
+                      />
+                    );
+                  })}
+                </div>
+                <div className="ue-legend">
+                  {expenseRows.map((row) => {
+                    const share = result.sellPrice > 0 ? (row.value / result.sellPrice) * 100 : 0;
+                    if (share === 0) return null;
+                    return (
+                      <div key={row.key} className="ue-legend-item">
+                        <i style={{ background: row.color }} />
+                        <span>{row.label}</span>
+                        <b className={row.isProfit && row.value < 0 ? 'ue-negative' : undefined}>{share.toFixed(1)}%</b>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="empty-state">Заполните цену продажи и цену закупки</div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="form-section-title">Статьи расходов</div>
+            <div className="table-scroll">
+              <table className="product-table">
+                <thead>
+                  <tr>
+                    <th>Статья</th>
+                    <th className="num">На штуку</th>
+                    <th className="num">На партию</th>
+                    <th className="num">% от цены</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><b>Выручка</b></td>
+                    <td className="num">{formatMoney(result.sellPrice)}</td>
+                    <td className="num">{formatMoney(result.revenue)}</td>
+                    <td className="num">100%</td>
+                  </tr>
+                  {expenseRows.map((row) => (
+                    <tr key={row.key}>
+                      <td>{row.label}</td>
+                      <td className={`num${row.isProfit && row.value < 0 ? ' report-cell-red' : ''}`}>{formatMoney(row.value)}</td>
+                      <td className={`num${row.isProfit && row.value < 0 ? ' report-cell-red' : ''}`}>{formatMoney(row.value * result.quantity)}</td>
+                      <td className="num">{result.sellPrice > 0 ? `${((row.value / result.sellPrice) * 100).toFixed(1)}%` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
