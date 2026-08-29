@@ -60,6 +60,25 @@ export default function KazakhstanMap({ regions, macroRegions, metric, view }) {
 
   const active = hovered || pinned;
 
+  // Подсказка должна жить, только пока курсор реально на области. Раньше уход отслеживался
+  // на всей карточке с картой, и стоило съехать с области в пустоту внутри карты (море,
+  // соседние страны, поля по краям) — подсказка оставалась висеть.
+  //
+  // relatedTarget — элемент, НА который ушёл курсор: если это другая область, гасить не надо,
+  // её собственный onMouseEnter тут же поставит новое значение (иначе подсказка моргала бы
+  // при переходе между соседними областями).
+  function handleSvgMouseOut(e) {
+    const to = e.relatedTarget;
+    if (to && typeof to.closest === 'function' && to.closest('.kz-region, .kz-city-region')) return;
+    setHovered(null);
+  }
+
+  // Клик мимо области снимает "прикреплённую" подсказку. Клик по самой области сюда тоже
+  // всплывает, поэтому проверяем, что нажали именно по фону карты.
+  function handleBackgroundClick(e) {
+    if (e.target === e.currentTarget || e.target.tagName === 'svg') setPinned(null);
+  }
+
   function handleMove(e) {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -122,9 +141,11 @@ export default function KazakhstanMap({ regions, macroRegions, metric, view }) {
       onMouseMove={handleMove}
       onPointerDown={handleMove}
       onMouseLeave={() => setHovered(null)}
+      onClick={handleBackgroundClick}
     >
       <svg
         className={`kz-map${byMacro ? ' by-macro' : ''}`}
+        onMouseOut={handleSvgMouseOut}
         viewBox={`0 0 ${VIEW_BOX.width} ${VIEW_BOX.height}`}
         role="img"
         aria-label="Карта Казахстана: продажи по регионам и областям"
