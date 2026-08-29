@@ -2445,9 +2445,12 @@ select:focus-visible {
 
 /* ===== Страница "ABC/XYZ" ===== */
 
+/* Два ряда переключателей в одну строку на широком экране. row-gap: 0 — на телефоне они
+   переносятся, и без этого между ними складывались отступ flex-а и margin самих чипсов. */
 .abc-toolbar {
   display: flex;
-  gap: 28px;
+  column-gap: 28px;
+  row-gap: 0;
   flex-wrap: wrap;
   align-items: center;
 }
