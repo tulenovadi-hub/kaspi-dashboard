@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { fetchUnitEconomicsDefaults, saveUnitEconomicsPreset } from './api.js';
+import { fetchUnitEconomicsDefaults, saveUnitEconomicsPreset, deleteUnitEconomicsPreset } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
 
 const STORAGE_KEY = 'unit_economics_input';
@@ -197,6 +197,11 @@ export default function UnitEconomics({ password, active = true, isOnline = true
   const [productId, setProductId] = useState(() => localStorage.getItem(PRODUCT_KEY) || '');
   const [presets, setPresets] = useState({});
   const [saveState, setSaveState] = useState(''); // '' | 'saving' | 'saved' | текст ошибки
+  // Товары, добавленные вручную: в заказах их ещё нет, поэтому живут только в сохранённых
+  // расчётах. Пока расчёт не сохранён — только здесь, в состоянии страницы.
+  const [customProducts, setCustomProducts] = useState([]);
+  const [newProductName, setNewProductName] = useState('');
+  const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -258,12 +263,56 @@ export default function UnitEconomics({ password, active = true, isOnline = true
       setForm(migrateForm(preset.form));
       return;
     }
+    // У товара, добавленного вручную, нет ни продаж, ни партий — подставлять нечего, начинаем
+    // с чистой формы с базовыми комиссией, доставкой и курсом.
+    if (isCustom(nextId)) {
+      reset();
+      return;
+    }
     applyProduct(nextId);
+  }
+
+  function addProduct() {
+    const name = newProductName.trim();
+    if (!name) return;
+    // Своего id у такого товара нет — придумываем свой. Префикс нужен, чтобы его нельзя было
+    // спутать с настоящим кодом товара Kaspi.
+    const id = `custom:${Date.now()}`;
+    setCustomProducts((prev) => [...prev, { productId: id, name, custom: true }]);
+    setNewProductName('');
+    setAdding(false);
+    setProductId(id);
+    setSaveState('');
+    try {
+      localStorage.setItem(PRODUCT_KEY, id);
+    } catch (err) {
+      // приватный режим браузера может запрещать запись
+    }
+    reset();
+  }
+
+  async function removeProduct() {
+    if (!productId) return;
+    if (presets[productId]) {
+      try {
+        await deleteUnitEconomicsPreset(password, productId);
+      } catch (err) {
+        setSaveState(err.message);
+        return;
+      }
+    }
+    setPresets((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
+    setCustomProducts((prev) => prev.filter((c) => c.productId !== productId));
+    selectProduct('');
   }
 
   async function savePreset() {
     if (!productId) return;
-    const product = (defaults && defaults.products || []).find((p) => p.productId === productId);
+    const product = allProducts.find((p) => p.productId === productId);
     setSaveState('saving');
     try {
       const res = await saveUnitEconomicsPreset(password, productId, product ? product.name : null, form);
@@ -319,6 +368,20 @@ export default function UnitEconomics({ password, active = true, isOnline = true
     setSaveState('');
   }
 
+  // Список для выбора: реальные товары из продаж плюс добавленные вручную. Вручную добавленный
+  // товар опознаётся по тому, что его id нет среди реальных, а имя лежит в сохранённом расчёте.
+  const realProducts = defaults ? defaults.products : [];
+  // Товар, добавленный вручную, опознаётся по префиксу id — по нему же его нельзя спутать
+  // с настоящим кодом товара Kaspi.
+  const isCustom = (id) => String(id || '').startsWith('custom:');
+  // В список попадают и сохранённые расчёты по товарам, которых уже нет в продажах за окно:
+  // иначе расчёт остался бы в базе, но добраться до него из интерфейса было бы нельзя.
+  const savedExtra = Object.entries(presets)
+    .filter(([id]) => !realProducts.some((p) => p.productId === id))
+    .map(([id, preset]) => ({ productId: id, name: preset.productName || 'Без названия', custom: isCustom(id) }));
+  const pendingCustom = customProducts.filter((c) => !savedExtra.some((e) => e.productId === c.productId));
+  const allProducts = [...realProducts, ...savedExtra, ...pendingCustom];
+
   const selectedProduct = productId && defaults ? defaults.products.find((p) => p.productId === productId) : null;
   const currentPreset = productId ? presets[productId] : null;
   const saveHint = (() => {
@@ -364,16 +427,35 @@ export default function UnitEconomics({ password, active = true, isOnline = true
           <button className={`period-chip ${!white ? 'active' : ''}`} onClick={() => set('importMode')('grey')}>В серую</button>
           <button className={`period-chip ${white ? 'active' : ''}`} onClick={() => set('importMode')('white')}>В белую</button>
         </div>
-        {defaults && defaults.products.length > 0 && (
-          <select className="ue-product-select" value={productId} onChange={(e) => selectProduct(e.target.value)}>
-            <option value="">Выбрать товар…</option>
-            {defaults.products.map((p) => (
-              <option key={p.productId} value={p.productId}>
-                {presets[p.productId] ? '✓ ' : ''}{p.name}
-              </option>
-            ))}
-          </select>
-        )}
+        {defaults && (adding ? (
+          <div className="ue-add-product">
+            <input
+              type="text"
+              autoFocus
+              placeholder="Название товара"
+              value={newProductName}
+              onChange={(e) => setNewProductName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') addProduct();
+                if (e.key === 'Escape') { setAdding(false); setNewProductName(''); }
+              }}
+            />
+            <button className="primary-button ue-save" onClick={addProduct} disabled={!newProductName.trim()}>Добавить</button>
+            <button className="ue-reset" onClick={() => { setAdding(false); setNewProductName(''); }}>Отмена</button>
+          </div>
+        ) : (
+          <>
+            <select className="ue-product-select" value={productId} onChange={(e) => selectProduct(e.target.value)}>
+              <option value="">Выбрать товар…</option>
+              {allProducts.map((p) => (
+                <option key={p.productId} value={p.productId}>
+                  {presets[p.productId] ? '✓ ' : ''}{p.name}{p.custom ? ' (свой)' : ''}
+                </option>
+              ))}
+            </select>
+            <button className="ue-reset" onClick={() => setAdding(true)}>+ Новый товар</button>
+          </>
+        ))}
         <button
           className="primary-button ue-save"
           onClick={savePreset}
@@ -383,6 +465,11 @@ export default function UnitEconomics({ password, active = true, isOnline = true
           {saveState === 'saving' ? 'Сохраняем…' : 'Сохранить'}
         </button>
         <button className="ue-reset" onClick={reset}>Сбросить</button>
+        {productId && (presets[productId] || isCustom(productId)) && (
+          <button className="ue-reset ue-remove" onClick={removeProduct}>
+            {isCustom(productId) ? 'Удалить товар' : 'Удалить расчёт'}
+          </button>
+        )}
         <span className="ue-save-state">{saveHint}</span>
       </div>
 

@@ -67,6 +67,10 @@ router.get('/defaults', async (req, res) => {
       ),
       // Товары с недавними продажами: цена продажи и последняя партия — чтобы можно было
       // начать расчёт не с нуля, а от реального товара.
+      //
+      // ВАЖНО: здесь НЕТ фильтра по складу, в отличие от комиссии и доставки выше. Это просто
+      // список для выбора, и в нём должно быть всё, что продаётся: утюжок HS-918 уходил только
+      // через самовыкупы и из-за фильтра по основному магазину в списке не появлялся вовсе.
       pool.query(
         `WITH recent AS (
            SELECT oi.product_id,
@@ -77,7 +81,6 @@ router.get('/defaults', async (req, res) => {
            JOIN orders o ON o.id = oi.order_id
            WHERE oi.creation_date >= now() - ($1 || ' days')::interval
              AND o.status = ANY($2::text[])
-             AND o.origin_city = ANY($3::text[])
            GROUP BY oi.product_id
          ),
          last_batch AS (
@@ -95,12 +98,12 @@ router.get('/defaults', async (req, res) => {
          FROM recent r
          LEFT JOIN last_batch b ON b.product_id = r.product_id
          ORDER BY r.revenue DESC
-         LIMIT 30`,
-        [String(WINDOW_DAYS), VALID_STATUSES, MAIN_CITIES]
+         LIMIT 50`,
+        [String(WINDOW_DAYS), VALID_STATUSES]
       ),
       // Ранее сохранённые расчёты — отдаём вместе со всем остальным, чтобы страница делала
       // один запрос, а не два.
-      pool.query('SELECT product_id, form, updated_at FROM unit_economics_presets'),
+      pool.query('SELECT product_id, product_name, form, updated_at FROM unit_economics_presets'),
       // Расходы на рекламу в разрезе товаров. Стоимость кампании делится поровну между её
       // товарами — та же логика, что в "Отчёте" и на странице ABC/XYZ. Отсюда получается ДРР
       // по товару, который и подставляется в поле "Реклама".
@@ -196,8 +199,13 @@ router.get('/defaults', async (req, res) => {
       },
       rates,
       products,
+      // Имя сохраняем вместе с расчётом: у товаров, добавленных вручную, его больше взять
+      // неоткуда — в заказах и партиях их нет.
       presets: Object.fromEntries(
-        presetsResult.rows.map((row) => [row.product_id, { form: row.form, updatedAt: row.updated_at }])
+        presetsResult.rows.map((row) => [
+          row.product_id,
+          { form: row.form, updatedAt: row.updated_at, productName: row.product_name },
+        ])
       ),
     });
   } catch (err) {

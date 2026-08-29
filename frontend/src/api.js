@@ -235,6 +235,10 @@ export function fetchUnitEconomicsDefaults(password) {
   return apiRequest('/api/unit-economics/defaults', password);
 }
 
+export function deleteUnitEconomicsPreset(password, productId) {
+  return apiRequest(`/api/unit-economics/presets/${encodeURIComponent(productId)}`, password, { method: 'DELETE' });
+}
+
 export function saveUnitEconomicsPreset(password, productId, productName, form) {
   return apiRequest(`/api/unit-economics/presets/${encodeURIComponent(productId)}`, password, {
     method: 'PUT',

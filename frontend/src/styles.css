@@ -2653,6 +2653,33 @@ select:focus-visible {
   font-size: 13px;
 }
 
+.ue-add-product {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ue-add-product input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-display);
+  min-width: 220px;
+}
+
+.ue-add-product input:focus {
+  outline: none;
+  border-color: var(--accent-brand);
+}
+
+.ue-remove:hover {
+  color: var(--accent-down);
+}
+
 /* Подпись про сохранение уходит в конец строки, чтобы не толкать кнопки при смене текста. */
 .ue-save-state {
   font-size: 12px;
