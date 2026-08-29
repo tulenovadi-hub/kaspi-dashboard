@@ -301,6 +301,8 @@ export default function UnitEconomics({ password, active = true, isOnline = true
             : prev.logisticsAmount,
       logisticsRate: product.logisticsRate !== null ? String(product.logisticsRate) : prev.logisticsRate,
       otherPerUnit: product.extraPerUnit !== null ? String(product.extraPerUnit) : prev.otherPerUnit,
+      // ДРР этого товара — доля рекламы в его выручке, ровно как на странице "Реклама товаров".
+      adPercent: product.adPercent !== null ? String(product.adPercent) : prev.adPercent,
     }));
   }
 
@@ -316,6 +318,7 @@ export default function UnitEconomics({ password, active = true, isOnline = true
     setSaveState('');
   }
 
+  const selectedProduct = productId && defaults ? defaults.products.find((p) => p.productId === productId) : null;
   const currentPreset = productId ? presets[productId] : null;
   const saveHint = (() => {
     if (saveState === 'saved') return 'Расчёт сохранён';
@@ -506,7 +509,17 @@ export default function UnitEconomics({ password, active = true, isOnline = true
           <div className="card">
             <div className="form-section-title">Маркетинг</div>
             <div className="ue-grid">
-              <Field label="Реклама" value={form.adPercent} onChange={set('adPercent')} suffix="% от цены" />
+              <Field
+                label="Реклама"
+                value={form.adPercent}
+                onChange={set('adPercent')}
+                suffix="% от цены"
+                hint={
+                  selectedProduct && selectedProduct.adPercent !== null
+                    ? `ДРР этого товара за ${defaults.basedOn.days} дней — ${selectedProduct.adPercent}%`
+                    : 'доля рекламы в цене'
+                }
+              />
               <Field label="Бонусы от продавца" value={form.sellerBonusPercent} onChange={set('sellerBonusPercent')} suffix="% от цены" />
               <Field
                 label="Бонусы за отзыв"

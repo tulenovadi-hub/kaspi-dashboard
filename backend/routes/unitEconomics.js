@@ -20,7 +20,7 @@ const WINDOW_DAYS = 90;
 // (ставки логистики, схемы ввоза) взять неоткуда — это руками.
 router.get('/defaults', async (req, res) => {
   try {
-    const [feesResult, ratesResult, productsResult, presetsResult] = await Promise.all([
+    const [feesResult, ratesResult, productsResult, presetsResult, adCostResult] = await Promise.all([
       // Комиссия и доставка по заказам с загруженным отчётом Kaspi Pay. Обе колонки хранятся
       // отрицательными (это расход) — переворачиваем в плюс.
       pool.query(
@@ -101,7 +101,32 @@ router.get('/defaults', async (req, res) => {
       // Ранее сохранённые расчёты — отдаём вместе со всем остальным, чтобы страница делала
       // один запрос, а не два.
       pool.query('SELECT product_id, form, updated_at FROM unit_economics_presets'),
+      // Расходы на рекламу в разрезе товаров. Стоимость кампании делится поровну между её
+      // товарами — та же логика, что в "Отчёте" и на странице ABC/XYZ. Отсюда получается ДРР
+      // по товару, который и подставляется в поле "Реклама".
+      pool.query(
+        `WITH ad_cost AS (
+           SELECT campaign_id, SUM(cost) AS cost
+           FROM ad_expenses
+           WHERE expense_date >= (now() - ($1 || ' days')::interval)::date
+           GROUP BY campaign_id
+         ),
+         campaign_size AS (
+           SELECT campaign_id, COUNT(*) AS products
+           FROM ad_campaign_products
+           GROUP BY campaign_id
+         )
+         SELECT acp.product_id, SUM(ac.cost / cs.products) AS cost
+         FROM ad_cost ac
+         JOIN ad_campaign_products acp ON acp.campaign_id = ac.campaign_id
+         JOIN campaign_size cs ON cs.campaign_id = ac.campaign_id
+         WHERE cs.products > 0
+         GROUP BY acp.product_id`,
+        [String(WINDOW_DAYS)]
+      ),
     ]);
+
+    const adCostByProduct = Object.fromEntries(adCostResult.rows.map((r) => [r.product_id, Number(r.cost)]));
 
     const fees = feesResult.rows[0] || {};
     const revenue = Number(fees.revenue) || 0;
@@ -124,9 +149,16 @@ router.get('/defaults', async (req, res) => {
         const rate = Number(e.rate) || 1;
         return sum + amount * (e.currency && e.currency !== 'KZT' ? rate : 1);
       }, 0);
+      const productRevenue = Number(row.revenue) || 0;
+      const adCost = adCostByProduct[row.product_id] || 0;
+
       return {
         productId: row.product_id,
         name: row.name,
+        // ДРР по товару: расходы на рекламу к его выручке за то же окно. Ровно то же число,
+        // что показывает карточка "ДРР за период" на странице "Реклама товаров".
+        adPercent: productRevenue > 0 && adCost > 0 ? Number(((adCost / productRevenue) * 100).toFixed(2)) : null,
+        adCost: Math.round(adCost),
         // Средняя цена продажи за штуку по недавним продажам — стартовая цена в калькуляторе.
         sellPrice: Number(row.quantity) > 0 ? Math.round(Number(row.revenue) / Number(row.quantity)) : null,
         purchasePrice: row.purchase_price !== null ? Math.round(Number(row.purchase_price)) : null,
