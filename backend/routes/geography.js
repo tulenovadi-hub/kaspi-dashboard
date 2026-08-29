@@ -1,7 +1,7 @@
 const express = require('express');
 const { pool } = require('../db');
 const { MAIN_CITIES, SELF_BUY_CITIES } = require('../warehouseMapping');
-const { REGIONS, REGION_BY_ID, resolveRegion, normalizeCity, cityHead, displayCity } = require('../kzRegions');
+const { REGIONS, REGION_BY_ID, MACRO_REGIONS, resolveRegion, displayCity } = require('../kzRegions');
 
 const router = express.Router();
 
@@ -54,7 +54,7 @@ function cityFromFormattedAddress(address) {
 }
 
 function emptyBucket() {
-  return { orders: 0, revenue: 0, deliveryCost: 0, ordersWithCost: 0, lonSum: 0, latSum: 0, coordCount: 0 };
+  return { orders: 0, revenue: 0, deliveryCost: 0, ordersWithCost: 0 };
 }
 
 function addToBucket(bucket, row) {
@@ -64,11 +64,6 @@ function addToBucket(bucket, row) {
   if (cost !== null) {
     bucket.ordersWithCost += 1;
     bucket.deliveryCost += cost;
-  }
-  if (row.coords) {
-    bucket.lonSum += row.coords.lon;
-    bucket.latSum += row.coords.lat;
-    bucket.coordCount += 1;
   }
 }
 
@@ -146,9 +141,9 @@ router.get('/', async (req, res) => {
     let ordersWithReport = 0;
 
     const byRegion = new Map();
-    const byCity = new Map();
+    const byMacro = new Map();
     const byMode = new Map();
-    const unknownCities = new Map();
+    const unknownPlaces = new Map();
 
     for (const row of rows) {
       const lat = num(row.lat);
@@ -188,67 +183,54 @@ router.get('/', async (req, res) => {
 
       const regionId = resolveRegion(rawCity, row.coords);
       if (rawCity && !regionId) {
+        // Населённый пункт, который не удалось отнести к области. Сам по себе он на странице
+        // не нужен — но без списка таких мест непонятно, почему часть заказов не на карте.
         const key = displayCity(rawCity);
-        unknownCities.set(key, (unknownCities.get(key) || 0) + 1);
+        unknownPlaces.set(key, (unknownPlaces.get(key) || 0) + 1);
       }
 
       const regionKey = regionId || 'unknown';
       if (!byRegion.has(regionKey)) byRegion.set(regionKey, emptyBucket());
       addToBucket(byRegion.get(regionKey), row);
 
-      if (rawCity) {
-        // Ключ строки — с уточнением области в скобках: Кайнар в Жамбылской и Кайнар в
-        // Алматинской это разные сёла, склеивать их в одну строку нельзя.
-        const cityKey = normalizeCity(rawCity);
-        if (!byCity.has(cityKey)) {
-          byCity.set(cityKey, {
-            key: cityKey,
-            pointKey: cityHead(rawCity), // по нему фронтенд ищет координаты для точки на карте
-            city: displayCity(rawCity),
-            regionId,
-            ...emptyBucket(),
-          });
-        }
-        addToBucket(byCity.get(cityKey), row);
-      }
+      const macroKey = (regionId && REGION_BY_ID[regionId].macro) || 'unknown';
+      if (!byMacro.has(macroKey)) byMacro.set(macroKey, emptyBucket());
+      addToBucket(byMacro.get(macroKey), row);
     }
 
     const totalsOut = finishBucket(totals);
     const regionsWithSales = [...byRegion.keys()].filter((k) => k !== 'unknown').length;
 
+    const share = (value) => (totalsOut.revenue > 0 ? (value / totalsOut.revenue) * 100 : 0);
+
     const regions = REGIONS.map((r) => {
-      const bucket = byRegion.get(r.id) || emptyBucket();
-      const done = finishBucket(bucket);
+      const done = finishBucket(byRegion.get(r.id) || emptyBucket());
       return {
         id: r.id,
         name: r.name,
         short: r.short,
+        macro: r.macro,
         isCity: Boolean(r.isCity),
         ...done,
-        revenueShare: totalsOut.revenue > 0 ? (done.revenue / totalsOut.revenue) * 100 : 0,
+        revenueShare: share(done.revenue),
+      };
+    }).sort((a, b) => b.revenue - a.revenue);
+
+    // Макрорегионы отдаём всегда все пять, даже с нулями: "куда мы вообще не возим" —
+    // такой же ответ на вопрос о складах, как и "куда возим больше всего".
+    const macroRegions = MACRO_REGIONS.map((m) => {
+      const done = finishBucket(byMacro.get(m.id) || emptyBucket());
+      return {
+        id: m.id,
+        name: m.name,
+        short: m.short,
+        oblasts: REGIONS.filter((r) => r.macro === m.id).map((r) => r.short),
+        ...done,
+        revenueShare: share(done.revenue),
       };
     }).sort((a, b) => b.revenue - a.revenue);
 
     const unknownBucket = byRegion.get('unknown');
-
-    const citiesOut = [...byCity.values()]
-      .map((c) => {
-        const done = finishBucket(c);
-        return {
-          key: c.key,
-          pointKey: c.pointKey,
-          city: c.city,
-          regionId: c.regionId,
-          regionName: c.regionId ? REGION_BY_ID[c.regionId].name : null,
-          // Средние координаты по заказам, где Kaspi их прислал — запасной способ поставить
-          // точку на карте для сёл, которых нет в справочнике координат.
-          lon: c.coordCount > 0 ? c.lonSum / c.coordCount : null,
-          lat: c.coordCount > 0 ? c.latSum / c.coordCount : null,
-          ...done,
-          revenueShare: totalsOut.revenue > 0 ? (done.revenue / totalsOut.revenue) * 100 : 0,
-        };
-      })
-      .sort((a, b) => b.revenue - a.revenue);
 
     const deliveryModes = [...byMode.values()]
       .map((m) => ({
@@ -268,16 +250,17 @@ router.get('/', async (req, res) => {
         kaspiPickupOrders,
         regionsWithSales,
         regionsTotal: REGIONS.length,
-        citiesCount: citiesOut.length,
+        macroWithSales: macroRegions.filter((m) => m.orders > 0).length,
+        macroTotal: MACRO_REGIONS.length,
       },
+      macroRegions,
       regions,
-      cities: citiesOut,
       deliveryModes,
       // Заказы, у которых область определить не удалось ничем.
       unknownRegion: unknownBucket ? finishBucket(unknownBucket) : null,
-      // Города, которые не разобрались ни по подсказке Kaspi, ни по справочнику, ни по
-      // координатам — их надо дописать в backend/kzRegions.js.
-      unknownCities: [...unknownCities.entries()]
+      // Населённые пункты, которые не разобрались ни по подсказке Kaspi, ни по справочнику,
+      // ни по координатам — их надо дописать в backend/kzRegions.js.
+      unknownPlaces: [...unknownPlaces.entries()]
         .map(([city, orders]) => ({ city, orders }))
         .sort((a, b) => b.orders - a.orders),
       // Диагностика: по какой доле заказов Kaspi отдал нужные поля, плюс контрольная сумма

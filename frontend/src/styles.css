@@ -2347,6 +2347,55 @@ select:focus-visible {
   white-space: nowrap;
 }
 
+/* Карточек регионов всего пять — растягивать их на четыре колонки, как области, некрасиво:
+   пятая уезжает на вторую строку одна. */
+.geo-macro-grid {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+@media (max-width: 1300px) {
+  .geo-macro-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 820px) {
+  .geo-macro-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .geo-macro-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Список областей внутри карточки региона — мелким шрифтом, чтобы было видно состав,
+   но он не спорил с цифрами. */
+.geo-macro-oblasts {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.kz-map-label-macro {
+  font-size: 17px;
+  font-weight: 700;
+  fill: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+/* В режиме регионов границы областей внутри региона только мешают — соседние области залиты
+   одним цветом и должны читаться как один кусок. */
+.kz-map.by-macro .kz-region {
+  stroke: rgba(38, 47, 69, 0.45);
+  stroke-width: 0.6;
+}
+
 .geo-muted {
   color: var(--text-muted);
 }

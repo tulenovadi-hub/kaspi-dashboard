@@ -5,8 +5,8 @@ import PeriodSelector from './PeriodSelector.jsx';
 import KazakhstanMap from './KazakhstanMap.jsx';
 
 const EMPTY = {
-  totals: null, regions: [], cities: [], deliveryModes: [],
-  unknownRegion: null, unknownCities: [], coverage: null,
+  totals: null, macroRegions: [], regions: [], deliveryModes: [],
+  unknownRegion: null, unknownPlaces: [], coverage: null,
 };
 
 const WAREHOUSE_MODES = [
@@ -44,7 +44,7 @@ export default function Geography({ password, active = true, isOnline = true }) 
   const [to, setTo] = useState(() => toISODate(daysAgo(0)));
   const [presetKey, setPresetKey] = useState('month');
   const [warehouseMode, setWarehouseMode] = useState('main');
-  const [mapView, setMapView] = useState('regions'); // 'regions' | 'cities'
+  const [mapView, setMapView] = useState('macro'); // 'macro' (5 регионов) | 'regions' (области)
   const [metric, setMetric] = useState('revenue');   // 'revenue' | 'orders'
   const [data, setData] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
@@ -123,7 +123,7 @@ export default function Geography({ password, active = true, isOnline = true }) 
               <span className="geo-stat-hint"> областей</span>
             </div>
             <div className="stat-sublabel" style={{ marginTop: 6 }}>
-              {totals ? `${formatNumber(totals.citiesCount)} городов и сёл` : ''}
+              {totals ? `${totals.macroWithSales} из ${totals.macroTotal} регионов страны` : ''}
             </div>
           </div>
         </div>
@@ -167,7 +167,7 @@ export default function Geography({ password, active = true, isOnline = true }) 
         <div className="card">
           <div className="geo-map-toolbar">
             <Chips
-              options={[{ key: 'regions', label: 'По областям' }, { key: 'cities', label: 'По городам' }]}
+              options={[{ key: 'macro', label: 'По регионам' }, { key: 'regions', label: 'По областям' }]}
               value={mapView}
               onChange={setMapView}
             />
@@ -178,14 +178,65 @@ export default function Geography({ password, active = true, isOnline = true }) 
             />
           </div>
 
-          <KazakhstanMap regions={data.regions} cities={data.cities} metric={metric} view={mapView} />
+          <KazakhstanMap
+            regions={data.regions}
+            macroRegions={data.macroRegions}
+            metric={metric}
+            view={mapView}
+          />
 
           <div className="geo-map-hint">
-            Наведите на область или город, чтобы увидеть цифры (на телефоне — коснитесь).
-            Абайская, Жетысуская и Улытауская области на карте входят в состав ВКО, Алматинской
-            и Карагандинской — контуры страны взяты до разделения 2022 года.
+            Наведите на карту, чтобы увидеть цифры (на телефоне — коснитесь). Астана, Алматы и
+            Шымкент — города республиканского значения, на карте они кружками: своей площади у
+            них почти нет, а заказов идёт больше, чем в иные области.
           </div>
         </div>
+
+        <div className="section-title">Регионы</div>
+        <div className="geo-region-grid geo-macro-grid">
+          {data.macroRegions.map((m) => (
+            <div className="geo-region-card" key={m.id}>
+              <div className="geo-region-share">{m.revenueShare.toFixed(1)}%</div>
+              <div className="geo-region-name">{m.name} Казахстан</div>
+              <ShareBar value={m.revenueShare} />
+              <div className="geo-region-rows">
+                <div><span>Выручка</span><b>{formatMoney(m.revenue)}</b></div>
+                <div><span>Заказов</span><b>{formatNumber(m.orders)}</b></div>
+                <div><span>Средний чек</span><b>{formatMoney(m.avgCheck)}</b></div>
+                <div><span>Средняя доставка</span><b>{m.avgDeliveryCost !== null ? formatMoney(m.avgDeliveryCost) : '—'}</b></div>
+              </div>
+              <div className="geo-macro-oblasts">{m.oblasts.join(', ')}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="section-title">Области</div>
+        {regionsWithSales.length === 0 ? (
+          <div className="card"><div className="empty-state">За период нет заказов с известным адресом</div></div>
+        ) : (
+          <div className="geo-region-grid">
+            {regionsWithSales.map((r) => (
+              <div className="geo-region-card" key={r.id}>
+                <div className="geo-region-share">{r.revenueShare.toFixed(1)}%</div>
+                <div className="geo-region-name">{r.name}</div>
+                <ShareBar value={r.revenueShare} />
+                <div className="geo-region-rows">
+                  <div><span>Выручка</span><b>{formatMoney(r.revenue)}</b></div>
+                  <div><span>Заказов</span><b>{formatNumber(r.orders)}</b></div>
+                  <div><span>Средний чек</span><b>{formatMoney(r.avgCheck)}</b></div>
+                  <div><span>Средняя доставка</span><b>{r.avgDeliveryCost !== null ? formatMoney(r.avgDeliveryCost) : '—'}</b></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {data.unknownRegion && data.unknownRegion.orders > 0 && (
+          <div className="geo-notice">
+            У {formatNumber(data.unknownRegion.orders)} заказов на {formatMoney(data.unknownRegion.revenue)}
+            {' '}область определить не удалось — они не попали ни на карту, ни в карточки выше.
+          </div>
+        )}
 
         <div className="section-title">Способы доставки</div>
         <div className="card">
@@ -221,80 +272,19 @@ export default function Geography({ password, active = true, isOnline = true }) 
           )}
         </div>
 
-        <div className="section-title">Области</div>
-        {regionsWithSales.length === 0 ? (
-          <div className="card"><div className="empty-state">За период нет заказов с известным адресом</div></div>
-        ) : (
-          <div className="geo-region-grid">
-            {regionsWithSales.map((r) => (
-              <div className="geo-region-card" key={r.id}>
-                <div className="geo-region-share">{r.revenueShare.toFixed(1)}%</div>
-                <div className="geo-region-name">{r.name}</div>
-                <ShareBar value={r.revenueShare} />
-                <div className="geo-region-rows">
-                  <div><span>Выручка</span><b>{formatMoney(r.revenue)}</b></div>
-                  <div><span>Заказов</span><b>{formatNumber(r.orders)}</b></div>
-                  <div><span>Средний чек</span><b>{formatMoney(r.avgCheck)}</b></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
 
-        {data.unknownRegion && data.unknownRegion.orders > 0 && (
-          <div className="geo-notice">
-            У {formatNumber(data.unknownRegion.orders)} заказов на {formatMoney(data.unknownRegion.revenue)}
-            {' '}область определить не удалось — они не попали на карту и в карточки выше.
-          </div>
-        )}
-
-        <div className="section-title">Города доставки</div>
-        <div className="card">
-          {data.cities.length === 0 ? (
-            <div className="empty-state">За период нет заказов с известным городом</div>
-          ) : (
-            <div className="table-scroll">
-              <table className="product-table">
-                <thead>
-                  <tr>
-                    <th>Город</th>
-                    <th>Область</th>
-                    <th className="num">Заказов</th>
-                    <th className="num">Выручка</th>
-                    <th className="num">Доля</th>
-                    <th className="num">Средний чек</th>
-                    <th className="num">Средняя доставка</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.cities.map((c) => (
-                    <tr key={c.key}>
-                      <td>{c.city}</td>
-                      <td>{c.regionName || <span className="geo-muted">не определена</span>}</td>
-                      <td className="num">{formatNumber(c.orders)}</td>
-                      <td className="num">{formatMoney(c.revenue)}</td>
-                      <td className="num">{c.revenueShare.toFixed(1)}%</td>
-                      <td className="num">{formatMoney(c.avgCheck)}</td>
-                      <td className="num">{c.avgDeliveryCost !== null ? formatMoney(c.avgDeliveryCost) : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        {data.unknownCities.length > 0 && (
+        {data.unknownPlaces.length > 0 && (
           <>
-            <div className="section-title">Города вне справочника</div>
+            <div className="section-title">Не удалось определить область</div>
             <div className="card">
               <div className="geo-map-hint" style={{ marginTop: 0, marginBottom: 12 }}>
-                Эти населённые пункты Kaspi прислал, но в справочнике областей их нет — в таблице
-                городов они есть, а на карту не попали. Чтобы попали, их нужно дописать
-                в <code>backend/kzRegions.js</code>.
+                Kaspi прислал эти населённые пункты, но отнести их к области не вышло: в
+                справочнике их нет, область в скобках Kaspi не указал, координат в заказе тоже
+                нет. Их заказы не попали ни на карту, ни в цифры регионов и областей — чтобы
+                попали, названия нужно дописать в <code>backend/kzRegions.js</code>.
               </div>
               <div className="geo-unknown-list">
-                {data.unknownCities.map((c) => (
+                {data.unknownPlaces.map((c) => (
                   <span className="geo-unknown-chip" key={c.city}>{c.city} <b>{c.orders}</b></span>
                 ))}
               </div>
