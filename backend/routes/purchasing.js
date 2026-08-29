@@ -9,7 +9,7 @@ const VALID_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK']
 
 const SALES_WINDOW_DAYS = 30; // за сколько последних дней усредняем "Прод./день"
 
-const CITY_ORDER = { 'Алматы': 0, 'Астана': 1, 'Талдыкорган': 2, 'Юбилейное': 3 };
+const { CITY_ORDER } = require('../warehouseMapping');
 
 // Модель (s, S) — классическая формула планирования закупа:
 //   s (точка заказа)   = Прод./день × дни поставки × (1 + % запаса)   — порог, ниже которого критично

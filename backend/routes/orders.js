@@ -48,6 +48,20 @@ router.get('/', async (req, res) => {
       ORDER BY ka.operation_date DESC
     `);
 
+    // Заказы, точка продаж которых отсутствует в справочнике складов (backend/warehouseMapping.js).
+    // Такой заказ не попадает ни в "Отчёт", ни на "Склад", и себестоимость по нему не считается —
+    // раньше это происходило совершенно молча. Если Kaspi заведёт новую точку, её код появится
+    // здесь, и станет видно, какую строку нужно дописать в справочник.
+    const unknownResult = await pool.query(`
+      SELECT pickup_point_id, COUNT(*)::int AS orders_count,
+             to_char(MIN(creation_date), 'YYYY-MM-DD') AS first_seen,
+             to_char(MAX(creation_date), 'YYYY-MM-DD') AS last_seen
+      FROM orders
+      WHERE origin_city IS NULL AND pickup_point_id IS NOT NULL
+      GROUP BY pickup_point_id
+      ORDER BY orders_count DESC
+    `);
+
     const orders = result.rows.map((row) => {
       const amount = Number(row.amount);
       const commission = -Number(row.commission_total); // положительное число — расход
@@ -78,7 +92,7 @@ router.get('/', async (req, res) => {
       };
     });
 
-    res.json({ orders });
+    res.json({ orders, unknownPickupPoints: unknownResult.rows });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить список заказов' });

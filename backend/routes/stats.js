@@ -4,9 +4,17 @@ const { STOCK_CUTOFF_DATE } = require('../constants');
 
 const router = express.Router();
 
-// Склады, которые считаются "самовыкупами" — их продажи не входят в основную статистику
-// на Главной, а показываются отдельно на странице "Самовыкупы".
-const SELF_BUY_WAREHOUSES = ['Талдыкорган', 'Юбилейное'];
+const { MAIN_CITIES, SELF_BUY_CITIES } = require('../warehouseMapping');
+
+// Города для запрошенного режима. Раньше "основной магазин" здесь означал "всё, что НЕ самовыкупы"
+// (включая заказы с неизвестной точкой продаж), а в "Отчёте" — явный список Алматы и Астаны.
+// Из-за этой разницы один и тот же заказ мог попасть на Главную, но пропасть из Отчёта.
+// Теперь оба экрана спрашивают один и тот же список у справочника складов.
+// Заказ с неизвестной точкой не относится ни к одному режиму — он не потеряется молча,
+// его считает отдельный счётчик в /api/orders.
+function citiesFor(mode) {
+  return mode === 'selfbuy' ? SELF_BUY_CITIES : MAIN_CITIES;
+}
 
 function isValidDate(str) {
   return /^\d{4}-\d{2}-\d{2}$/.test(str);
@@ -28,10 +36,10 @@ router.get('/summary', async (req, res) => {
        WHERE creation_date >= $1::timestamp - interval '5 hours'
          AND creation_date < $2::timestamp - interval '5 hours' + interval '1 day'
          AND status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
-         AND ${mode === 'selfbuy' ? 'origin_city = ANY($3::text[])' : '(origin_city IS NULL OR NOT (origin_city = ANY($3::text[])))'}
+         AND origin_city = ANY($3::text[])
        GROUP BY day
        ORDER BY day`,
-      [from, to, SELF_BUY_WAREHOUSES]
+      [from, to, citiesFor(mode)]
     );
     res.json({ days: result.rows });
   } catch (err) {
@@ -58,10 +66,10 @@ router.get('/products', async (req, res) => {
        WHERE oi.creation_date >= $1::timestamp - interval '5 hours'
          AND oi.creation_date < $2::timestamp - interval '5 hours' + interval '1 day'
          AND o.status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
-         AND ${mode === 'selfbuy' ? 'o.origin_city = ANY($3::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($3::text[])))'}
+         AND o.origin_city = ANY($3::text[])
        GROUP BY oi.product_id, oi.product_name
        ORDER BY total_revenue DESC`,
-      [from, to, SELF_BUY_WAREHOUSES]
+      [from, to, citiesFor(mode)]
     );
     res.json({ products: result.rows });
   } catch (err) {
@@ -110,9 +118,9 @@ async function computeCostsByOrderItem(mode) {
      FROM kpt_agg ka
      JOIN orders o ON o.code = ka.order_number
      JOIN order_items oi ON oi.order_id = o.id
-     WHERE ${mode === 'selfbuy' ? 'o.origin_city = ANY($1::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($1::text[])))'}
+     WHERE o.origin_city = ANY($1::text[])
      ORDER BY o.origin_city, o.creation_date ASC`,
-    [SELF_BUY_WAREHOUSES]
+    [citiesFor(mode)]
   );
 
   // "order_number::product_id" -> себестоимость (только по операциям "Покупка" —
@@ -177,8 +185,8 @@ async function computeKnownProfitRatio(from, to, mode, kptByOrder, costData) {
      WHERE oi.creation_date >= $1::timestamp - interval '5 hours'
        AND oi.creation_date < $2::timestamp - interval '5 hours' + interval '1 day'
        AND o.status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
-       AND ${mode === 'selfbuy' ? 'o.origin_city = ANY($3::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($3::text[])))'}`,
-    [from, to, SELF_BUY_WAREHOUSES]
+       AND o.origin_city = ANY($3::text[])`,
+    [from, to, citiesFor(mode)]
   );
 
   const orderRevenueMap = new Map();
@@ -254,8 +262,8 @@ async function computeSummaryNetProfit(from, to, mode) {
        WHERE oi.creation_date >= $1::timestamp - interval '5 hours'
          AND oi.creation_date < $2::timestamp - interval '5 hours' + interval '1 day'
          AND o.status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
-         AND ${mode === 'selfbuy' ? 'o.origin_city = ANY($3::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($3::text[])))'}`,
-      [from, to, SELF_BUY_WAREHOUSES]
+         AND o.origin_city = ANY($3::text[])`,
+      [from, to, citiesFor(mode)]
     ),
     pool.query(
       `SELECT order_number, operation_type, SUM(amount) AS amount,
@@ -408,9 +416,9 @@ async function computeProductDailyCost(productId, mode) {
      FROM kpt_agg ka
      JOIN orders o ON o.code = ka.order_number
      JOIN order_items oi ON oi.order_id = o.id AND oi.product_id = $1
-     WHERE ${mode === 'selfbuy' ? 'o.origin_city = ANY($2::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($2::text[])))'}
+     WHERE o.origin_city = ANY($2::text[])
      ORDER BY o.origin_city, o.creation_date ASC`,
-    [productId, SELF_BUY_WAREHOUSES]
+    [productId, citiesFor(mode)]
   );
 
   const costByDay = {};
@@ -472,9 +480,9 @@ async function computeProductDailyKaspiPay(productId, mode) {
      JOIN orders o ON o.code = ka.order_number
      JOIN order_items oi ON oi.order_id = o.id AND oi.product_id = $1
      JOIN order_totals ot ON ot.order_id = o.id
-     WHERE ${mode === 'selfbuy' ? 'o.origin_city = ANY($2::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($2::text[])))'}
+     WHERE o.origin_city = ANY($2::text[])
      ORDER BY o.creation_date`,
-    [productId, SELF_BUY_WAREHOUSES]
+    [productId, citiesFor(mode)]
   );
 
   const byDay = {};
@@ -523,10 +531,10 @@ router.get('/product/:productId', async (req, res) => {
            AND oi.creation_date >= $2::timestamp - interval '5 hours'
            AND oi.creation_date < $3::timestamp - interval '5 hours' + interval '1 day'
            AND o.status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
-           AND ${mode === 'selfbuy' ? 'o.origin_city = ANY($4::text[])' : '(o.origin_city IS NULL OR NOT (o.origin_city = ANY($4::text[])))'}
+           AND o.origin_city = ANY($4::text[])
          GROUP BY day
          ORDER BY day`,
-        [productId, from, to, SELF_BUY_WAREHOUSES]
+        [productId, from, to, citiesFor(mode)]
       ),
       computeProductDailyKaspiPay(productId, mode),
       computeProductDailyCost(productId, mode),

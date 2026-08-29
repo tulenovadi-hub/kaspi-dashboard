@@ -148,8 +148,8 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
 const TAX_RATE = 0.03; // 3% с оборота (упрощённый режим ИП)
 
-const MAIN_CITIES = ['Алматы', 'Астана'];
-const SELF_BUY_CITIES = ['Талдыкорган', 'Юбилейное'];
+// Списки городов — из единого справочника складов (backend/warehouseMapping.js).
+const { MAIN_CITIES, SELF_BUY_CITIES } = require('../warehouseMapping');
 
 // warehouses — необязательный список городов. Номер заказа в Excel-отчёте Kaspi Pay совпадает
 // с orders.code, поэтому можно связать операции с городом отгрузки через эту связку.

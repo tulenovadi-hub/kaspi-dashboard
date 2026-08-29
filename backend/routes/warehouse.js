@@ -9,10 +9,9 @@ const VALID_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK']
 const COMPLETED_STATUSES = ['COMPLETED'];
 const IN_PROGRESS_STATUSES = ['ACCEPTED_BY_MERCHANT', 'APPROVED_BY_BANK'];
 
-// На "Складе" показываем только эти два города — Юбилейное и Талдыкорган сюда не входят
-// (они самовыкупные/непрофильные, отслеживаются на других страницах).
-const DISPLAY_WAREHOUSES = ['Алматы', 'Астана'];
-const WAREHOUSE_SORT_ORDER = { 'Алматы': 0, 'Астана': 1 };
+// На "Складе" показываем только склады с display: true в справочнике — самовыкупные
+// (Юбилейное, Талдыкорган, Атырау) сюда не входят, они отслеживаются на других страницах.
+const { DISPLAY_CITIES: DISPLAY_WAREHOUSES, CITY_ORDER: WAREHOUSE_SORT_ORDER } = require('../warehouseMapping');
 
 // Считает остатки по методу FIFO отдельно для каждого склада (города):
 // партии одного города списываются только продажами, отгруженными с этого же города

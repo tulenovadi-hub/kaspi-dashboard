@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchBatchProducts, fetchBatches, addBatch, updateBatch, deleteBatch, markBatchReceived } from './api.js';
-import { formatMoney, formatNumber, formatDateDMY, WAREHOUSES } from './dateUtils.js';
+import { formatMoney, formatNumber, formatDateDMY } from './dateUtils.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
 
 function todayISO() {
@@ -24,7 +24,7 @@ function makeExpenseRow(saved) {
 
 // editingBatch === null -> режим создания. editingBatch объект -> режим редактирования (товар и склад
 // продукта не меняются, только цена/логистика/количество/дата/примечание/склад отгрузки).
-function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
+function BatchModal({ password, products, warehouses, editingBatch, onClose, onSaved }) {
   const isEdit = Boolean(editingBatch);
 
   useBodyScrollLock();
@@ -38,7 +38,7 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
   const matchedManualProduct = manualProduct
     ? products.find((p) => p.product_id === manualProductId.trim() && p.from_sales !== false)
     : null;
-  const [warehouse, setWarehouse] = useState(editingBatch ? editingBatch.warehouse : 'Алматы');
+  const [warehouse, setWarehouse] = useState(editingBatch ? editingBatch.warehouse : (warehouses[0] || ''));
   const [purchasePrice, setPurchasePrice] = useState(editingBatch ? String(editingBatch.purchase_price) : '');
   const [logisticsCost, setLogisticsCost] = useState(editingBatch ? String(editingBatch.logistics_cost) : '');
   const [quantity, setQuantity] = useState(editingBatch ? String(editingBatch.quantity) : '');
@@ -248,7 +248,7 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
                   onChange={(e) => setWarehouse(e.target.value)}
                   required
                 >
-                  {WAREHOUSES.map((w) => (
+                  {warehouses.map((w) => (
                     <option key={w} value={w}>{w}</option>
                   ))}
                 </select>
@@ -537,6 +537,8 @@ function BatchModal({ password, products, editingBatch, onClose, onSaved }) {
 export default function Batches({ password, onClose, active = true, isOnline = true }) {
   const [products, setProducts] = useState([]);
   const [batches, setBatches] = useState([]);
+  // Склады приходят с сервера (единый справочник backend/warehouseMapping.js), а не задаются здесь
+  const [warehouses, setWarehouses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
   const [error, setError] = useState('');
@@ -556,6 +558,7 @@ export default function Batches({ password, onClose, active = true, isOnline = t
       .then(([productsRes, batchesRes]) => {
         setProducts(productsRes.products);
         setBatches(batchesRes.batches);
+        setWarehouses(batchesRes.warehouses || []);
       })
       .catch((err) => setError(err.message))
       .finally(() => {
@@ -645,7 +648,7 @@ export default function Batches({ password, onClose, active = true, isOnline = t
           onChange={(e) => setWarehouseFilter(e.target.value)}
         >
           <option value="">Все склады</option>
-          {WAREHOUSES.map((w) => (
+          {warehouses.map((w) => (
             <option key={w} value={w}>{w}</option>
           ))}
         </select>
@@ -755,6 +758,7 @@ export default function Batches({ password, onClose, active = true, isOnline = t
         <BatchModal
           password={password}
           products={products}
+          warehouses={warehouses}
           editingBatch={editingBatch}
           onClose={() => setShowModal(false)}
           onSaved={() => {

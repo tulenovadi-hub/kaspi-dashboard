@@ -1870,6 +1870,28 @@ select:focus-visible {
 
 /* Предупреждения после синхронизации расходов: нераспознанные даты и незнакомые категории.
    Это не ошибка загрузки (данные подтянулись), но такие строки выпадают из "Отчёта". */
+/* Неопознанная точка продаж на "Заказах". Не ошибка загрузки — данные пришли, но часть заказов
+   выпадает из отчёта и склада, пока код точки не добавлен в справочник. */
+.orders-unknown-point {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--accent-warn);
+  background: var(--accent-warn-dim);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.orders-unknown-point b { display: block; margin-bottom: 6px; color: var(--text-primary); }
+.orders-unknown-point-row { font-size: 13px; margin-bottom: 2px; color: var(--text-primary); }
+.orders-unknown-point-row code {
+  font-family: var(--font-mono);
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.orders-unknown-point span { display: block; margin-top: 6px; }
+
 .expenses-sync-warning {
   margin-top: 10px;
   padding: 10px 12px;

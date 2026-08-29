@@ -3,7 +3,7 @@ const { pool } = require('../db');
 
 const router = express.Router();
 
-const VALID_WAREHOUSES = ['Алматы', 'Астана', 'Талдыкорган', 'Юбилейное'];
+const { ALL_CITIES: VALID_WAREHOUSES } = require('../warehouseMapping');
 const VALID_STATUSES = ['in_transit', 'received'];
 const VALID_CURRENCIES = ['KZT', 'USD', 'CNY'];
 
@@ -100,7 +100,9 @@ router.get('/', async (req, res) => {
        FROM product_batches
        ORDER BY product_name, received_date, id`
     );
-    res.json({ batches: result.rows });
+    // Список складов отдаём вместе с партиями, чтобы фронтенду не приходилось держать
+    // собственную копию — источник правды один, backend/warehouseMapping.js.
+    res.json({ batches: result.rows, warehouses: VALID_WAREHOUSES });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить список партий' });

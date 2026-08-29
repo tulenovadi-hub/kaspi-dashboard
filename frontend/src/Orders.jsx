@@ -43,6 +43,9 @@ function createEmptyFilters() {
 
 export default function Orders({ password, active = true, isOnline = true }) {
   const [orders, setOrders] = useState([]);
+  // Точки продаж Kaspi, которых нет в справочнике складов. Заказы с такой точкой не попадают
+  // ни в "Отчёт", ни на "Склад", и себестоимость по ним не считается — поэтому показываем явно.
+  const [unknownPoints, setUnknownPoints] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
   const [error, setError] = useState('');
@@ -65,7 +68,10 @@ export default function Orders({ password, active = true, isOnline = true }) {
     setLoading(true);
     setError('');
     fetchOrders(password)
-      .then((res) => setOrders(res.orders))
+      .then((res) => {
+        setOrders(res.orders);
+        setUnknownPoints(res.unknownPickupPoints || []);
+      })
       .catch((err) => setError(err.message))
       .finally(() => {
         setLoading(false);
@@ -149,6 +155,21 @@ export default function Orders({ password, active = true, isOnline = true }) {
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {unknownPoints.length > 0 && (
+        <div className="orders-unknown-point">
+          <b>Появилась новая точка продаж — её нет в справочнике складов</b>
+          {unknownPoints.map((p) => (
+            <div key={p.pickup_point_id} className="orders-unknown-point-row">
+              <code>{p.pickup_point_id}</code> — заказов: {p.orders_count}, с {formatDateDMY(p.first_seen)} по {formatDateDMY(p.last_seen)}
+            </div>
+          ))}
+          <span>
+            Такие заказы не попадают в «Отчёт» и на «Склад», и себестоимость по ним не считается.
+            Чтобы это исправить, код точки нужно добавить в справочник складов на бэкенде.
+          </span>
+        </div>
+      )}
 
       <div className="orders-toolbar">
         <div className="orders-toolbar-count">
