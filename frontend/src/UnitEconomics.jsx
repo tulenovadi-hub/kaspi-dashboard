@@ -11,7 +11,7 @@ const EMPTY_FORM = {
   importMode: 'grey', // 'grey' — всё в ставке за кг, 'white' — с пошлиной, НДС и оформлением
   sellPrice: '',
   quantity: '100',
-  purchaseForeign: '',
+  purchaseAmount: '',
   currency: 'USD',
   rate: '',
   logisticsAmount: '',
@@ -46,8 +46,10 @@ function calculate(form) {
   const sellPrice = num(form.sellPrice);
   const rate = form.currency === 'KZT' ? 1 : num(form.rate);
 
-  const purchase = num(form.purchaseForeign) * rate;
-  // Логистика вводится суммой за ВСЮ партию (так её и выставляет карго) — на штуку делим сами.
+  // И закупка, и логистика вводятся суммой за ВСЮ партию — именно так их выставляют
+  // поставщик и карго. На штуку делим сами, чтобы человеку не считать это в уме.
+  const purchaseTotal = num(form.purchaseAmount) * rate;
+  const purchase = purchaseTotal / quantity;
   const logisticsRate = form.logisticsCurrency === 'KZT' ? 1 : num(form.logisticsRate);
   const logisticsTotal = num(form.logisticsAmount) * logisticsRate;
   const freight = logisticsTotal / quantity;
@@ -106,10 +108,23 @@ function calculate(form) {
     totalProfit: profit * quantity,
     // Сколько денег нужно вложить до первой продажи — реклама сюда не входит, она платится позже.
     upfront: (purchase + freight + importCost + variable) * quantity,
+    purchaseTotal,
     logisticsTotal,
     breakEven,
     detail: { duty, vat, clearance, customsValue },
   };
+}
+
+// Раньше цена закупки вводилась ЗА ШТУКУ (поле purchaseForeign), теперь — за партию.
+// Уже сохранённые расчёты переносим: сумма за партию = цена за штуку × количество. Без этого
+// поле у старых расчётов молча оказалось бы пустым, а человек бы решил, что расчёт потерялся.
+function migrateForm(saved) {
+  const form = { ...EMPTY_FORM, ...(saved || {}) };
+  if (!form.purchaseAmount && saved && saved.purchaseForeign) {
+    form.purchaseAmount = String(Number((num(saved.purchaseForeign) * Math.max(1, num(form.quantity))).toFixed(2)));
+  }
+  delete form.purchaseForeign;
+  return form;
 }
 
 function Field({ label, value, onChange, suffix, hint, wide }) {
@@ -155,7 +170,7 @@ export default function UnitEconomics({ password, active = true, isOnline = true
   const [form, setForm] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-      if (saved && typeof saved === 'object') return { ...EMPTY_FORM, ...saved };
+      if (saved && typeof saved === 'object') return migrateForm(saved);
     } catch (err) {
       // повреждённое содержимое localStorage не должно ронять страницу
     }
@@ -224,7 +239,7 @@ export default function UnitEconomics({ password, active = true, isOnline = true
     // правки он и хочет увидеть в следующий раз.
     const preset = presets[nextId];
     if (preset && preset.form) {
-      setForm({ ...EMPTY_FORM, ...preset.form });
+      setForm(migrateForm(preset.form));
       return;
     }
     applyProduct(nextId);
@@ -250,12 +265,14 @@ export default function UnitEconomics({ password, active = true, isOnline = true
       ...prev,
       sellPrice: product.sellPrice !== null ? String(product.sellPrice) : prev.sellPrice,
       currency: product.purchaseCurrency || (product.purchasePrice !== null ? 'KZT' : prev.currency),
-      purchaseForeign:
+      // В партии закупочная цена записана за штуку — приводим к сумме за партию по
+      // количеству ИЗ ЭТОГО расчёта, как и с логистикой.
+      purchaseAmount:
         product.purchasePriceForeign !== null
-          ? String(product.purchasePriceForeign)
+          ? String(Number((product.purchasePriceForeign * Math.max(1, num(prev.quantity))).toFixed(2)))
           : product.purchasePrice !== null
-            ? String(product.purchasePrice)
-            : prev.purchaseForeign,
+            ? String(product.purchasePrice * Math.max(1, num(prev.quantity)))
+            : prev.purchaseAmount,
       rate: product.purchaseRate !== null ? String(product.purchaseRate) : prev.rate,
       // Логистику в партии записывали суммой за партию, а количество там было своё —
       // поэтому берём цену за штуку и умножаем на количество ИЗ ЭТОГО расчёта.
@@ -298,7 +315,7 @@ export default function UnitEconomics({ password, active = true, isOnline = true
   const result = useMemo(() => calculate(form), [form]);
   const white = form.importMode === 'white';
   // Расчёт показываем только когда введено главное — цена продажи и цена закупки.
-  const filled = num(form.sellPrice) > 0 && num(form.purchaseForeign) > 0;
+  const filled = num(form.sellPrice) > 0 && num(form.purchaseAmount) > 0;
 
   const expenseRows = [
     ...result.parts.map((p) => ({ ...p })),
@@ -365,9 +382,9 @@ export default function UnitEconomics({ password, active = true, isOnline = true
               <Field label="Цена продажи на Kaspi" value={form.sellPrice} onChange={set('sellPrice')} suffix="₸/шт" />
               <Field label="Количество в партии" value={form.quantity} onChange={set('quantity')} suffix="шт" />
               <div className="ue-field">
-                <label>Цена закупки</label>
+                <label>Цена закупки за партию</label>
                 <div className="ue-input-wrap">
-                  <input type="text" inputMode="decimal" value={form.purchaseForeign} onChange={(e) => set('purchaseForeign')(e.target.value)} />
+                  <input type="text" inputMode="decimal" value={form.purchaseAmount} onChange={(e) => set('purchaseAmount')(e.target.value)} />
                   <select
                     className="ue-currency"
                     value={form.currency}
@@ -383,7 +400,11 @@ export default function UnitEconomics({ password, active = true, isOnline = true
                     {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-                <div className="ue-hint">за штуку у поставщика</div>
+                <div className="ue-hint">
+                  {result.purchaseTotal > 0
+                    ? `${formatMoney(result.purchaseTotal)} за партию, ${formatMoney(result.perUnit.purchase)} на штуку`
+                    : 'вся сумма счёта от поставщика'}
+                </div>
               </div>
               <Field
                 label="Курс"
