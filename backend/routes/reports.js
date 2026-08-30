@@ -261,6 +261,9 @@ async function fetchPackagingExpensesByMonth() {
 // разносятся по товарам через привязку кампания→товар — точнее, чем проценты выше, но тоже
 // поровну между товарами одной кампании, если их несколько. "Прочие расходы" на уровне товара
 // не считаем вообще (см. фронтенд) — это расход бизнеса в целом, а не конкретного товара.
+// warehouses — список городов либо null. null означает "все склады и все заказы" (для верхней
+// таблицы "Основной отчёт (все склады)"): фильтр по origin_city не накладывается вообще, поэтому
+// в разбивку попадают в том числе заказы с нераспознанной точкой продаж (origin_city IS NULL).
 async function getProductBreakdownForMonth(month, warehouses) {
   const { cogsByProductMonth, returnsCostByProductMonth } = await computeCosts(warehouses);
   const productCogs = cogsByProductMonth[month] || {};
@@ -279,9 +282,9 @@ async function getProductBreakdownForMonth(month, warehouses) {
      FROM kaspi_pay_transactions kpt
      JOIN orders o ON o.code = kpt.order_number
      WHERE to_char(kpt.operation_date, 'YYYY-MM') = $1
-       AND o.origin_city = ANY($2::text[])
+       ${warehouses ? 'AND o.origin_city = ANY($2::text[])' : ''}
      GROUP BY kpt.order_number`,
-    [month, warehouses]
+    warehouses ? [month, warehouses] : [month]
   );
 
   if (ordersResult.rows.length === 0) return [];
@@ -449,19 +452,50 @@ async function fetchMarketingByMonth() {
   return map;
 }
 
+// scope=all — разбивка по всем складам и всем заказам (верхняя таблица отчёта),
+// без scope — только Алматы и Астана, как было (таблица "Основной отчёт (Алматы, Астана)").
 router.get('/monthly/:month/products', async (req, res) => {
   const { month } = req.params;
   if (!/^\d{4}-\d{2}$/.test(month)) {
     return res.status(400).json({ error: 'Параметр month обязателен, формат: YYYY-MM' });
   }
   try {
-    const products = await getProductBreakdownForMonth(month, MAIN_CITIES);
+    const products = await getProductBreakdownForMonth(month, req.query.scope === 'all' ? null : MAIN_CITIES);
     res.json({ products });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить разбивку по товарам' });
   }
 });
+
+// Подмешивает к строкам месяца расходы, которые не привязаны к городу отгрузки и потому всегда
+// считаются по магазину целиком: прочие расходы и упаковку из "Расходов" (Google Таблица) и
+// маркетинг из трёх источников продвижения. Пересчитывает чистую прибыль, маржу и ROI с их учётом.
+// Используется для обеих "полных" таблиц отчёта — по всем складам и по Алматы с Астаной.
+function withStoreWideExpenses(rows, otherExpensesByMonth, marketingByMonth, packagingByMonth) {
+  return rows.map((row) => {
+    const otherExpenses = otherExpensesByMonth[row.month] || 0;
+    const marketing = marketingByMonth[row.month] || 0;
+    const packaging = packagingByMonth[row.month] || 0;
+    const netProfit = row.net_profit - otherExpenses - marketing - packaging;
+    // ROI = чистая прибыль / (себестоимость + маркетинг + упаковка + прочие расходы) —
+    // комиссия, доставка и налоги в знаменатель не входят, это не инвестиция, а транзакционные
+    // издержки Kaspi.
+    const totalExpenses = row.cost_of_goods + marketing + packaging + otherExpenses;
+    const margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
+    const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
+
+    return {
+      ...row,
+      marketing,
+      packaging,
+      other_expenses: otherExpenses,
+      net_profit: netProfit,
+      margin,
+      roi,
+    };
+  });
+}
 
 router.get('/monthly', async (req, res) => {
   try {
@@ -474,34 +508,14 @@ router.get('/monthly', async (req, res) => {
       fetchPackagingExpensesByMonth(),
     ]);
 
-    // В "Основной отчёт" (Алматы+Астана) подмешиваем прочие расходы из "Расходов", расходы на
-    // рекламу из "Маркетинга" и расходы на упаковку (категория "Упаковка" в "Расходах"),
-    // пересчитываем чистую прибыль/маржу/ROI с их учётом — в остальных двух таблицах этих
-    // колонок не нужно.
-    const monthsMainCitiesWithExpenses = monthsMainCities.map((row) => {
-      const otherExpenses = otherExpensesByMonth[row.month] || 0;
-      const marketing = marketingByMonth[row.month] || 0;
-      const packaging = packagingByMonth[row.month] || 0;
-      const netProfit = row.net_profit - otherExpenses - marketing - packaging;
-      // ROI = чистая прибыль / (себестоимость + маркетинг + упаковка + прочие расходы) —
-      // комиссия, доставка и налоги в знаменатель не входят, это не инвестиция, а транзакционные
-      // издержки Kaspi.
-      const totalExpenses = row.cost_of_goods + marketing + packaging + otherExpenses;
-      const margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
-      const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
+    // monthsAll — тот же расчёт, что и в основном отчёте, но БЕЗ фильтра по городу отгрузки:
+    // сюда попадают все склады (включая самовыкупы) и все операции Kaspi Pay, в том числе по
+    // заказам с нераспознанной точкой продаж и по тем, которых вообще нет в данных заказов Kaspi.
+    // monthsMainCities — прежний основной отчёт по Алматы и Астане.
+    const monthsAll = withStoreWideExpenses(months, otherExpensesByMonth, marketingByMonth, packagingByMonth);
+    const monthsMainCitiesWithExpenses = withStoreWideExpenses(monthsMainCities, otherExpensesByMonth, marketingByMonth, packagingByMonth);
 
-      return {
-        ...row,
-        marketing,
-        packaging,
-        other_expenses: otherExpenses,
-        net_profit: netProfit,
-        margin,
-        roi,
-      };
-    });
-
-    res.json({ months, monthsMainCities: monthsMainCitiesWithExpenses, monthsSelfBuyCities });
+    res.json({ months, monthsAll, monthsMainCities: monthsMainCitiesWithExpenses, monthsSelfBuyCities });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить отчёт' });

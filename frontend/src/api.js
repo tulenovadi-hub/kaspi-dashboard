@@ -222,8 +222,10 @@ export function fetchMonthlyReport(password) {
   return apiRequest('/api/reports/monthly', password);
 }
 
-export function fetchMonthProductBreakdown(password, month) {
-  return apiRequest(`/api/reports/monthly/${month}/products`, password);
+// scope: 'all' — разбивка по всем складам (верхняя таблица отчёта), иначе Алматы + Астана.
+export function fetchMonthProductBreakdown(password, month, scope) {
+  const query = scope === 'all' ? '?scope=all' : '';
+  return apiRequest(`/api/reports/monthly/${month}/products${query}`, password);
 }
 
 export function fetchDeliveryAnomalies(password, from) {

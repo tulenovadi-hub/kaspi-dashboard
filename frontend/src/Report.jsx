@@ -75,13 +75,19 @@ function renderRowCells(columns, row, colorize, showPercentOfRevenue) {
 // по товарам (нижняя вложенная таблица) сознательно не передаём — там просили только суммы.
 // expandable — если true, клик по строке месяца разворачивает под ней разбивку по товарам
 // (данные подгружаются лениво через onToggleMonth и кэшируются в productBreakdowns на уровне Report).
+// scope — какая из двух разворачиваемых таблиц ('all' — все склады, 'main' — Алматы + Астана).
+// Кэши разбивок общие на весь Report, поэтому ключ в них составной: "scope:month". Без этого
+// таблицы делили бы один кэш и в верхней показывались бы товары нижней.
+// subtitle — пояснение под заголовком: у двух похожих таблиц должно быть сразу видно, чем они
+// отличаются, иначе одинаковые колонки с разными числами читаются как ошибка.
 function MonthlyTable({
-  title, months, columns, className, colorize, showPercentOfRevenue,
-  expandable, expandedMonth, onToggleMonth, productBreakdowns, productLoading, productError,
+  title, subtitle, months, columns, className, colorize, showPercentOfRevenue,
+  expandable, scope, expandedMonth, onToggleMonth, productBreakdowns, productLoading, productError,
 }) {
   return (
     <div className={className}>
       <div className="section-title">{title}</div>
+      {subtitle && <div className="report-table-subtitle">{subtitle}</div>}
       <div className="card">
         {months.length === 0 ? (
           <div className="empty-state">Нет данных за загруженный период</div>
@@ -96,19 +102,21 @@ function MonthlyTable({
                 </tr>
               </thead>
               <tbody>
-                {months.map((m) => (
+                {months.map((m) => {
+                  const cacheKey = `${scope}:${m.month}`;
+                  return (
                   <React.Fragment key={m.month}>
-                    <tr onClick={expandable ? () => onToggleMonth(m.month) : undefined}>
+                    <tr onClick={expandable ? () => onToggleMonth(scope, m.month) : undefined}>
                       {renderRowCells(columns, m, colorize, showPercentOfRevenue)}
                     </tr>
                     {expandable && expandedMonth === m.month && (
                       <tr>
                         <td colSpan={columns.length} className="warehouse-batches-cell">
-                          {productLoading[m.month] ? (
+                          {productLoading[cacheKey] ? (
                             <div className="empty-state">Загрузка...</div>
-                          ) : productError[m.month] ? (
-                            <div className="error-banner">{productError[m.month]}</div>
-                          ) : !productBreakdowns[m.month] || productBreakdowns[m.month].length === 0 ? (
+                          ) : productError[cacheKey] ? (
+                            <div className="error-banner">{productError[cacheKey]}</div>
+                          ) : !productBreakdowns[cacheKey] || productBreakdowns[cacheKey].length === 0 ? (
                             <div className="empty-state">Нет данных по товарам за этот месяц</div>
                           ) : (
                             <table className="product-table warehouse-sub-table">
@@ -120,7 +128,7 @@ function MonthlyTable({
                                 </tr>
                               </thead>
                               <tbody>
-                                {productBreakdowns[m.month].map((p) => (
+                                {productBreakdowns[cacheKey].map((p) => (
                                   <tr key={p.product_id}>{renderRowCells(PRODUCT_COLUMNS, p, colorize)}</tr>
                                 ))}
                               </tbody>
@@ -130,7 +138,8 @@ function MonthlyTable({
                       </tr>
                     )}
                   </React.Fragment>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -196,6 +205,7 @@ const SELF_BUY_COLUMNS = [
 
 export default function Report({ password, active = true, isOnline = true }) {
   const [months, setMonths] = useState([]);
+  const [monthsAll, setMonthsAll] = useState([]);
   const [monthsMainCities, setMonthsMainCities] = useState([]);
   const [monthsSelfBuyCities, setMonthsSelfBuyCities] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -205,22 +215,27 @@ export default function Report({ password, active = true, isOnline = true }) {
   const [uploadMessage, setUploadMessage] = useState('');
   const fileInputRef = useRef(null);
 
-  const [expandedMonth, setExpandedMonth] = useState(null);
+  // Разворачивать месяцы можно в обеих полных таблицах независимо друг от друга, поэтому
+  // раскрытый месяц хранится по таблице ({ all: '2026-08', main: null }), а кэши разбивок —
+  // по составному ключу "scope:month".
+  const [expandedMonth, setExpandedMonth] = useState({});
   const [productBreakdowns, setProductBreakdowns] = useState({});
   const [productLoading, setProductLoading] = useState({});
   const [productError, setProductError] = useState({});
 
-  function handleToggleMonth(month) {
-    const opening = expandedMonth !== month;
-    setExpandedMonth(opening ? month : null);
-    if (!opening || productBreakdowns[month] || productLoading[month]) return;
+  function handleToggleMonth(scope, month) {
+    const opening = expandedMonth[scope] !== month;
+    setExpandedMonth((prev) => ({ ...prev, [scope]: opening ? month : null }));
 
-    setProductLoading((prev) => ({ ...prev, [month]: true }));
-    setProductError((prev) => ({ ...prev, [month]: '' }));
-    fetchMonthProductBreakdown(password, month)
-      .then((res) => setProductBreakdowns((prev) => ({ ...prev, [month]: res.products })))
-      .catch((err) => setProductError((prev) => ({ ...prev, [month]: err.message })))
-      .finally(() => setProductLoading((prev) => ({ ...prev, [month]: false })));
+    const key = `${scope}:${month}`;
+    if (!opening || productBreakdowns[key] || productLoading[key]) return;
+
+    setProductLoading((prev) => ({ ...prev, [key]: true }));
+    setProductError((prev) => ({ ...prev, [key]: '' }));
+    fetchMonthProductBreakdown(password, month, scope)
+      .then((res) => setProductBreakdowns((prev) => ({ ...prev, [key]: res.products })))
+      .catch((err) => setProductError((prev) => ({ ...prev, [key]: err.message })))
+      .finally(() => setProductLoading((prev) => ({ ...prev, [key]: false })));
   }
 
   function loadReport() {
@@ -229,6 +244,7 @@ export default function Report({ password, active = true, isOnline = true }) {
     fetchMonthlyReport(password)
       .then((res) => {
         setMonths(res.months);
+        setMonthsAll(res.monthsAll || []);
         setMonthsMainCities(res.monthsMainCities);
         setMonthsSelfBuyCities(res.monthsSelfBuyCities);
       })
@@ -301,13 +317,30 @@ export default function Report({ password, active = true, isOnline = true }) {
       ) : (
         <div style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
           <MonthlyTable
+            title="Основной отчёт (все склады)"
+            subtitle="Все склады и все заказы, включая самовыкупы и заказы с нераспознанной точкой продаж"
+            months={monthsAll}
+            columns={MAIN_COLUMNS}
+            colorize
+            showPercentOfRevenue
+            expandable
+            scope="all"
+            expandedMonth={expandedMonth.all || null}
+            onToggleMonth={handleToggleMonth}
+            productBreakdowns={productBreakdowns}
+            productLoading={productLoading}
+            productError={productError}
+          />
+          <MonthlyTable
             title="Основной отчёт (Алматы, Астана)"
+            subtitle="Только продажи со складов основного магазина — без самовыкупов"
             months={monthsMainCities}
             columns={MAIN_COLUMNS}
             colorize
             showPercentOfRevenue
             expandable
-            expandedMonth={expandedMonth}
+            scope="main"
+            expandedMonth={expandedMonth.main || null}
             onToggleMonth={handleToggleMonth}
             productBreakdowns={productBreakdowns}
             productLoading={productLoading}
@@ -321,7 +354,15 @@ export default function Report({ password, active = true, isOnline = true }) {
       )}
 
       <div className="report-note">
-        ⚠️ Налог считается упрощённо: 3% с чистого оборота (выручка минус возвраты). Себестоимость считается по методу FIFO на основе партий на «Поставках»,
+        ⚠️ Наверху две одинаковые по колонкам таблицы, и различаются они только набором заказов. «Основной отчёт (все склады)» берёт ВСЕ операции
+        Kaspi Pay без фильтра по городу отгрузки: туда входят Алматы и Астана, все склады самовыкупов, а также заказы, у которых точка продаж не
+        распозналась или которых вообще нет в данных заказов Kaspi (в отчёт по городам такие не попадают ни в одну из таблиц). Именно поэтому выручка
+        и налог в верхней таблице ближе всего к тому, что уходит в декларацию. Две оговорки: во-первых, в неё входят самовыкупы — это ваши собственные
+        покупки, они поднимают и выручку, и «прибыль», поэтому для оценки реального заработка смотрите вторую таблицу; во-вторых, себестоимость (FIFO
+        по партиям) считается только по заказам с известным складом — у заказа с нераспознанной точкой продаж списывать товар не с чего, так что его
+        выручка в верхнюю таблицу попадёт, а себестоимость — нет, и прибыль по нему окажется завышенной. «Основной отчёт (Алматы, Астана)» —
+        прежний отчёт по складам основного магазина, он не изменился.
+        Налог считается упрощённо: 3% с чистого оборота (выручка минус возвраты). Себестоимость считается по методу FIFO на основе партий на «Поставках»,
         и только по тем заказам, которые реально есть в загруженном Excel-отчёте Kaspi Pay со статусом «Покупка». «Себестоимость возвратов» — справочная
         колонка (приближённая оценка по текущей активной партии товара), в расчёт чистой прибыли она не входит — себестоимость возвращённого товара уже
         разово списана в момент продажи и повторно не вычитается. «Прочие расходы» в основном отчёте — это сумма категории «Прочие затраты» из раздела
