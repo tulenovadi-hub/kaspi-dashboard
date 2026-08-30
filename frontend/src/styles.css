@@ -1441,7 +1441,9 @@ select:focus-visible {
 
 /* ===== Sidebar ===== */
 .sidebar {
-  width: 220px;
+  /* 256px, а не 220: пункты внутри разделов идут с отступом, и на 220 длинные названия
+     ("Проблемные возвраты", "Бонусы от продавца") обрезались многоточием. */
+  width: 256px;
   flex-shrink: 0;
   background: var(--bg-card);
   border-right: 1px solid var(--border);
@@ -1453,6 +1455,10 @@ select:focus-visible {
   position: sticky;
   top: 0;
   height: 100vh;
+  /* Разделы добавили меню строк, и на невысоком окне нижние пункты ("Маркетинг",
+     "Настройки", "Выйти") уходили за край без всякой возможности до них добраться. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .sidebar.collapsed {
@@ -1568,18 +1574,40 @@ select:focus-visible {
   text-overflow: ellipsis;
 }
 
-/* Заголовок раздела в меню (например "Маркетинг" над его подстраницами) — не кликается,
-   просто визуально группирует пункты ниже. */
+/* Заголовок раздела в меню ("Деньги", "Продажи", "Закуп и склад", "Маркетинг") — кнопка:
+   клик сворачивает и разворачивает раздел, состояние запоминается в localStorage. */
 .sidebar-section {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 12px 2px;
+  width: 100%;
+  background: none;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 14px 12px 4px;
   color: var(--text-muted);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   white-space: nowrap;
+  text-align: left;
+}
+
+.sidebar-section:hover {
+  color: var(--text-secondary);
+}
+
+/* Раздел свёрнут, а открытая страница — внутри него: подсвечиваем заголовок, иначе
+   непонятно, где мы находимся (активного пункта на экране нет). */
+.sidebar-section.has-active {
+  color: var(--accent-brand);
+}
+
+.sidebar-section-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-section-icon {
@@ -1596,11 +1624,39 @@ select:focus-visible {
   height: 16px;
 }
 
-/* Подстраница внутри раздела — тот же .sidebar-item, но с отступом слева, чтобы читалась
-   как вложенная в заголовок секции выше. В свёрнутом виде .sidebar.collapsed .sidebar-item
-   переопределяет padding (выше по специфичности), так что здесь ничего доп. делать не нужно. */
+.sidebar-section-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+
+.sidebar-section-chevron svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sidebar-section.open .sidebar-section-chevron {
+  transform: rotate(90deg);
+}
+
+/* Свёрнутый сайдбар: заголовков нет, границы групп держит только эта черта. */
+.sidebar-divider {
+  height: 1px;
+  width: 28px;
+  margin: 8px auto;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* Подстраница внутри раздела — тот же .sidebar-item, но с отступом слева (26px против 12px
+   у верхнего уровня), чтобы читалась как вложенная в заголовок секции выше. Отступ умеренный:
+   иерархию держат заголовок и шеврон, а место в строке нужнее под длинные названия.
+   В свёрнутом виде .sidebar.collapsed .sidebar-item переопределяет padding (выше по
+   специфичности), так что здесь ничего доп. делать не нужно. */
 .sidebar-item-sub {
-  padding-left: 34px;
+  padding-left: 26px;
 }
 
 .sidebar-logout {
@@ -1727,6 +1783,10 @@ select:focus-visible {
 
   .mobile-menu-panel .sidebar-nav {
     flex: 1;
+  }
+
+  .mobile-menu-panel .sidebar-section {
+    padding: 16px 12px 8px;
   }
 }
 

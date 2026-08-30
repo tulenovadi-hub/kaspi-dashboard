@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 // Простые line-иконки без внешних зависимостей — 20x20, stroke=currentColor
 const icons = {
@@ -22,6 +22,18 @@ const icons = {
   ),
   marketing: (
     <svg viewBox="0 0 20 20" fill="none"><path d="M2 8v4h3l5 3V5L5 8H2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M14 7.5a3 3 0 010 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M16.3 5.5a6 6 0 010 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+  ),
+  // Реклама товаров — мегафон с ручкой: платное продвижение, "кричим о товаре".
+  marketingAds: (
+    <svg viewBox="0 0 20 20" fill="none"><path d="M4.5 8h2.2L14 4.5v11L6.7 12H4.5A1.5 1.5 0 013 10.5v-1A1.5 1.5 0 014.5 8z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7 12.2V15a1.5 1.5 0 003 0v-1.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/><path d="M16.2 7.8a3.5 3.5 0 010 4.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
+  ),
+  // Бонусы от продавца — подарочная коробка с лентой: скидку дарит продавец из своего кармана.
+  marketingBonuses: (
+    <svg viewBox="0 0 20 20" fill="none"><rect x="3.2" y="8.6" width="13.6" height="8.2" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><rect x="2.2" y="5.6" width="15.6" height="3" rx="1" stroke="currentColor" strokeWidth="1.5"/><path d="M10 5.6v11.2" stroke="currentColor" strokeWidth="1.5"/><path d="M10 5.6C9.2 4 8.4 3.2 7.3 3.2a1.7 1.7 0 000 3.4H10M10 5.6c.8-1.6 1.6-2.4 2.7-2.4a1.7 1.7 0 010 3.4H10" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/></svg>
+  ),
+  // Бонусы за отзыв — облако отзыва со звездой внутри: платим за оставленную оценку.
+  marketingReviews: (
+    <svg viewBox="0 0 20 20" fill="none"><path d="M3 5.6a2 2 0 012-2h10a2 2 0 012 2v6a2 2 0 01-2 2h-4.6L6.6 17v-3.4H5a2 2 0 01-2-2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M10 6.2l.65 1.51 1.63.15-1.23 1.08.49 1.6L10 9.7l-1.54.84.49-1.6L7.72 7.86l1.63-.15z" fill="currentColor"/></svg>
   ),
   selfbuy: (
     <svg viewBox="0 0 20 20" fill="none"><path d="M3 4h1.5l1.2 8.4a1.5 1.5 0 001.5 1.3h6.2a1.5 1.5 0 001.5-1.2L16 7H5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="8" cy="17" r="1" fill="currentColor"/><circle cx="14" cy="17" r="1" fill="currentColor"/><path d="M13 3.5l2 2-2 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/><path d="M15 5.5H10.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
@@ -59,88 +71,181 @@ const icons = {
   deliveryReturns: (
     <svg viewBox="0 0 20 20" fill="none"><path d="M6 8l-3 2 3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M3 10h8a3 3 0 003-3V6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="14.5" cy="14.5" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M14.5 13v1.5l1 1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
   ),
+  // Иконки заголовков разделов
+  money: (
+    <svg viewBox="0 0 20 20" fill="none"><ellipse cx="10" cy="5.5" rx="6" ry="2.5" stroke="currentColor" strokeWidth="1.5"/><path d="M4 5.5v9c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-9" stroke="currentColor" strokeWidth="1.5"/><path d="M4 10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5" stroke="currentColor" strokeWidth="1.5"/></svg>
+  ),
+  salesBag: (
+    <svg viewBox="0 0 20 20" fill="none"><path d="M4.5 6.5h11l1 10.5h-13z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7.5 8.5V5.8a2.5 2.5 0 015 0v2.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+  ),
+  truck: (
+    <svg viewBox="0 0 20 20" fill="none"><rect x="2" y="5.5" width="9" height="8" rx="1" stroke="currentColor" strokeWidth="1.5"/><path d="M11 8.5h3.2l3 2.8v2.2H11z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><circle cx="6" cy="15" r="1.6" stroke="currentColor" strokeWidth="1.4"/><circle cx="14" cy="15" r="1.6" stroke="currentColor" strokeWidth="1.4"/></svg>
+  ),
+  chevron: (
+    <svg viewBox="0 0 20 20" fill="none"><path d="M7.5 5l5 5-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+  ),
 };
 
 // Какие пункты меню видит каждая роль
 const ROLE_PAGES = {
-  admin: ['sales', 'report', 'selfbuy', 'orders', 'geography', 'abc', 'unit_economics', 'expenses', 'batches', 'warehouse', 'purchasing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'analyst', 'delivery_returns', 'settings'],
-  manager: ['sales', 'selfbuy', 'orders', 'warehouse'],
-  marketer: ['sales', 'selfbuy', 'orders', 'geography', 'warehouse', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews'],
+  admin: ['sales', 'report', 'expenses', 'analyst', 'orders', 'selfbuy', 'geography', 'delivery_returns', 'warehouse', 'batches', 'purchasing', 'abc', 'unit_economics', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'settings'],
+  manager: ['sales', 'orders', 'selfbuy', 'warehouse'],
+  marketer: ['sales', 'orders', 'selfbuy', 'geography', 'warehouse', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews'],
 };
 
-// "Маркетинг" — не отдельная страница, а раздел с тремя подстраницами (children). Раздел
-// показывается, только если у роли есть доступ хотя бы к одной из них.
+// Меню сгруппировано по задаче, которую решает страница: "Деньги" — сколько заработали,
+// "Продажи" — что уехало и что вернулось, "Закуп и склад" — что и сколько привезти,
+// "Маркетинг" — во что вложились в продвижение. "Главная" и "Настройки" стоят вне групп.
+// Раздел показывается, только если у роли есть доступ хотя бы к двум его страницам:
+// заголовок над единственным пунктом — лишний шум, такой пункт рисуется как обычный.
 const NAV_ITEMS = [
   { key: 'sales', label: 'Главная', icon: 'home' },
-  { key: 'report', label: 'Отчёт', icon: 'report' },
-  { key: 'selfbuy', label: 'Самовыкупы', icon: 'selfbuy' },
-  { key: 'orders', label: 'Заказы', icon: 'orders' },
-  { key: 'geography', label: 'География заказов', icon: 'geography' },
-  { key: 'abc', label: 'ABC/XYZ', icon: 'abc' },
-  { key: 'unit_economics', label: 'Юнит-экономика', icon: 'unitEconomics' },
-  { key: 'expenses', label: 'Расходы', icon: 'expenses' },
-  { key: 'batches', label: 'Поставки', icon: 'batches' },
-  { key: 'warehouse', label: 'Склад', icon: 'warehouse' },
-  { key: 'purchasing', label: 'Закуп', icon: 'purchasing' },
   {
-    section: 'Маркетинг',
-    icon: 'marketing',
+    section: 'money',
+    title: 'Деньги',
+    icon: 'money',
     children: [
-      { key: 'marketing_ads', label: 'Реклама товаров' },
-      { key: 'marketing_bonuses', label: 'Бонусы от продавца' },
-      { key: 'marketing_reviews', label: 'Бонусы за отзыв' },
+      { key: 'report', label: 'Отчёт', icon: 'report' },
+      { key: 'expenses', label: 'Расходы', icon: 'expenses' },
+      { key: 'analyst', label: 'AI Финансист', icon: 'analyst' },
     ],
   },
-  { key: 'analyst', label: 'AI Финансист', icon: 'analyst' },
-  { key: 'delivery_returns', label: 'Проблемные возвраты', icon: 'deliveryReturns' },
+  {
+    section: 'orders',
+    title: 'Продажи',
+    icon: 'salesBag',
+    children: [
+      { key: 'orders', label: 'Заказы', icon: 'orders' },
+      { key: 'selfbuy', label: 'Самовыкупы', icon: 'selfbuy' },
+      { key: 'geography', label: 'География заказов', icon: 'geography' },
+      { key: 'delivery_returns', label: 'Проблемные возвраты', icon: 'deliveryReturns' },
+    ],
+  },
+  {
+    section: 'supply',
+    title: 'Закуп и склад',
+    icon: 'truck',
+    children: [
+      { key: 'warehouse', label: 'Склад', icon: 'warehouse' },
+      { key: 'batches', label: 'Поставки', icon: 'batches' },
+      { key: 'purchasing', label: 'Закуп', icon: 'purchasing' },
+      { key: 'abc', label: 'ABC/XYZ', icon: 'abc' },
+      { key: 'unit_economics', label: 'Юнит-экономика', icon: 'unitEconomics' },
+    ],
+  },
+  {
+    section: 'marketing',
+    title: 'Маркетинг',
+    icon: 'marketing',
+    children: [
+      { key: 'marketing_ads', label: 'Реклама товаров', icon: 'marketingAds' },
+      { key: 'marketing_bonuses', label: 'Бонусы от продавца', icon: 'marketingBonuses' },
+      { key: 'marketing_reviews', label: 'Бонусы за отзыв', icon: 'marketingReviews' },
+    ],
+  },
   { key: 'settings', label: 'Настройки', icon: 'settings' },
 ];
 
+// Свёрнутые разделы запоминаются между заходами (localStorage, а не sessionStorage:
+// на телефоне приложение открывается заново каждый раз, и каждый раз перескладывать
+// меню руками — бессмысленно). В хранилище лежит только то, что явно свернули;
+// отсутствие ключа = раздел раскрыт.
+const GROUPS_KEY = 'sidebar_groups';
+
+function readOpenGroups() {
+  try {
+    const raw = localStorage.getItem(GROUPS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveOpenGroups(next) {
+  try {
+    localStorage.setItem(GROUPS_KEY, JSON.stringify(next));
+  } catch {
+    /* приватный режим / переполненное хранилище — просто не запоминаем */
+  }
+}
+
 export { ROLE_PAGES };
 
-function NavList({ view, onSelect, collapsed, role }) {
+function NavList({ view, onSelect, collapsed, role, openGroups, onToggleGroup }) {
   const allowed = (key) => !role || (ROLE_PAGES[role] || []).includes(key);
+
+  const renderItem = (item, sub) => (
+    <button
+      key={item.key}
+      className={`sidebar-item${sub ? ' sidebar-item-sub' : ''}${view === item.key ? ' active' : ''}`}
+      onClick={() => onSelect(item.key)}
+      title={collapsed ? item.label : undefined}
+    >
+      <span className="sidebar-item-icon">{icons[item.icon]}</span>
+      {!collapsed && <span className="sidebar-item-label">{item.label}</span>}
+    </button>
+  );
+
+  // Свёрнутый сайдбар: заголовков нет (для них нет места), поэтому группы разделяются
+  // тонкой чертой, а все пункты видны всегда — иначе до половины страниц было бы не добраться.
+  if (collapsed) {
+    const blocks = [];
+    let plainRun = null;
+    for (const item of NAV_ITEMS) {
+      if (item.children) {
+        const visible = item.children.filter((c) => allowed(c.key));
+        if (visible.length) {
+          blocks.push(visible);
+          plainRun = null;
+        }
+      } else if (allowed(item.key)) {
+        if (!plainRun) {
+          plainRun = [];
+          blocks.push(plainRun);
+        }
+        plainRun.push(item);
+      }
+    }
+
+    return (
+      <nav className="sidebar-nav">
+        {blocks.map((block, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && <div className="sidebar-divider" />}
+            {block.map((item) => renderItem(item, false))}
+          </React.Fragment>
+        ))}
+      </nav>
+    );
+  }
 
   return (
     <nav className="sidebar-nav">
-      {NAV_ITEMS.map((item, i) => {
-        if (item.children) {
-          const visibleChildren = item.children.filter((c) => allowed(c.key));
-          if (visibleChildren.length === 0) return null;
-          return (
-            <React.Fragment key={`section-${i}`}>
-              {!collapsed && (
-                <div className="sidebar-section">
-                  <span className="sidebar-section-icon">{icons[item.icon]}</span>
-                  <span>{item.section}</span>
-                </div>
-              )}
-              {visibleChildren.map((c) => (
-                <button
-                  key={c.key}
-                  className={`sidebar-item sidebar-item-sub${view === c.key ? ' active' : ''}`}
-                  onClick={() => onSelect(c.key)}
-                  title={collapsed ? c.label : undefined}
-                >
-                  <span className="sidebar-item-icon">{icons[item.icon]}</span>
-                  {!collapsed && <span className="sidebar-item-label">{c.label}</span>}
-                </button>
-              ))}
-            </React.Fragment>
-          );
-        }
+      {NAV_ITEMS.map((item) => {
+        if (!item.children) return allowed(item.key) ? renderItem(item, false) : null;
 
-        if (!allowed(item.key)) return null;
+        const visible = item.children.filter((c) => allowed(c.key));
+        if (visible.length === 0) return null;
+        if (visible.length === 1) return renderItem(visible[0], false);
+
+        const open = openGroups[item.section] !== false;
+        const hasActive = visible.some((c) => c.key === view);
+
         return (
-          <button
-            key={item.key}
-            className={`sidebar-item${view === item.key ? ' active' : ''}`}
-            onClick={() => onSelect(item.key)}
-            title={collapsed ? item.label : undefined}
-          >
-            <span className="sidebar-item-icon">{icons[item.icon]}</span>
-            {!collapsed && <span className="sidebar-item-label">{item.label}</span>}
-          </button>
+          <React.Fragment key={item.section}>
+            <button
+              className={`sidebar-section${open ? ' open' : ''}${hasActive && !open ? ' has-active' : ''}`}
+              onClick={() => onToggleGroup(item.section)}
+              aria-expanded={open}
+              title={open ? `Свернуть «${item.title}»` : `Развернуть «${item.title}»`}
+            >
+              <span className="sidebar-section-icon">{icons[item.icon]}</span>
+              <span className="sidebar-section-title">{item.title}</span>
+              <span className="sidebar-section-chevron">{icons.chevron}</span>
+            </button>
+            {open && visible.map((c) => renderItem(c, true))}
+          </React.Fragment>
         );
       })}
     </nav>
@@ -149,6 +254,30 @@ function NavList({ view, onSelect, collapsed, role }) {
 
 export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, onLogout, role }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState(readOpenGroups);
+
+  // Если активная страница оказалась внутри свёрнутого раздела (например, переход
+  // «Закуп → Поставки» кнопкой на самой странице), раскрываем раздел, чтобы было видно,
+  // где мы находимся. Эффект завязан на view, поэтому свернуть раздел руками, стоя на его
+  // странице, по-прежнему можно — обратно он не раскроется.
+  useEffect(() => {
+    const group = NAV_ITEMS.find((i) => i.children && i.children.some((c) => c.key === view));
+    if (!group) return;
+    setOpenGroups((prev) => {
+      if (prev[group.section] !== false) return prev;
+      const next = { ...prev, [group.section]: true };
+      saveOpenGroups(next);
+      return next;
+    });
+  }, [view]);
+
+  function toggleGroup(section) {
+    setOpenGroups((prev) => {
+      const next = { ...prev, [section]: prev[section] === false };
+      saveOpenGroups(next);
+      return next;
+    });
+  }
 
   function handleSelect(key) {
     onSelect(key);
@@ -166,7 +295,14 @@ export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, o
           </button>
         </div>
 
-        <NavList view={view} onSelect={onSelect} collapsed={collapsed} role={role} />
+        <NavList
+          view={view}
+          onSelect={onSelect}
+          collapsed={collapsed}
+          role={role}
+          openGroups={openGroups}
+          onToggleGroup={toggleGroup}
+        />
 
         <button className="sidebar-item sidebar-logout" onClick={onLogout} title={collapsed ? 'Выйти' : undefined}>
           <span className="sidebar-item-icon">{icons.logout}</span>
@@ -194,7 +330,14 @@ export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, o
               </button>
             </div>
 
-            <NavList view={view} onSelect={handleSelect} collapsed={false} role={role} />
+            <NavList
+              view={view}
+              onSelect={handleSelect}
+              collapsed={false}
+              role={role}
+              openGroups={openGroups}
+              onToggleGroup={toggleGroup}
+            />
 
             <button className="sidebar-item sidebar-logout" onClick={onLogout}>
               <span className="sidebar-item-icon">{icons.logout}</span>
