@@ -75,7 +75,7 @@ const NAV_ITEMS = [
   { key: 'report', label: 'Отчёт', icon: 'report' },
   { key: 'selfbuy', label: 'Самовыкупы', icon: 'selfbuy' },
   { key: 'orders', label: 'Заказы', icon: 'orders' },
-  { key: 'geography', label: 'География', icon: 'geography' },
+  { key: 'geography', label: 'География заказов', icon: 'geography' },
   { key: 'abc', label: 'ABC/XYZ', icon: 'abc' },
   { key: 'unit_economics', label: 'Юнит-экономика', icon: 'unitEconomics' },
   { key: 'expenses', label: 'Расходы', icon: 'expenses' },

@@ -81,7 +81,7 @@ export default function Geography({ password, active = true, isOnline = true }) 
   return (
     <div>
       <div className="app-header">
-        <h1 className="app-title">География <span>куда уезжают заказы</span></h1>
+        <h1 className="app-title">География заказов <span>по регионам и областям</span></h1>
       </div>
 
       <PeriodSelector from={from} to={to} activePreset={presetKey} onChange={handlePeriodChange} />

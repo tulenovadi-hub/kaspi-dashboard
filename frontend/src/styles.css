@@ -2396,6 +2396,19 @@ select:focus-visible {
   stroke-width: 0.6;
 }
 
+/* Слой подсветки региона поверх карты. События мыши он не перехватывает — иначе, наехав на
+   собственную подсветку, курсор "терял" бы область под ней и подсказка мигала. */
+.kz-macro-highlight {
+  pointer-events: none;
+}
+
+.kz-macro-highlight-stroke {
+  fill: none;
+  stroke: var(--accent-brand);
+  stroke-width: 4;
+  stroke-linejoin: round;
+}
+
 .geo-muted {
   color: var(--text-muted);
 }

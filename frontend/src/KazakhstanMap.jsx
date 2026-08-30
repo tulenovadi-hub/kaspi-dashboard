@@ -60,6 +60,12 @@ export default function KazakhstanMap({ regions, macroRegions, metric, view }) {
 
   const active = hovered || pinned;
 
+  // Области подсвеченного региона — по ним рисуется его общая обводка.
+  const activeMacroShapes = byMacro && active ? REGION_SHAPES.filter((shape) => {
+    const region = regionById[shape.id];
+    return region && region.macro === active.id;
+  }) : [];
+
   // Подсказка должна жить, только пока курсор реально на области. Раньше уход отслеживался
   // на всей карточке с картой, и стоило съехать с области в пустоту внутри карты (море,
   // соседние страны, поля по краям) — подсказка оставалась висеть.
@@ -167,6 +173,26 @@ export default function KazakhstanMap({ regions, macroRegions, metric, view }) {
 
         {/* В режиме макрорегионов подписи областей только мешают: соседние области залиты
             одним цветом и читаются как единый регион, поэтому подписываем сам регион. */}
+        {/* Подсветка целого региона. Обвести объединённый контур напрямую нельзя — своей
+            геометрии у региона нет, есть только области. Приём такой: сначала рисуем толстую
+            обводку по всем его областям, а сверху — их же заливки. Обводка идёт по центру
+            линии, поэтому внутренние границы закрываются заливками соседей с обеих сторон, и
+            снаружи остаётся ровно контур региона. Заливка полупрозрачная, поэтому под цвет
+            подкладывается непрозрачный фон карточки — иначе обводка просвечивала бы внутри. */}
+        {byMacro && activeMacroShapes.length > 0 && (
+          <g className="kz-macro-highlight">
+            {activeMacroShapes.map((shape) => (
+              <path key={`hs-${shape.id}`} d={shape.d} className="kz-macro-highlight-stroke" />
+            ))}
+            {activeMacroShapes.map((shape) => (
+              <path key={`hb-${shape.id}`} d={shape.d} fill="var(--bg-card)" stroke="none" />
+            ))}
+            {activeMacroShapes.map((shape) => (
+              <path key={`hf-${shape.id}`} d={shape.d} fill={fillForRegion(shape.id, false)} stroke="none" />
+            ))}
+          </g>
+        )}
+
         {byMacro
           ? macroLabels.map((m) => (
             <text key={`m-${m.id}`} className="kz-map-label kz-map-label-macro" x={m.x} y={m.y}>{m.short}</text>
@@ -176,8 +202,10 @@ export default function KazakhstanMap({ regions, macroRegions, metric, view }) {
           ))}
 
         {/* Города республиканского значения: собственной площади на карте страны у них
-            практически нет, поэтому рисуем их кружками поверх областей. */}
-        {CITY_REGIONS.map((c) => {
+            практически нет, поэтому рисуем их кружками поверх областей. В режиме регионов
+            они не нужны — там город и так часть своего региона, и кружок только сбивает
+            (в Северном он висел один поверх сплошной заливки). */}
+        {!byMacro && CITY_REGIONS.map((c) => {
           const target = targetFor(c.id);
           const isActive = active && target && active.id === target.id;
           return (
