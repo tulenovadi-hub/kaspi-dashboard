@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { fetchWarehouse, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
+import { fetchWarehouse, fetchInventoryValue, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
 
 // Сжимаем картинку на клиенте перед отправкой — это просто маленькая иконка-превью на
@@ -40,6 +40,57 @@ function resizeImageFile(file, maxDim = 320, quality = 0.85) {
   });
 }
 
+// Сводка "сколько денег лежит в товаре". Стоит наверху "Склада", потому что здесь же лежат
+// все остальные цифры про остатки, а "Итого" под каждым городом остаётся детализацией.
+// Важное отличие от этих "Итого": сводка считается по ВСЕМ складам, включая самовыкупные
+// (Явленка, Юбилейное, Талдыкорган, Атырау) — на странице их не показывают, но деньги в
+// лежащем там товаре точно такие же.
+function InventorySummary({ inventory }) {
+  const {
+    stock_value: stockValue,
+    stock_by_warehouse: stockByWarehouse = [],
+    in_transit_purchase: transitPurchase,
+    in_transit_extra: transitExtra,
+    in_transit_quantity: transitQuantity,
+    deposits_value: depositsValue,
+    total,
+  } = inventory;
+
+  return (
+    <>
+      <div className="section-title">Деньги в товаре</div>
+      <div className="stats-row-3 inventory-summary">
+        <div className="stat-card">
+          <div className="stat-label">На складе</div>
+          <div className="stat-value">{formatMoney(stockValue)}</div>
+          <div className="inventory-summary-hint">
+            {stockByWarehouse.length > 0
+              ? stockByWarehouse.map((w) => `${w.warehouse} — ${formatMoney(w.value)}`).join(' · ')
+              : 'Остатков нет'}
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-label">В пути (оплачено поставщику)</div>
+          <div className="stat-value">{formatMoney(transitPurchase)}</div>
+          <div className="inventory-summary-hint">
+            {formatNumber(transitQuantity)} шт · логистика и прочее сверху: {formatMoney(transitExtra)}
+            {depositsValue > 0 && <> · в том числе депозиты и авансы: {formatMoney(depositsValue)}</>}
+          </div>
+        </div>
+
+        <div className="stat-card inventory-summary-total">
+          <div className="stat-label">Всего в товаре</div>
+          <div className="stat-value">{formatMoney(total)}</div>
+          <div className="inventory-summary-hint">
+            Себестоимость остатка плюс закупка того, что ещё едет. Логистика по партиям в пути сюда не входит.
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function createEmptyFilters() {
   return {
     productName: '',
@@ -56,10 +107,17 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
   const [expanded, setExpanded] = useState(null);
   const [filters, setFilters] = useState(createEmptyFilters);
   const [imageBusy, setImageBusy] = useState(null); // product_id, который сейчас загружается/удаляется
+  const [inventory, setInventory] = useState(null); // сводка "деньги в товаре" — считается отдельным роутом
 
   function loadAll() {
     setLoading(true);
     setError('');
+    // Сводка по деньгам грузится параллельно и независимо: она считается по ВСЕМ складам,
+    // включая самовыкупные, которых нет в таблицах ниже.
+    fetchInventoryValue(password)
+      .then(setInventory)
+      .catch(() => {}); // блок со сводкой — не повод ронять всю страницу
+
     fetchWarehouse(password)
       .then((res) => {
         setProducts(res.products);
@@ -145,6 +203,8 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {inventory && <InventorySummary inventory={inventory} />}
 
       {!loading && products.length > 0 && (
         <div className="batches-toolbar">

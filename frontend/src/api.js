@@ -276,6 +276,11 @@ export function fetchWarehouse(password) {
   return apiRequest('/api/warehouse', password);
 }
 
+// "Деньги в товаре": остаток складов по себестоимости + оплаченное по партиям в пути.
+export function fetchInventoryValue(password) {
+  return apiRequest('/api/warehouse/inventory-value', password);
+}
+
 export function fetchProductImages(password, productIds) {
   return apiRequest('/api/product-images', password, {
     method: 'POST',

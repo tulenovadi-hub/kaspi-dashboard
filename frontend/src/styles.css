@@ -378,6 +378,17 @@ select:focus-visible {
   }
 }
 
+/* Пять карточек на Главной (четыре за период + "Деньги в товаре"). Не repeat(5, 1fr):
+   на ноутбуке пятая колонка ужимает карточки так, что сумма переносится на вторую строку,
+   а значок "⌀ N/день" наезжает на подпись. auto-fit с минимумом в 230px вместо этого
+   переносит лишнюю карточку на следующую строку и растягивает её. */
+.stats-row-inventory {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
 /* Вариант с тремя карточками (страница "Маркетинг") — на мобильном тоже схлопывается в одну колонку */
 .stats-row-3 {
   display: grid;
@@ -1446,6 +1457,19 @@ select:focus-visible {
   color: var(--text-muted);
   font-size: 12.5px;
   line-height: 1.4;
+}
+
+/* Сводка "Деньги в товаре" наверху "Склада" и такая же плитка на Главной. Подпись под суммой
+   объясняет, из чего она сложилась, — без неё три похожие цифры невозможно различить. */
+.inventory-summary-hint {
+  margin-top: 8px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.inventory-summary-total {
+  border-color: var(--accent-brand);
 }
 
 /* ===== Sidebar ===== */

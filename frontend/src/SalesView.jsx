@@ -4,7 +4,7 @@ import TodayVsYesterday from './TodayVsYesterday.jsx';
 import SalesChart from './SalesChart.jsx';
 import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
-import { fetchSummary, fetchProducts, fetchSummaryProfit, triggerSync } from './api.js';
+import { fetchSummary, fetchProducts, fetchSummaryProfit, fetchInventoryValue, triggerSync } from './api.js';
 import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber } from './dateUtils.js';
 
 export default function SalesView({ password, onLogout, mode, title, showSync, active = true, isOnline = true }) {
@@ -19,6 +19,11 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [periodNetProfit, setPeriodNetProfit] = useState(0);
   const [usedEstimate, setUsedEstimate] = useState(false);
+
+  // "Деньги в товаре" — снимок на сейчас, а не за выбранный период, поэтому грузится один раз
+  // и не перезапрашивается при смене дат. На самовыкупах не показывается: цифра общая по
+  // магазину, среди самовыкупных продаж она читалась бы как их собственная.
+  const [inventoryTotal, setInventoryTotal] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -70,6 +75,14 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   // active в зависимостях — не только реагируем на смену периода, но и перепроверяем данные
   // каждый раз, когда пользователь возвращается на этот раздел (страницы не размонтируются
   // при переключении, см. Dashboard.jsx, поэтому без этого повторный визит не обновил бы ничего).
+  useEffect(() => {
+    if (!active || mode === 'selfbuy') return;
+    fetchInventoryValue(password)
+      .then((res) => setInventoryTotal(res.total))
+      .catch(() => {}); // плитка необязательная — молча прячем, если не посчиталось
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, mode, password]);
+
   useEffect(() => {
     if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -127,7 +140,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
             pointerEvents: loading ? 'none' : 'auto',
           }}
         >
-          <div className="stats-row">
+          <div className={inventoryTotal !== null ? 'stats-row-inventory' : 'stats-row'}>
             <div className="stat-card">
               <div className="stat-label">Сумма продаж за период</div>
               <div className="stat-value">{formatMoney(totalRevenue)}</div>
@@ -159,6 +172,13 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
                 {formatMoney(periodNetProfit)}
               </div>
             </div>
+            {inventoryTotal !== null && (
+              <div className="stat-card">
+                <div className="stat-label">Деньги в товаре сейчас</div>
+                <div className="stat-value">{formatMoney(inventoryTotal)}</div>
+                <div className="inventory-summary-hint">Остаток складов плюс оплаченное в пути — подробности на «Складе»</div>
+              </div>
+            )}
           </div>
 
           {usedEstimate && (

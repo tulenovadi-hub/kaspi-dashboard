@@ -137,6 +137,90 @@ async function computeWarehouseStock() {
   return products;
 }
 
+// Партия "в пути" бывает не только товаром: ей же заводят депозиты и авансы поставщику
+// (в примечании так и написано — "Депозит у поставщика 3000 USD", 1 шт по 1 464 000 ₸).
+// Деньги по ним действительно отданы, поэтому из суммы "в пути" мы их не выкидываем, но
+// показываем отдельной строкой "в том числе" — иначе полтора миллиона выглядят как один
+// проектор по цене квартиры. Определяем по примечанию: отдельного признака у партии пока нет.
+const DEPOSIT_NOTE_RE = /депозит|аванс|предоплат/i;
+
+// "Сколько денег лежит в товаре": остаток на складах по себестоимости + оплаченное поставщику
+// по партиям, которые ещё в пути. Считается по ВСЕМ складам, включая самовыкупные — на самой
+// странице "Склад" их не видно (display: false), но деньги в этом товаре лежат такие же.
+async function computeInventoryValue() {
+  const products = await computeWarehouseStock();
+
+  const stockByWarehouse = new Map();
+  let stockValue = 0;
+  for (const p of products) {
+    stockValue += p.remaining_value;
+    stockByWarehouse.set(p.warehouse, (stockByWarehouse.get(p.warehouse) || 0) + p.remaining_value);
+  }
+
+  // purchase_price — закупка в ₸ за 1 шт, БЕЗ логистики и прочих расходов (они сидят в cost_price).
+  // Владелец просил считать "в пути" именно по факту оплаченного товара, поэтому основная сумма
+  // считается по закупке, а логистика с прочим показывается отдельно.
+  // COALESCE — у партий, заведённых до появления отдельной колонки, purchase_price = cost_price.
+  const transitResult = await pool.query(`
+    SELECT id, product_name, warehouse, quantity, note,
+           COALESCE(purchase_price, cost_price) AS purchase_price,
+           cost_price
+    FROM product_batches
+    WHERE status = 'in_transit'
+    ORDER BY id
+  `);
+
+  let transitPurchase = 0;
+  let transitExtra = 0;
+  let transitQuantity = 0;
+  let depositsValue = 0;
+  const deposits = [];
+
+  for (const b of transitResult.rows) {
+    const quantity = Number(b.quantity);
+    const purchase = Number(b.purchase_price) * quantity;
+    // Логистика и прочие расходы = разница между полной себестоимостью и закупкой. Отрицательной
+    // она быть не может, но если данные кривые — не даём ей уменьшать сумму.
+    const extra = Math.max(0, (Number(b.cost_price) - Number(b.purchase_price)) * quantity);
+
+    transitPurchase += purchase;
+    transitExtra += extra;
+    transitQuantity += quantity;
+
+    if (b.note && DEPOSIT_NOTE_RE.test(b.note)) {
+      depositsValue += purchase;
+      deposits.push({ id: b.id, product_name: b.product_name, note: b.note, value: purchase });
+    }
+  }
+
+  return {
+    stock_value: stockValue,
+    stock_by_warehouse: [...stockByWarehouse.entries()]
+      .map(([warehouse, value]) => ({ warehouse, value }))
+      .sort((a, b) => (WAREHOUSE_SORT_ORDER[a.warehouse] ?? 99) - (WAREHOUSE_SORT_ORDER[b.warehouse] ?? 99)),
+    in_transit_purchase: transitPurchase,
+    in_transit_extra: transitExtra,
+    in_transit_quantity: transitQuantity,
+    deposits_value: depositsValue,
+    deposits,
+    // "Всего в товаре" = остаток по себестоимости + оплаченная закупка того, что ещё едет.
+    // Логистика по партиям в пути сюда НЕ входит: её часто платят по факту прибытия, поэтому
+    // она показывается отдельной подписью, а считать её вложенной или нет — решает владелец.
+    total: stockValue + transitPurchase,
+  };
+}
+
+// Отдельный лёгкий роут: те же цифры нужны и блоку на "Складе", и плитке на Главной,
+// а тащить ради них весь список товаров со склада не нужно.
+router.get('/inventory-value', async (req, res) => {
+  try {
+    res.json(await computeInventoryValue());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось посчитать стоимость товарных остатков' });
+  }
+});
+
 router.get('/', async (req, res) => {
   try {
     const products = await computeWarehouseStock();
