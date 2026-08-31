@@ -8,10 +8,16 @@ import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
 const GREEN_KEYS = new Set(['revenue', 'net_profit']);
 const RED_KEYS = new Set(['cost_of_goods', 'returns', 'cost_of_returns', 'commission', 'delivery', 'taxes', 'marketing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'packaging', 'other_expenses']);
 
-// Колонки, для которых в "Основном отчёте" под суммой показываем её долю от выручки за месяц
-// (сколько из 100% выручки уходит на каждую статью). "Чистая прибыль" сюда не входит — для
-// неё уже есть отдельная колонка "Маржа" с тем же смыслом.
-const PERCENT_OF_REVENUE_KEYS = new Set(['cost_of_goods', 'returns', 'cost_of_returns', 'commission', 'delivery', 'taxes', 'marketing', 'packaging', 'other_expenses']);
+// Колонки, для которых под суммой показываем её долю от выручки — и в строке месяца, и в
+// разбивке по товарам (там доля считается от выручки этого товара). "Чистая прибыль" сюда не
+// входит — для неё уже есть отдельная колонка "Маржа" с тем же смыслом.
+// Единый "Маркетинг" есть только в строке месяца, а в разбивке по товарам он раскрыт на три
+// колонки — поэтому в наборе перечислены и он, и все три.
+const PERCENT_OF_REVENUE_KEYS = new Set([
+  'cost_of_goods', 'returns', 'cost_of_returns', 'commission', 'delivery', 'taxes',
+  'marketing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews',
+  'packaging', 'other_expenses',
+]);
 
 function hexToRgb(hex) {
   const n = parseInt(hex.replace('#', ''), 16);
@@ -71,8 +77,9 @@ function renderRowCells(columns, row, colorize, showPercentOfRevenue) {
 }
 
 // colorize — включает раскраску выручки/расходов и градиент маржи/ROI (только для "Основного отчёта").
-// showPercentOfRevenue — под суммой в строке месяца показывает её долю от выручки; в разбивку
-// по товарам (нижняя вложенная таблица) сознательно не передаём — там просили только суммы.
+// showPercentOfRevenue — под суммой показывает её долю от выручки: в строке месяца от выручки
+// месяца, в разбивке по товарам — от выручки самого товара (renderRowCells берёт row.revenue,
+// а у строки товара это его собственная выручка).
 // expandable — если true, клик по строке месяца разворачивает под ней разбивку по товарам
 // (данные подгружаются лениво через onToggleMonth и кэшируются в productBreakdowns на уровне Report).
 // scope — какая из двух разворачиваемых таблиц ('all' — все склады, 'main' — Алматы + Астана).
@@ -129,7 +136,9 @@ function MonthlyTable({
                               </thead>
                               <tbody>
                                 {productBreakdowns[cacheKey].map((p) => (
-                                  <tr key={p.product_id}>{renderRowCells(PRODUCT_COLUMNS, p, colorize)}</tr>
+                                  <tr key={p.product_id}>
+                                    {renderRowCells(PRODUCT_COLUMNS, p, colorize, showPercentOfRevenue)}
+                                  </tr>
                                 ))}
                               </tbody>
                             </table>
@@ -378,8 +387,9 @@ export default function Report({ password, active = true, isOnline = true }) {
         через привязку кампании к товару (если кампания продвигает сразу несколько товаров — её расход делится между ними поровну; кампании без сохранённой
         привязки к товару в разбивку не попадают). «Прочие расходы» и «Упаковка» на уровне товара не считаются — это расходы всего бизнеса, а не конкретного
         товара, поэтому в разбивке там прочерк.
-        Число под суммой в каждой расходной колонке «Основного отчёта» — доля этой статьи от выручки за тот же месяц (сколько из 100% выручки уходит именно
-        сюда); в разбивке по товарам таких долей нет, там только суммы.
+        Число под суммой в каждой расходной колонке — доля этой статьи от выручки: в строке месяца от выручки за этот месяц, а в разбивке по товарам —
+        от выручки самого товара (сколько из 100% его выручки уходит именно сюда). Поэтому доли товара и доли месяца не обязаны совпадать: у дорогого
+        товара своя структура расходов. «Прочие расходы» и «Упаковка» на уровне товара не считаются, там прочерк и доли нет.
       </div>
     </div>
   );
