@@ -157,9 +157,11 @@ async function computeInventoryValue() {
     stockByWarehouse.set(p.warehouse, (stockByWarehouse.get(p.warehouse) || 0) + p.remaining_value);
   }
 
-  // purchase_price — закупка в ₸ за 1 шт, БЕЗ логистики и прочих расходов (они сидят в cost_price).
-  // Владелец просил считать "в пути" именно по факту оплаченного товара, поэтому основная сумма
-  // считается по закупке, а логистика с прочим показывается отдельно.
+  // Считаем по ПОЛНОЙ себестоимости партии (cost_price = закупка + логистика + прочие расходы за
+  // 1 шт), а закупка отдельно показывается в подписи. Сначала логистика в итог не входила, но это
+  // расходилось с карточкой "На складе": там остаток тоже считается по cost_price, то есть уже с
+  // логистикой. Владелец указал на это 2026-09-01 — из-за расхождения капитал был занижен
+  // на 570 637 ₸. Всё, что вложено в товар, вложено в товар, когда бы оно ни было оплачено.
   // COALESCE — у партий, заведённых до появления отдельной колонки, purchase_price = cost_price.
   const transitResult = await pool.query(`
     SELECT id, product_name, warehouse, quantity, note,
@@ -198,15 +200,17 @@ async function computeInventoryValue() {
     stock_by_warehouse: [...stockByWarehouse.entries()]
       .map(([warehouse, value]) => ({ warehouse, value }))
       .sort((a, b) => (WAREHOUSE_SORT_ORDER[a.warehouse] ?? 99) - (WAREHOUSE_SORT_ORDER[b.warehouse] ?? 99)),
+    // in_transit_value — полная сумма, вложенная в партии в пути; purchase и extra — из чего она
+    // состоит (для подписи под цифрой).
+    in_transit_value: transitPurchase + transitExtra,
     in_transit_purchase: transitPurchase,
     in_transit_extra: transitExtra,
     in_transit_quantity: transitQuantity,
     deposits_value: depositsValue,
     deposits,
-    // "Всего в товаре" = остаток по себестоимости + оплаченная закупка того, что ещё едет.
-    // Логистика по партиям в пути сюда НЕ входит: её часто платят по факту прибытия, поэтому
-    // она показывается отдельной подписью, а считать её вложенной или нет — решает владелец.
-    total: stockValue + transitPurchase,
+    // "Всего в товаре" = остаток по себестоимости + всё вложенное в партии, которые ещё едут.
+    // Обе части считаются одинаково — по полной себестоимости, вместе с логистикой.
+    total: stockValue + transitPurchase + transitExtra,
   };
 }
 

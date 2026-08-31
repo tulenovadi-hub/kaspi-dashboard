@@ -49,6 +49,7 @@ function InventorySummary({ inventory }) {
   const {
     stock_value: stockValue,
     stock_by_warehouse: stockByWarehouse = [],
+    in_transit_value: transitValue,
     in_transit_purchase: transitPurchase,
     in_transit_extra: transitExtra,
     in_transit_quantity: transitQuantity,
@@ -71,10 +72,10 @@ function InventorySummary({ inventory }) {
         </div>
 
         <div className="stat-card">
-          <div className="stat-label">В пути (оплачено поставщику)</div>
-          <div className="stat-value">{formatMoney(transitPurchase)}</div>
+          <div className="stat-label">В пути</div>
+          <div className="stat-value">{formatMoney(transitValue)}</div>
           <div className="inventory-summary-hint">
-            {formatNumber(transitQuantity)} шт · логистика и прочее сверху: {formatMoney(transitExtra)}
+            {formatNumber(transitQuantity)} шт · закупка {formatMoney(transitPurchase)} + логистика и прочее {formatMoney(transitExtra)}
             {depositsValue > 0 && <> · в том числе депозиты и авансы: {formatMoney(depositsValue)}</>}
           </div>
         </div>
@@ -83,7 +84,8 @@ function InventorySummary({ inventory }) {
           <div className="stat-label">Всего в товаре</div>
           <div className="stat-value">{formatMoney(total)}</div>
           <div className="inventory-summary-hint">
-            Себестоимость остатка плюс закупка того, что ещё едет. Логистика по партиям в пути сюда не входит.
+            Всё, что вложено в товар: себестоимость остатка на складах плюс закупка, логистика и прочие расходы
+            по партиям, которые ещё едут.
           </div>
         </div>
       </div>
