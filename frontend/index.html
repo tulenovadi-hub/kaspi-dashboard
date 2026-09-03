@@ -2,7 +2,13 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <!-- Без viewport-fit=cover: с ним (плюс полноэкранный статус-бар ниже) окно PWA на iPhone
+         оказывалось на высоту статус-бара КОРОЧЕ экрана — страница заканчивалась примерно на
+         793 pt при экране 852 pt, и внизу оставалась полоса, которую страница не занимает и
+         которую нельзя убрать из CSS. Переустановка иконки не помогла (проверено владельцем
+         2026-09-01). Теперь страница живёт внутри безопасной области: статус-бар свой, окно
+         на всю оставшуюся высоту. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Продажи Kaspi</title>
 
     <!-- PWA: манифест и иконки -->
@@ -13,7 +19,10 @@
 
     <!-- Позволяет открываться на весь экран без адресной строки Safari при установке на iOS -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- black, а не black-translucent: translucent пускает страницу под статус-бар и ломает
+         высоту окна (см. комментарий к viewport выше). С black статус-бар просто чёрный,
+         а страница получает всю высоту под ним. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="Kaspi Dashboard" />
     <meta name="mobile-web-app-capable" content="yes" />
 
