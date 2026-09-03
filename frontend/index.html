@@ -18,7 +18,13 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="theme-color" content="#0e1420" />
+    <!-- Цвет полосы статус-бара, которую рисует САМ браузер: в Safari (обычная вкладка, не
+         установленное приложение) страница под статус-бар не заходит, и его закрашивает Safari
+         по этому значению. Поэтому здесь #161d2e — цвет верхней панели с меню (--bg-card), а не
+         фон страницы: иначе полоса сверху темнее меню и выглядит как чужая. В установленном
+         PWA эта полоса красится иначе — её собой закрывает .mobile-topbar, см. комментарий
+         к viewport выше. -->
+    <meta name="theme-color" content="#161d2e" />
 
     <!-- Позволяет открываться на весь экран без адресной строки Safari при установке на iOS -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
