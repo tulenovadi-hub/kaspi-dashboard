@@ -21,9 +21,24 @@ import { useOnlineStatus } from './useOnlineStatus.js';
 
 const SECTION_TITLES = {};
 
+// Открытый раздел переживает обновление страницы. sessionStorage, а не localStorage: при F5
+// (и при перезапуске приложения из фона на телефоне) человек ожидает остаться там же, где был,
+// а вот запуск приложения заново — это уже новый заход, и он начинается с Главной.
+// Ключ читается один раз при монтировании; проверка прав ниже (safeView) всё равно отсеет
+// раздел, к которому у роли нет доступа.
+const VIEW_KEY = 'dashboard_view';
+
+function readSavedView() {
+  try {
+    return sessionStorage.getItem(VIEW_KEY) || 'sales';
+  } catch (err) {
+    return 'sales'; // приватный режим браузера может запрещать доступ к хранилищу
+  }
+}
+
 export default function Dashboard({ password, username, role, onLogout }) {
   const allowedPages = ROLE_PAGES[role] || ROLE_PAGES.manager;
-  const [view, setView] = useState('sales'); // 'sales' | 'report' | 'selfbuy' | 'expenses' | 'batches' | 'warehouse' | 'marketing_ads' | 'marketing_bonuses' | 'marketing_reviews' | 'settings'
+  const [view, setView] = useState(readSavedView); // 'sales' | 'report' | 'selfbuy' | 'expenses' | 'batches' | 'warehouse' | 'marketing_ads' | 'marketing_bonuses' | 'marketing_reviews' | 'settings'
   const [collapsed, setCollapsed] = useState(() => sessionStorage.getItem('sidebar_collapsed') === '1');
 
   // Защита на случай, если роль не даёт доступа к текущему разделу (например, роль сменили
@@ -45,6 +60,16 @@ export default function Dashboard({ password, username, role, onLogout }) {
       next.add(safeView);
       return next;
     });
+  }, [safeView]);
+
+  // Запоминаем именно safeView, а не view: если сохранённый раздел роли недоступен, в хранилище
+  // ляжет уже откат на Главную, и следующее обновление страницы не будет снова в него упираться.
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(VIEW_KEY, safeView);
+    } catch (err) {
+      // приватный режим — просто не запоминаем, на работу это не влияет
+    }
   }, [safeView]);
 
   function handleSelect(key) {

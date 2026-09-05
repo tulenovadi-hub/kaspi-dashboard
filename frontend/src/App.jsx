@@ -36,6 +36,14 @@ export default function App() {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_username');
     localStorage.removeItem('auth_role');
+    // Открытый раздел запоминается, чтобы пережить обновление страницы (см. Dashboard.jsx).
+    // При выходе его надо забыть: следующий вход — это новый заход, и начинаться он должен
+    // с Главной, а не там, где закончил предыдущий пользователь.
+    try {
+      sessionStorage.removeItem('dashboard_view');
+    } catch (err) {
+      // приватный режим — хранилища и так нет, забывать нечего
+    }
   }
 
   function handleLogin({ token, username, role }) {
