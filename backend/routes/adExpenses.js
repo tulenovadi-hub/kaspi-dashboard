@@ -45,14 +45,33 @@ router.post('/upload', async (req, res) => {
       for (const day of days) {
         if (aborted) break;
         if (!day || !day.date) continue;
+        // Кроме расхода в строке дня может прийти воронка и продажи (новая версия скрипта
+        // склеивает все дневные ряды Kaspi в один). Отсутствующее поле приходит как null и
+        // НЕ затирает уже сохранённое — иначе выгрузка старым скриптом обнулила бы воронку.
+        const metric = (value) => (value === undefined || value === null ? null : Number(value) || 0);
         await client.query(
-          `INSERT INTO ad_expenses (expense_date, campaign_id, campaign_name, cost, uploaded_at)
-           VALUES ($1, $2, $3, $4, now())
+          `INSERT INTO ad_expenses (
+             expense_date, campaign_id, campaign_name, cost,
+             views, clicks, favorites, carts, transactions, gmv, uploaded_at
+           )
+           VALUES ($1, $2, $3, $4,
+             COALESCE($5, 0), COALESCE($6, 0), COALESCE($7, 0), COALESCE($8, 0), COALESCE($9, 0), COALESCE($10, 0),
+             now())
            ON CONFLICT (expense_date, campaign_id) DO UPDATE SET
              campaign_name = EXCLUDED.campaign_name,
              cost = EXCLUDED.cost,
+             views = COALESCE($5, ad_expenses.views),
+             clicks = COALESCE($6, ad_expenses.clicks),
+             favorites = COALESCE($7, ad_expenses.favorites),
+             carts = COALESCE($8, ad_expenses.carts),
+             transactions = COALESCE($9, ad_expenses.transactions),
+             gmv = COALESCE($10, ad_expenses.gmv),
              uploaded_at = now()`,
-          [day.date, campaignId, campaignName, Number(day.cost) || 0]
+          [
+            day.date, campaignId, campaignName, Number(day.cost) || 0,
+            metric(day.views), metric(day.clicks), metric(day.favorites),
+            metric(day.carts), metric(day.transactions), metric(day.gmv),
+          ]
         );
         rowsUpserted += 1;
       }
@@ -121,7 +140,10 @@ router.get('/', async (req, res) => {
 
     const [byDayResult, byCampaignResult, productsResult] = await Promise.all([
       pool.query(
-        `SELECT to_char(expense_date, 'YYYY-MM-DD') AS day, SUM(cost) AS cost, SUM(gmv) AS gmv
+        // По дням отдаём все ряды: график на странице переключается между показателями.
+        `SELECT to_char(expense_date, 'YYYY-MM-DD') AS day,
+                SUM(cost) AS cost, SUM(gmv) AS gmv, SUM(transactions) AS transactions,
+                SUM(views) AS views, SUM(clicks) AS clicks, SUM(favorites) AS favorites, SUM(carts) AS carts
          FROM ad_expenses
          WHERE expense_date BETWEEN $1 AND $2 ${campaignFilter}
          GROUP BY day
@@ -129,7 +151,8 @@ router.get('/', async (req, res) => {
         params
       ),
       pool.query(
-        `SELECT campaign_id, campaign_name, SUM(cost) AS cost, SUM(gmv) AS gmv, SUM(transactions) AS transactions
+        `SELECT campaign_id, campaign_name, SUM(cost) AS cost, SUM(gmv) AS gmv, SUM(transactions) AS transactions,
+                SUM(views) AS views, SUM(clicks) AS clicks, SUM(favorites) AS favorites, SUM(carts) AS carts
          FROM ad_expenses
          WHERE expense_date BETWEEN $1 AND $2 ${campaignFilter}
          GROUP BY campaign_id, campaign_name
@@ -145,19 +168,46 @@ router.get('/', async (req, res) => {
       productIdsByCampaign.get(row.campaign_id).push(row.product_id);
     }
 
-    const byDay = byDayResult.rows.map((r) => ({ day: r.day, cost: Number(r.cost), gmv: Number(r.gmv) }));
+    const byDay = byDayResult.rows.map((r) => ({
+      day: r.day,
+      cost: Number(r.cost),
+      gmv: Number(r.gmv),
+      transactions: Number(r.transactions),
+      views: Number(r.views),
+      clicks: Number(r.clicks),
+      favorites: Number(r.favorites),
+      carts: Number(r.carts),
+    }));
     const byCampaign = byCampaignResult.rows.map((r) => ({
       campaign_id: r.campaign_id,
       campaign_name: r.campaign_name,
       cost: Number(r.cost),
       gmv: Number(r.gmv),
       transactions: Number(r.transactions),
+      views: Number(r.views),
+      clicks: Number(r.clicks),
+      favorites: Number(r.favorites),
+      carts: Number(r.carts),
       product_ids: productIdsByCampaign.get(r.campaign_id) || [],
     }));
-    const totalCost = byCampaign.reduce((sum, c) => sum + c.cost, 0);
-    const totalAdRevenue = byCampaign.reduce((sum, c) => sum + c.gmv, 0);
+    const sum = (key) => byCampaign.reduce((acc, c) => acc + c[key], 0);
+    const totalCost = sum('cost');
+    const totalAdRevenue = sum('gmv');
 
-    res.json({ totalCost, totalAdRevenue, byDay, byCampaign });
+    res.json({
+      totalCost,
+      totalAdRevenue,
+      totals: {
+        views: sum('views'),
+        clicks: sum('clicks'),
+        favorites: sum('favorites'),
+        carts: sum('carts'),
+        transactions: sum('transactions'),
+        gmv: totalAdRevenue,
+      },
+      byDay,
+      byCampaign,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить данные по рекламным расходам' });

@@ -1599,6 +1599,19 @@ input[type="date"] {
   opacity: 1;
 }
 
+/* Цифра без кнопки в той же строке (ДРР на "Рекламе товаров"): по дням её не рисуем,
+   поэтому не делаем кликабельной — но выглядеть она должна как соседи. */
+.bonus-funnel-static {
+  padding: 6px 10px;
+  margin: -6px 0;
+  border: 1px solid transparent;
+  cursor: default;
+}
+
+.bonus-funnel-static:hover {
+  background: none;
+}
+
 .bonus-funnel-cost .bonus-funnel-value {
   color: var(--accent-down);
 }

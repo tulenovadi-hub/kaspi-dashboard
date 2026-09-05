@@ -2,93 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { fetchBonusExpenses } from './api.js';
 import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './dateUtils.js';
 import PeriodSelector from './PeriodSelector.jsx';
-import BonusChart from './BonusChart.jsx';
-
-// Показатели, между которыми переключается график по дням — как на странице акции у Kaspi:
-// нажал на цифру, график перестроился, нажатая цифра подсвечена. Ключ совпадает с полем,
-// которое отдаёт бэкенд и в byDay, и в byCampaign. money — печатать со знаком ₸ или как штуки.
-const METRICS = {
-  cost: { label: 'Расходы на бонусы', color: '#ff6b6b', money: true },
-  gmv: { label: 'Продажи по акциям', color: '#3ddc97', money: true },
-  transactions: { label: 'Заказы', color: '#6e8bff', money: false },
-  views: { label: 'Просмотры', color: '#4ec9f5', money: false },
-  clicks: { label: 'Клики', color: '#b38bff', money: false },
-  carts: { label: 'В корзину', color: '#ffb347', money: false },
-  favorites: { label: 'В избранное', color: '#ffd166', money: false },
-};
-
-// Строка показателей акции: воронка просмотры → клики → корзина → заказы, а справа, в стороне
-// от воронки, — избранное и расход на бонусы. Порядок и состав повторяют строку на странице
-// акции у Kaspi, чтобы цифры можно было сверять глазами один в один.
-//
-// Каждый показатель — кнопка, переключающая график. У заказов кнопка двойная: первый клик
-// показывает количество заказов, повторный — сумму этих заказов (она же в скобках). Так сумма
-// продаж не занимает отдельную кнопку, но остаётся доступной.
-function BonusFunnel({ totals, cost, metric, onSelect }) {
-  const value = (key) => totals[key] || 0;
-  const pct = (key, prev) => (prev > 0 ? `${((value(key) / prev) * 100).toFixed(1)}%` : null);
-
-  const steps = [
-    { key: 'views', label: 'просмотры', pct: null },
-    { key: 'clicks', label: 'клики', pct: pct('clicks', value('views')) },
-    { key: 'carts', label: 'в корзину', pct: pct('carts', value('clicks')) },
-    { key: 'transactions', label: 'заказы', pct: pct('transactions', value('carts')) },
-  ];
-
-  const ordersSelected = metric === 'transactions' || metric === 'gmv';
-
-  function renderStep(step, extraClass) {
-    const isOrders = step.key === 'transactions';
-    const selected = isOrders ? ordersSelected : metric === step.key;
-    return (
-      <button
-        type="button"
-        className={`bonus-funnel-step${extraClass ? ' ' + extraClass : ''}${selected ? ' selected' : ''}`}
-        // Повторный клик по заказам переключает на сумму и обратно — отсюда тройное условие.
-        onClick={() => onSelect(isOrders && metric === 'transactions' ? 'gmv' : step.key)}
-        title={isOrders
-          ? (metric === 'transactions' ? 'Нажмите ещё раз: сумма заказов на графике' : 'Показать на графике: количество заказов')
-          : `Показать на графике: ${step.label}`}
-      >
-        <div className="bonus-funnel-value">
-          <span className={isOrders && metric === 'gmv' ? 'bonus-funnel-dimmed' : undefined}>
-            {formatNumber(value(step.key))}
-          </span>
-          {isOrders && (
-            <span className={`bonus-funnel-sum${metric === 'gmv' ? ' selected' : ''}`}>
-              {' '}({formatMoney(value('gmv'))})
-            </span>
-          )}
-        </div>
-        <div className="bonus-funnel-label">{step.label}</div>
-        {step.pct && <div className="bonus-funnel-pct">{step.pct} от предыдущего</div>}
-      </button>
-    );
-  }
-
-  return (
-    <div className="card bonus-funnel">
-      {steps.map((step, i) => (
-        <React.Fragment key={step.key}>
-          {i > 0 && <div className="bonus-funnel-arrow">→</div>}
-          {renderStep(step)}
-        </React.Fragment>
-      ))}
-      <div className="bonus-funnel-tail">
-        {renderStep({ key: 'favorites', label: 'в избранное', pct: null }, 'bonus-funnel-aside')}
-        <button
-          type="button"
-          className={`bonus-funnel-step bonus-funnel-cost${metric === 'cost' ? ' selected' : ''}`}
-          onClick={() => onSelect('cost')}
-          title="Показать на графике: расходы на бонусы"
-        >
-          <div className="bonus-funnel-value">{formatMoney(cost || 0)}</div>
-          <div className="bonus-funnel-label">выплачено бонусов</div>
-        </button>
-      </div>
-    </div>
-  );
-}
+import MetricChart from './MetricChart.jsx';
+import CampaignFunnel, { METRICS } from './CampaignFunnel.jsx';
 
 // Одинаковая страница используется для двух разных программ бонусов Kaspi (от продавца и за
 // отзыв): структура данных у них общая, разные только источник (fetchExpenses) и подписи.
@@ -169,7 +84,13 @@ export default function Bonuses({
         }}
       >
         {hasFunnel ? (
-          <BonusFunnel totals={t} cost={data.totalCost} metric={metric} onSelect={setMetric} />
+          <CampaignFunnel
+            totals={t}
+            cost={data.totalCost}
+            costLabel="выплачено бонусов"
+            metric={metric}
+            onSelect={setMetric}
+          />
         ) : (
           <div className="stat-card" style={{ marginBottom: 20 }}>
             <div className="stat-label">Расходы на бонусы за период</div>
@@ -181,7 +102,7 @@ export default function Bonuses({
           Динамика по дням{hasFunnel ? ` — ${METRICS[metric].label.toLowerCase()}` : ''}
         </div>
         <div className="card">
-          <BonusChart
+          <MetricChart
             data={data.byDay}
             dataKey={hasFunnel ? metric : 'cost'}
             color={METRICS[hasFunnel ? metric : 'cost'].color}
@@ -198,9 +119,10 @@ export default function Bonuses({
             <div className="card">
               <div style={{ opacity: campaignLoading ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
                 {hasFunnel ? (
-                  <BonusFunnel
+                  <CampaignFunnel
                     totals={campaignData.totals || {}}
                     cost={campaignData.totalCost}
+                    costLabel="выплачено бонусов"
                     metric={metric}
                     onSelect={setMetric}
                   />
@@ -210,7 +132,7 @@ export default function Bonuses({
                     <div className="stat-value" style={{ color: '#ff6b6b' }}>{formatMoney(campaignData.totalCost)}</div>
                   </div>
                 )}
-                <BonusChart
+                <MetricChart
                   data={campaignData.byDay}
                   dataKey={hasFunnel ? metric : 'cost'}
                   color={METRICS[hasFunnel ? metric : 'cost'].color}

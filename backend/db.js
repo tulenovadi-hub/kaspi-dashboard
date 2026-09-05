@@ -214,6 +214,14 @@ async function initDb() {
   // ниже — она больше не используется, но оставлена в базе, ничего страшного).
   await pool.query(`ALTER TABLE ad_expenses ADD COLUMN IF NOT EXISTS gmv NUMERIC NOT NULL DEFAULT 0;`);
   await pool.query(`ALTER TABLE ad_expenses ADD COLUMN IF NOT EXISTS transactions INTEGER NOT NULL DEFAULT 0;`);
+  // Воронка кампании — те же поля, что и у бонусов. У рекламы каждая метрика лежит в своём
+  // дневном эндпоинте (.../overview/daily/{id}/views и т.д.), общего ответа со всем сразу нет
+  // (проверено 2026-09-06: путь без метрики отвечает 404). CTR и ДРР не храним — они считаются
+  // из этих же чисел (clicks/views и cost/gmv), и Kaspi показывает ровно их.
+  await pool.query(`ALTER TABLE ad_expenses ADD COLUMN IF NOT EXISTS views INTEGER NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE ad_expenses ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE ad_expenses ADD COLUMN IF NOT EXISTS favorites INTEGER NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE ad_expenses ADD COLUMN IF NOT EXISTS carts INTEGER NOT NULL DEFAULT 0;`);
 
   // Привязка рекламной кампании к конкретным товарам — по merchantSku (= ваш собственный код
   // товара, тот же самый product_id, что используется везде в дашборде: Склад, Заказы, Поставки).
