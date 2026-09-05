@@ -17,8 +17,14 @@ const EMPTY_FORM = {
   logisticsAmount: '',
   logisticsCurrency: 'USD',
   logisticsRate: '',
+  // Пошлину и НДС можно задать либо процентом, либо готовой суммой за партию из документов
+  // брокера. Значения хранятся раздельно, чтобы переключение режима ничего не стирало.
+  dutyMode: 'percent', // 'percent' | 'manual'
   dutyPercent: '0',
+  dutyAmountPerBatch: '0',
+  vatMode: 'percent', // 'percent' | 'manual'
   vatPercent: '12',
+  vatAmountPerBatch: '0',
   brokerPerBatch: '0',
   customsWarehousePerBatch: '0',
   certificationPerBatch: '0',
@@ -59,8 +65,19 @@ function calculate(form) {
   // Таможенная стоимость — товар плюс доставка до границы, от неё считаются пошлина и НДС.
   const customsValue = purchase + freight;
   const white = form.importMode === 'white';
-  const duty = white ? (customsValue * num(form.dutyPercent)) / 100 : 0;
-  const vat = white ? ((customsValue + duty) * num(form.vatPercent)) / 100 : 0;
+  // В ручном режиме сумма вводится за ВСЮ партию (так её выставляет брокер) — делим на
+  // количество, как и остальные расходы на оформление. НДС считается от таможенной стоимости
+  // ПЛЮС пошлина, поэтому и при ручной пошлине база у процента остаётся правильной.
+  const duty = white
+    ? (form.dutyMode === 'manual'
+        ? num(form.dutyAmountPerBatch) / quantity
+        : (customsValue * num(form.dutyPercent)) / 100)
+    : 0;
+  const vat = white
+    ? (form.vatMode === 'manual'
+        ? num(form.vatAmountPerBatch) / quantity
+        : ((customsValue + duty) * num(form.vatPercent)) / 100)
+    : 0;
   const clearance = white
     ? (num(form.brokerPerBatch) + num(form.customsWarehousePerBatch) + num(form.certificationPerBatch)) / quantity
     : 0;
@@ -152,6 +169,37 @@ function Field({ label, value, onChange, suffix, hint, wide }) {
         {suffix && <span className="ue-suffix">{suffix}</span>}
       </div>
       {hint && <div className="ue-hint">{hint}</div>}
+    </div>
+  );
+}
+
+// Поле, которое заполняется одним из двух способов: процентом (сумма считается от таможенной
+// стоимости) или готовой суммой за партию — её берут прямо из документов брокера, где пошлина
+// и НДС уже посчитаны. Процент и сумма лежат в разных полях формы, поэтому переключение
+// туда-обратно ничего не стирает: введённое остаётся на месте.
+function PercentOrAmountField({
+  label, manual, onManualChange,
+  percentValue, onPercentChange, percentHint,
+  amountValue, onAmountChange, amountHint,
+}) {
+  return (
+    <div className="ue-field">
+      <label>{label}</label>
+      <div className="ue-input-wrap">
+        <input
+          type="text"
+          inputMode="decimal"
+          value={manual ? amountValue : percentValue}
+          onChange={(e) => (manual ? onAmountChange : onPercentChange)(e.target.value)}
+        />
+        <span className="ue-suffix">{manual ? '₸ за партию' : '%'}</span>
+      </div>
+      <label className="ue-toggle">
+        <input type="checkbox" checked={manual} onChange={(e) => onManualChange(e.target.checked)} />
+        <span className="ue-toggle-track" aria-hidden="true"><span className="ue-toggle-thumb" /></span>
+        <span className="ue-toggle-label">заполнить вручную</span>
+      </label>
+      <div className="ue-hint">{manual ? amountHint : percentHint}</div>
     </div>
   );
 }
@@ -563,8 +611,28 @@ export default function UnitEconomics({ password, active = true, isOnline = true
             {white ? (
               <>
                 <div className="ue-grid">
-                  <Field label="Пошлина" value={form.dutyPercent} onChange={set('dutyPercent')} suffix="%" hint="от таможенной стоимости, по коду ТН ВЭД" />
-                  <Field label="НДС при импорте" value={form.vatPercent} onChange={set('vatPercent')} suffix="%" hint="на упрощёнке к зачёту не берётся" />
+                  <PercentOrAmountField
+                    label="Пошлина"
+                    manual={form.dutyMode === 'manual'}
+                    onManualChange={(on) => set('dutyMode')(on ? 'manual' : 'percent')}
+                    percentValue={form.dutyPercent}
+                    onPercentChange={set('dutyPercent')}
+                    percentHint="от таможенной стоимости, по коду ТН ВЭД"
+                    amountValue={form.dutyAmountPerBatch}
+                    onAmountChange={set('dutyAmountPerBatch')}
+                    amountHint="сумма из документов, за всю партию"
+                  />
+                  <PercentOrAmountField
+                    label="НДС при импорте"
+                    manual={form.vatMode === 'manual'}
+                    onManualChange={(on) => set('vatMode')(on ? 'manual' : 'percent')}
+                    percentValue={form.vatPercent}
+                    onPercentChange={set('vatPercent')}
+                    percentHint="на упрощёнке к зачёту не берётся"
+                    amountValue={form.vatAmountPerBatch}
+                    onAmountChange={set('vatAmountPerBatch')}
+                    amountHint="сумма из документов, за всю партию; к зачёту не берётся"
+                  />
                   <Field label="Брокер" value={form.brokerPerBatch} onChange={set('brokerPerBatch')} suffix="₸ за партию" />
                   <Field label="СВХ и хранение" value={form.customsWarehousePerBatch} onChange={set('customsWarehousePerBatch')} suffix="₸ за партию" />
                   <Field label="Сертификация" value={form.certificationPerBatch} onChange={set('certificationPerBatch')} suffix="₸ за партию" />

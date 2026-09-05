@@ -2948,6 +2948,67 @@ input[type="date"] {
   line-height: 1.4;
 }
 
+/* Тумблер "заполнить вручную" под полями пошлины и НДС. Нативный checkbox спрятан, но остаётся
+   в разметке: он хранит состояние и даёт работать с клавиатуры. Селектор с двумя классами —
+   не для красоты: правило .ue-field label выше по специфичности и иначе перебило бы этот
+   блок своим display: block и отступом. */
+.ue-field .ue-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ue-toggle input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+
+.ue-toggle-track {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  width: 30px;
+  height: 18px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.ue-toggle-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.ue-toggle input:checked + .ue-toggle-track {
+  background: var(--accent-brand);
+  border-color: var(--accent-brand);
+}
+
+.ue-toggle input:checked + .ue-toggle-track .ue-toggle-thumb {
+  transform: translateX(12px);
+  background: #0e1420;
+}
+
+.ue-toggle input:focus-visible + .ue-toggle-track {
+  border-color: var(--accent-brand);
+}
+
+.ue-toggle input:checked ~ .ue-toggle-label {
+  color: var(--text-secondary);
+}
+
 /* --- сводка справа --- */
 .ue-summary {
   display: flex;
