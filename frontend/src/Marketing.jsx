@@ -111,11 +111,18 @@ export default function Marketing({ password, active = true, isOnline = true }) 
             totals={t}
             cost={data.totalCost}
             costLabel="расходы на рекламу"
-            extraStat={{
-              label: 'ДРР',
-              value: formatDrr(data.totalCost, data.totalAdRevenue),
-              note: `${formatDrr(data.totalCost, totalRevenue)} от всей выручки`,
-            }}
+            extraStats={[
+              {
+                label: 'ДРР',
+                value: formatDrr(data.totalCost, data.totalAdRevenue),
+                note: `${formatDrr(data.totalCost, totalRevenue)} от всей выручки`,
+              },
+              {
+                label: 'доля выручки по рекламе',
+                value: formatDrr(data.totalAdRevenue, totalRevenue),
+                note: `вся выручка ${formatMoney(totalRevenue)}`,
+              },
+            ]}
             metric={metric}
             onSelect={setMetric}
           />
@@ -156,13 +163,22 @@ export default function Marketing({ password, active = true, isOnline = true }) 
                     totals={campaignData.totals || {}}
                     cost={campaignData.totalCost}
                     costLabel="расходы на рекламу"
-                    extraStat={{
-                      label: 'ДРР',
-                      value: formatDrr(campaignData.totalCost, campaignData.totalAdRevenue),
-                      note: matchedRevenue
-                        ? `${formatDrr(campaignData.totalCost, matchedRevenue)} от выручки товара`
-                        : null,
-                    }}
+                    extraStats={[
+                      {
+                        label: 'ДРР',
+                        value: formatDrr(campaignData.totalCost, campaignData.totalAdRevenue),
+                        note: matchedRevenue
+                          ? `${formatDrr(campaignData.totalCost, matchedRevenue)} от выручки товара`
+                          : null,
+                      },
+                      // У кампании "вся выручка" — это выручка её товаров. Без привязки к товару
+                      // знаменателя нет, и показывать нечего: пропускаем целиком, а не рисуем прочерк.
+                      matchedRevenue && {
+                        label: 'доля выручки по рекламе',
+                        value: formatDrr(campaignData.totalAdRevenue, matchedRevenue),
+                        note: `выручка товара ${formatMoney(matchedRevenue)}`,
+                      },
+                    ]}
                     metric={metric}
                     onSelect={setMetric}
                   />
@@ -256,7 +272,8 @@ export default function Marketing({ password, active = true, isOnline = true }) 
         двумя числами: крупно — доля рекламных расходов от продаж ПО РЕКЛАМЕ (ровно то, что показывает Kaspi),
         мелким шрифтом под ним — та же реклама, но от ВСЕЙ выручки за период (а в блоке кампании — от выручки
         привязанных к ней товаров). Второе число обычно меньше и честнее отвечает на вопрос «какую долю моих денег
-        съедает реклама».
+        съедает реклама». Рядом «доля выручки по рекламе» — сколько процентов всей выручки принесли заказы,
+        засчитанные рекламе.
       </div>
     </div>
   );

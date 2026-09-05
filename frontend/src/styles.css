@@ -1606,6 +1606,9 @@ input[type="date"] {
   margin: -6px 0;
   border: 1px solid transparent;
   cursor: default;
+  /* Подписи тут длиннее, чем у шагов воронки ("доля выручки по рекламе") — ограничиваем ширину,
+     чтобы такая цифра не растягивала всю строку в одну длинную колонку. */
+  max-width: 170px;
 }
 
 .bonus-funnel-static:hover {
