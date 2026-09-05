@@ -378,11 +378,11 @@ select:focus-visible {
   }
 }
 
-/* Пять карточек на Главной (четыре за период + "Деньги в товаре"). Не repeat(5, 1fr):
-   на ноутбуке пятая колонка ужимает карточки так, что сумма переносится на вторую строку,
-   а значок "⌀ N/день" наезжает на подпись. auto-fit с минимумом в 230px вместо этого
-   переносит лишнюю карточку на следующую строку и растягивает её. */
-.stats-row-inventory {
+/* Ряд карточек, который сам решает, сколько их влезет в строку. Не repeat(N, 1fr): на Главной
+   пятая колонка ужимала карточки так, что сумма переносилась на вторую строку, а значок
+   "⌀ N/день" наезжал на подпись. auto-fit с минимумом в 230px вместо этого переносит лишние
+   карточки на следующую строку и растягивает их. Используется на Главной и на "Бонусах". */
+.stats-row-auto {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 16px;
@@ -1486,9 +1486,9 @@ input[type="date"] {
   line-height: 1.4;
 }
 
-/* Сводка "Деньги в товаре" наверху "Склада" и такая же плитка на Главной. Подпись под суммой
-   объясняет, из чего она сложилась, — без неё три похожие цифры невозможно различить. */
-.inventory-summary-hint {
+/* Мелкая подпись под цифрой в карточке — объясняет, из чего она сложилась. Без неё несколько
+   похожих сумм в ряд невозможно различить. */
+.stat-card-hint {
   margin-top: 8px;
   font-size: 11.5px;
   line-height: 1.45;
@@ -1497,6 +1497,56 @@ input[type="date"] {
 
 .inventory-summary-total {
   border-color: var(--accent-brand);
+}
+
+/* Воронка акции на "Бонусах от продавца": просмотры → клики → корзина → заказы одной строкой.
+   Обычный flex с переносом, а не сетка: шагов немного, а на телефоне они должны свободно
+   переноситься вместе со стрелками. */
+.bonus-funnel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+}
+
+.bonus-funnel-step {
+  min-width: 0;
+}
+
+.bonus-funnel-value {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.bonus-funnel-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.bonus-funnel-pct {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.bonus-funnel-arrow {
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+/* "В избранное" — не ступень воронки, а действие в стороне, поэтому отодвинуто и приглушено. */
+.bonus-funnel-aside {
+  margin-left: auto;
+  opacity: 0.75;
+}
+
+@media (max-width: 560px) {
+  .bonus-funnel-aside {
+    margin-left: 0;
+  }
 }
 
 /* ===== Sidebar ===== */

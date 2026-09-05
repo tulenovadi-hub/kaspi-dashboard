@@ -140,7 +140,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
             pointerEvents: loading ? 'none' : 'auto',
           }}
         >
-          <div className={inventoryTotal !== null ? 'stats-row-inventory' : 'stats-row'}>
+          <div className={inventoryTotal !== null ? 'stats-row-auto' : 'stats-row'}>
             <div className="stat-card">
               <div className="stat-label">Сумма продаж за период</div>
               <div className="stat-value">{formatMoney(totalRevenue)}</div>
@@ -176,7 +176,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
               <div className="stat-card">
                 <div className="stat-label">Деньги в товаре сейчас</div>
                 <div className="stat-value">{formatMoney(inventoryTotal)}</div>
-                <div className="inventory-summary-hint">Остаток складов плюс оплаченное в пути — подробности на «Складе»</div>
+                <div className="stat-card-hint">Остаток складов плюс оплаченное в пути — подробности на «Складе»</div>
               </div>
             )}
           </div>

@@ -64,7 +64,7 @@ function InventorySummary({ inventory }) {
         <div className="stat-card">
           <div className="stat-label">На складе</div>
           <div className="stat-value">{formatMoney(stockValue)}</div>
-          <div className="inventory-summary-hint">
+          <div className="stat-card-hint">
             {stockByWarehouse.length > 0
               ? stockByWarehouse.map((w) => `${w.warehouse} — ${formatMoney(w.value)}`).join(' · ')
               : 'Остатков нет'}
@@ -74,7 +74,7 @@ function InventorySummary({ inventory }) {
         <div className="stat-card">
           <div className="stat-label">В пути</div>
           <div className="stat-value">{formatMoney(transitValue)}</div>
-          <div className="inventory-summary-hint">
+          <div className="stat-card-hint">
             {formatNumber(transitQuantity)} шт · закупка {formatMoney(transitPurchase)} + логистика и прочее {formatMoney(transitExtra)}
             {depositsValue > 0 && <> · в том числе депозиты и авансы: {formatMoney(depositsValue)}</>}
           </div>
@@ -83,7 +83,7 @@ function InventorySummary({ inventory }) {
         <div className="stat-card inventory-summary-total">
           <div className="stat-label">Всего в товаре</div>
           <div className="stat-value">{formatMoney(total)}</div>
-          <div className="inventory-summary-hint">
+          <div className="stat-card-hint">
             Всё, что вложено в товар: себестоимость остатка на складах плюс закупка, логистика и прочие расходы
             по партиям, которые ещё едут.
           </div>

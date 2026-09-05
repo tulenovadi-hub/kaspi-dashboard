@@ -265,6 +265,17 @@ async function initDb() {
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_bonus_expenses_date ON bonus_expenses(expense_date);`);
+  // Кроме выплаченных бонусов, Kaspi отдаёт по тем же акциям всю воронку и продажи — и всё это
+  // одним ответом дневного эндпоинта .../overview/campaign/{id}/daily (без метрики в пути;
+  // раньше скрипт ходил в вариант .../daily/bonusAmount, который отдаёт только сумму).
+  // Поля названы так же, как их называет Kaspi, чтобы не путаться при сверке с их страницей:
+  // views/clicks/favorites/carts — воронка, transactions — заказы, gmv — сумма этих заказов.
+  await pool.query(`ALTER TABLE bonus_expenses ADD COLUMN IF NOT EXISTS views INTEGER NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE bonus_expenses ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE bonus_expenses ADD COLUMN IF NOT EXISTS favorites INTEGER NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE bonus_expenses ADD COLUMN IF NOT EXISTS carts INTEGER NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE bonus_expenses ADD COLUMN IF NOT EXISTS transactions INTEGER NOT NULL DEFAULT 0;`);
+  await pool.query(`ALTER TABLE bonus_expenses ADD COLUMN IF NOT EXISTS gmv NUMERIC NOT NULL DEFAULT 0;`);
 
   // Привязка кампании бонусов к товару — по sku (= ваш product_id), та же логика, что и
   // ad_campaign_products у рекламы.
