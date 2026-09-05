@@ -24,6 +24,20 @@ export default function BonusChart({ data, dataKey = 'cost', color = '#ff6b6b', 
     return <div className="empty-state">За выбранный период данных нет</div>;
   }
 
+  // Ряд может отсутствовать целиком — не "нули", а именно нет такого поля в ответе сервера.
+  // Так бывает ровно в одном случае: страница уже новая, а бэкенд ещё старый (Render
+  // перезапускается несколько минут после обновления). Пустой график в этот момент выглядит
+  // как поломка, поэтому честно объясняем, что происходит, вместо голой пустоты.
+  const hasSeries = data.some((row) => row[dataKey] !== undefined && row[dataKey] !== null);
+  if (!hasSeries) {
+    return (
+      <div className="empty-state">
+        Сервер пока не отдаёт этот показатель по дням.<br />
+        Если дашборд только что обновлялся — подождите минуту и обновите страницу.
+      </div>
+    );
+  }
+
   const Tip = makeTooltip(color, money);
 
   return (
