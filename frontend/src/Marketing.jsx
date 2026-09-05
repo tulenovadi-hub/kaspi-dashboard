@@ -1,15 +1,28 @@
 import React, { useEffect, useState } from 'react';
-import { fetchAdExpenses } from './api.js';
+import { fetchAdExpenses, fetchSummary, fetchProducts } from './api.js';
 import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './dateUtils.js';
 import PeriodSelector from './PeriodSelector.jsx';
 import MetricChart from './MetricChart.jsx';
 import CampaignFunnel, { METRICS } from './CampaignFunnel.jsx';
 
-// ДРР — доля рекламных расходов: сколько процентов от продаж по рекламе съела сама реклама.
-// Считается тут, а не хранится: Kaspi показывает ровно это отношение (у него это "Доля
-// рекламных расходов"), и отдельная колонка в базе только развела бы источники правды.
-function formatDrr(cost, gmv) {
-  return gmv > 0 ? `${((cost / gmv) * 100).toFixed(1)}%` : '—';
+// ДРР считается двумя способами, и оба нужны:
+//  * от продаж ПО РЕКЛАМЕ (gmv) — ровно то, что Kaspi называет "Доля рекламных расходов";
+//  * от ВСЕЙ выручки за период — сколько процентов всего оборота съедает реклама. Это число
+//    больше говорит о бизнесе: реклама может красиво выглядеть по своему gmv и при этом
+//    съедать заметную долю всех денег магазина.
+// Ни то, ни другое не храним — оба выводятся из уже имеющихся чисел.
+function formatDrr(cost, revenue) {
+  return revenue > 0 ? `${((cost / revenue) * 100).toFixed(1)}%` : '—';
+}
+
+// Выручка товаров, привязанных к кампании (по product_ids от Tampermonkey-скрипта, через
+// merchantSku) — точное совпадение, без угадывания по названию кампании. Для блока кампании
+// это и есть "вся выручка" в знаменателе второго ДРР.
+function getMatchedRevenue(products, productIds) {
+  if (!productIds || productIds.length === 0) return null;
+  const matched = products.filter((p) => productIds.includes(p.product_id));
+  if (matched.length === 0) return null;
+  return matched.reduce((sum, p) => sum + Number(p.total_revenue || 0), 0);
 }
 
 export default function Marketing({ password, active = true, isOnline = true }) {
@@ -24,12 +37,24 @@ export default function Marketing({ password, active = true, isOnline = true }) 
   const [error, setError] = useState('');
   // Какой показатель сейчас на графике. По умолчанию расход — то, ради чего страница и делалась.
   const [metric, setMetric] = useState('cost');
+  // Выручка магазина и товары нужны только для второго ДРР — от всей выручки, а не от продаж
+  // по рекламе. Само по себе это не показатель Kaspi, поэтому и грузится отдельно.
+  const [totalRevenue, setTotalRevenue] = useState(0);
+  const [products, setProducts] = useState([]);
 
   function loadData() {
     setLoading(true);
     setError('');
-    fetchAdExpenses(password, from, to)
-      .then((res) => setData(res))
+    Promise.all([
+      fetchAdExpenses(password, from, to),
+      fetchSummary(password, from, to, 'main'),
+      fetchProducts(password, from, to, 'main'),
+    ])
+      .then(([adRes, summaryRes, productsRes]) => {
+        setData(adRes);
+        setTotalRevenue(summaryRes.days.reduce((sum, d) => sum + Number(d.total_revenue || 0), 0));
+        setProducts(productsRes.products);
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }
@@ -61,6 +86,8 @@ export default function Marketing({ password, active = true, isOnline = true }) 
   const t = data.totals || {};
   const hasFunnel = (t.views || 0) + (t.clicks || 0) + (t.carts || 0) + (t.favorites || 0) > 0;
   const chartMetric = hasFunnel ? metric : 'cost';
+  // Для кампании "вся выручка" — это выручка привязанных к ней товаров.
+  const matchedRevenue = selectedCampaign ? getMatchedRevenue(products, selectedCampaign.product_ids) : null;
 
   return (
     <div>
@@ -84,7 +111,11 @@ export default function Marketing({ password, active = true, isOnline = true }) 
             totals={t}
             cost={data.totalCost}
             costLabel="расходы на рекламу"
-            extraStat={{ label: 'ДРР', value: formatDrr(data.totalCost, data.totalAdRevenue) }}
+            extraStat={{
+              label: 'ДРР',
+              value: formatDrr(data.totalCost, data.totalAdRevenue),
+              note: `${formatDrr(data.totalCost, totalRevenue)} от всей выручки`,
+            }}
             metric={metric}
             onSelect={setMetric}
           />
@@ -125,7 +156,13 @@ export default function Marketing({ password, active = true, isOnline = true }) 
                     totals={campaignData.totals || {}}
                     cost={campaignData.totalCost}
                     costLabel="расходы на рекламу"
-                    extraStat={{ label: 'ДРР', value: formatDrr(campaignData.totalCost, campaignData.totalAdRevenue) }}
+                    extraStat={{
+                      label: 'ДРР',
+                      value: formatDrr(campaignData.totalCost, campaignData.totalAdRevenue),
+                      note: matchedRevenue
+                        ? `${formatDrr(campaignData.totalCost, matchedRevenue)} от выручки товара`
+                        : null,
+                    }}
                     metric={metric}
                     onSelect={setMetric}
                   />
@@ -215,8 +252,11 @@ export default function Marketing({ password, active = true, isOnline = true }) 
         Привязка кампании к товару — точная, по merchantSku (вашему коду товара), а не по названию кампании.
         Все показатели считаются по дням, поэтому работают для любого выбранного здесь периода. Нажмите на строку
         кампании, чтобы увидеть данные именно по ней, а на любой показатель наверху — чтобы построить по нему график.
-        У заказов кнопка двойная: первое нажатие — количество заказов, повторное — их сумма. «ДРР» — доля рекламных
-        расходов: сколько процентов от продаж по рекламе съела сама реклама (то же, что показывает Kaspi).
+        У заказов кнопка двойная: первое нажатие — количество заказов, повторное — их сумма. «ДРР» показывается
+        двумя числами: крупно — доля рекламных расходов от продаж ПО РЕКЛАМЕ (ровно то, что показывает Kaspi),
+        мелким шрифтом под ним — та же реклама, но от ВСЕЙ выручки за период (а в блоке кампании — от выручки
+        привязанных к ней товаров). Второе число обычно меньше и честнее отвечает на вопрос «какую долю моих денег
+        съедает реклама».
       </div>
     </div>
   );

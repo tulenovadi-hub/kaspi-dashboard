@@ -24,6 +24,7 @@ export const METRICS = {
 //
 // costLabel — подпись под расходом ("выплачено бонусов" / "расходы на рекламу"), extraStat —
 // необязательная цифра в конце строки без кнопки (ДРР: он производный, по дням его не рисуем).
+// У extraStat есть третья строка note — там показывается второй ДРР, от всей выручки магазина.
 export default function CampaignFunnel({ totals, cost, costLabel, extraStat, metric, onSelect }) {
   const value = (key) => totals[key] || 0;
   const pct = (key, prev) => (prev > 0 ? `${((value(key) / prev) * 100).toFixed(1)}%` : null);
@@ -89,6 +90,7 @@ export default function CampaignFunnel({ totals, cost, costLabel, extraStat, met
           <div className="bonus-funnel-step bonus-funnel-static">
             <div className="bonus-funnel-value">{extraStat.value}</div>
             <div className="bonus-funnel-label">{extraStat.label}</div>
+            {extraStat.note && <div className="bonus-funnel-pct">{extraStat.note}</div>}
           </div>
         )}
       </div>
