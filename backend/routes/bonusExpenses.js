@@ -107,7 +107,12 @@ router.get('/', async (req, res) => {
 
     const [byDayResult, byCampaignResult, productsResult] = await Promise.all([
       pool.query(
-        `SELECT to_char(expense_date, 'YYYY-MM-DD') AS day, SUM(bonus_amount) AS cost
+        // По дням отдаём не только расход: на странице график переключается между показателями
+        // (как это сделано у Kaspi), и каждому нужен свой ряд по тем же датам.
+        `SELECT to_char(expense_date, 'YYYY-MM-DD') AS day,
+                SUM(bonus_amount) AS cost,
+                SUM(views) AS views, SUM(clicks) AS clicks, SUM(favorites) AS favorites,
+                SUM(carts) AS carts, SUM(transactions) AS transactions, SUM(gmv) AS gmv
          FROM bonus_expenses
          WHERE expense_date BETWEEN $1 AND $2 ${campaignFilter}
          GROUP BY day
@@ -134,7 +139,16 @@ router.get('/', async (req, res) => {
       productIdsByCampaign.get(row.campaign_id).push(row.product_id);
     }
 
-    const byDay = byDayResult.rows.map((r) => ({ day: r.day, cost: Number(r.cost) }));
+    const byDay = byDayResult.rows.map((r) => ({
+      day: r.day,
+      cost: Number(r.cost),
+      views: Number(r.views),
+      clicks: Number(r.clicks),
+      favorites: Number(r.favorites),
+      carts: Number(r.carts),
+      transactions: Number(r.transactions),
+      gmv: Number(r.gmv),
+    }));
     const byCampaign = byCampaignResult.rows.map((r) => ({
       campaign_id: r.campaign_id,
       campaign_name: r.campaign_name,

@@ -4,10 +4,47 @@ import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './d
 import PeriodSelector from './PeriodSelector.jsx';
 import BonusChart from './BonusChart.jsx';
 
+// Показатели, между которыми переключается график по дням — как на странице акции у Kaspi:
+// нажал на цифру, график перестроился, нажатая цифра подсвечена. Ключ совпадает с полем,
+// которое отдаёт бэкенд и в byDay, и в byCampaign. money — печатать со знаком ₸ или как штуки.
+const METRICS = {
+  cost: { label: 'Расходы на бонусы', color: '#ff6b6b', money: true },
+  gmv: { label: 'Продажи по акциям', color: '#3ddc97', money: true },
+  transactions: { label: 'Заказы', color: '#6e8bff', money: false },
+  views: { label: 'Просмотры', color: '#4ec9f5', money: false },
+  clicks: { label: 'Клики', color: '#b38bff', money: false },
+  carts: { label: 'В корзину', color: '#ffb347', money: false },
+  favorites: { label: 'В избранное', color: '#ffd166', money: false },
+};
+
+// Карточка показателя. Если передан onSelect — становится кнопкой: клик переключает график.
+// Без onSelect (страница "Бонусы за отзыв", где дневных метрик нет) остаётся обычной карточкой,
+// чтобы не обещать переключение, которого не будет.
+function MetricCard({ metricKey, label, value, hint, color, selected, onSelect }) {
+  const content = (
+    <>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value" style={color ? { color } : undefined}>{value}</div>
+      {hint && <div className="stat-card-hint">{hint}</div>}
+    </>
+  );
+  if (!onSelect) return <div className="stat-card">{content}</div>;
+  return (
+    <button
+      type="button"
+      className={`stat-card stat-card-button${selected ? ' selected' : ''}`}
+      onClick={() => onSelect(metricKey)}
+      title={`Показать на графике: ${label}`}
+    >
+      {content}
+    </button>
+  );
+}
+
 // Сводка по акциям. Кроме расхода Kaspi отдаёт по тем же акциям продажи и всю воронку —
 // показываем их, только если они реально есть: на "Бонусах за отзыв" (та же страница, другой
 // источник данных) этих метрик нет вовсе, и лишние карточки с нулями там были бы враньём.
-function BonusStats({ data }) {
+function BonusStats({ data, metric, onSelect }) {
   const totals = data.totals || {};
   const cost = data.totalCost || 0;
   const gmv = totals.gmv || 0;
@@ -15,62 +52,71 @@ function BonusStats({ data }) {
 
   return (
     <div className="stats-row-auto">
-      <div className="stat-card">
-        <div className="stat-label">Расходы на бонусы за период</div>
-        <div className="stat-value" style={{ color: '#ff6b6b' }}>{formatMoney(cost)}</div>
-      </div>
-      <div className="stat-card">
-        <div className="stat-label">Продажи по акциям</div>
-        <div className="stat-value" style={{ color: '#3ddc97' }}>{formatMoney(gmv)}</div>
-      </div>
-      <div className="stat-card">
-        <div className="stat-label">Заказы</div>
-        <div className="stat-value">{formatNumber(orders)}</div>
-      </div>
-      <div className="stat-card">
-        <div className="stat-label">Отдача с 1 ₸ бонусов</div>
-        <div className="stat-value">{cost > 0 ? `${(gmv / cost).toFixed(1)} ₸` : '—'}</div>
-        <div className="stat-card-hint">сколько тенге продаж принесла каждая тенге бонусов</div>
-      </div>
-      <div className="stat-card">
-        <div className="stat-label">Бонусов на один заказ</div>
-        <div className="stat-value">{orders > 0 ? formatMoney(cost / orders) : '—'}</div>
-      </div>
+      <MetricCard
+        metricKey="cost" label="Расходы на бонусы за период" value={formatMoney(cost)}
+        color={METRICS.cost.color} selected={metric === 'cost'} onSelect={onSelect}
+      />
+      <MetricCard
+        metricKey="gmv" label="Продажи по акциям" value={formatMoney(gmv)}
+        color={METRICS.gmv.color} selected={metric === 'gmv'} onSelect={onSelect}
+      />
+      <MetricCard
+        metricKey="transactions" label="Заказы" value={formatNumber(orders)}
+        selected={metric === 'transactions'} onSelect={onSelect}
+      />
+      {/* Отдача и стоимость заказа — производные величины, по дням их рисовать бессмысленно
+          (в день без заказов делить не на что), поэтому они не кнопки. */}
+      <MetricCard
+        label="Отдача с 1 ₸ бонусов"
+        value={cost > 0 ? `${(gmv / cost).toFixed(1)} ₸` : '—'}
+        hint="сколько тенге продаж принесла каждая тенге бонусов"
+      />
+      <MetricCard
+        label="Бонусов на один заказ"
+        value={orders > 0 ? formatMoney(cost / orders) : '—'}
+      />
     </div>
   );
 }
 
 // Воронка акции: показы → клики → корзина → заказы. Проценты считаются от предыдущего шага,
 // избранное стоит в стороне — это не ступень воронки, а отдельное действие покупателя.
-function BonusFunnel({ totals }) {
-  const step = (value, label, prev) => ({
-    value,
+function BonusFunnel({ totals, metric, onSelect }) {
+  const step = (key, label, prev) => ({
+    key,
     label,
-    pct: prev > 0 ? `${((value / prev) * 100).toFixed(1)}%` : null,
+    value: totals[key] || 0,
+    pct: prev > 0 ? `${(((totals[key] || 0) / prev) * 100).toFixed(1)}%` : null,
   });
   const steps = [
-    step(totals.views, 'просмотры', 0),
-    step(totals.clicks, 'клики', totals.views),
-    step(totals.carts, 'в корзину', totals.clicks),
-    step(totals.transactions, 'заказы', totals.carts),
+    step('views', 'просмотры', 0),
+    step('clicks', 'клики', totals.views),
+    step('carts', 'в корзину', totals.clicks),
+    step('transactions', 'заказы', totals.carts),
   ];
+
+  const renderStep = (s, aside) => (
+    <button
+      type="button"
+      className={`bonus-funnel-step${aside ? ' bonus-funnel-aside' : ''}${metric === s.key ? ' selected' : ''}`}
+      onClick={() => onSelect(s.key)}
+      title={`Показать на графике: ${s.label}`}
+    >
+      <div className="bonus-funnel-value">{formatNumber(s.value)}</div>
+      <div className="bonus-funnel-label">{s.label}</div>
+      {s.pct && <div className="bonus-funnel-pct">{s.pct} от предыдущего</div>}
+    </button>
+  );
 
   return (
     <div className="card bonus-funnel">
       {steps.map((s, i) => (
-        <React.Fragment key={s.label}>
+        <React.Fragment key={s.key}>
           {i > 0 && <div className="bonus-funnel-arrow">→</div>}
-          <div className="bonus-funnel-step">
-            <div className="bonus-funnel-value">{formatNumber(s.value || 0)}</div>
-            <div className="bonus-funnel-label">{s.label}</div>
-            {s.pct && <div className="bonus-funnel-pct">{s.pct} от предыдущего</div>}
-          </div>
+          {renderStep(s, false)}
         </React.Fragment>
       ))}
-      <div className="bonus-funnel-step bonus-funnel-aside">
-        <div className="bonus-funnel-value">{formatNumber(totals.favorites || 0)}</div>
-        <div className="bonus-funnel-label">в избранное</div>
-      </div>
+      {renderStep(step('favorites', 'в избранное', 0), true)}
     </div>
   );
 }
@@ -97,6 +143,8 @@ export default function Bonuses({
   const [loading, setLoading] = useState(true);
   const [campaignLoading, setCampaignLoading] = useState(false);
   const [error, setError] = useState('');
+  // Какой показатель сейчас на графике. По умолчанию расход — то, ради чего страница и делалась.
+  const [metric, setMetric] = useState('cost');
 
   function loadData() {
     setLoading(true);
@@ -153,8 +201,8 @@ export default function Bonuses({
       >
         {hasFunnel ? (
           <>
-            <BonusStats data={data} />
-            <BonusFunnel totals={t} />
+            <BonusStats data={data} metric={metric} onSelect={setMetric} />
+            <BonusFunnel totals={t} metric={metric} onSelect={setMetric} />
           </>
         ) : (
           <div className="stat-card" style={{ marginBottom: 20 }}>
@@ -163,9 +211,16 @@ export default function Bonuses({
           </div>
         )}
 
-        <div className="section-title">Динамика по дням</div>
+        <div className="section-title">
+          Динамика по дням{hasFunnel ? ` — ${METRICS[metric].label.toLowerCase()}` : ''}
+        </div>
         <div className="card">
-          <BonusChart data={data.byDay} />
+          <BonusChart
+            data={data.byDay}
+            dataKey={hasFunnel ? metric : 'cost'}
+            color={METRICS[hasFunnel ? metric : 'cost'].color}
+            money={METRICS[hasFunnel ? metric : 'cost'].money}
+          />
         </div>
 
         {selectedCampaign ? (
@@ -178,8 +233,8 @@ export default function Bonuses({
               <div style={{ opacity: campaignLoading ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
                 {hasFunnel ? (
                   <>
-                    <BonusStats data={campaignData} />
-                    <BonusFunnel totals={campaignData.totals || {}} />
+                    <BonusStats data={campaignData} metric={metric} onSelect={setMetric} />
+                    <BonusFunnel totals={campaignData.totals || {}} metric={metric} onSelect={setMetric} />
                   </>
                 ) : (
                   <div className="stat-card" style={{ marginBottom: 20 }}>
@@ -187,7 +242,12 @@ export default function Bonuses({
                     <div className="stat-value" style={{ color: '#ff6b6b' }}>{formatMoney(campaignData.totalCost)}</div>
                   </div>
                 )}
-                <BonusChart data={campaignData.byDay} />
+                <BonusChart
+                  data={campaignData.byDay}
+                  dataKey={hasFunnel ? metric : 'cost'}
+                  color={METRICS[hasFunnel ? metric : 'cost'].color}
+                  money={METRICS[hasFunnel ? metric : 'cost'].money}
+                />
               </div>
             </div>
           </>

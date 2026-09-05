@@ -1486,6 +1486,24 @@ input[type="date"] {
   line-height: 1.4;
 }
 
+/* Карточка-переключатель графика (страница "Бонусы от продавца"). Внутри — та же разметка,
+   что и у обычной .stat-card, поэтому здесь только сброс кнопочных умолчаний и подсветка. */
+.stat-card-button {
+  width: 100%;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stat-card-button:hover {
+  border-color: var(--text-muted);
+}
+
+.stat-card-button.selected {
+  border-color: var(--accent-brand);
+  background: var(--bg-card-hover);
+}
+
 /* Мелкая подпись под цифрой в карточке — объясняет, из чего она сложилась. Без неё несколько
    похожих сумм в ряд невозможно различить. */
 .stat-card-hint {
@@ -1509,8 +1527,34 @@ input[type="date"] {
   gap: 10px 18px;
 }
 
+/* Шаг воронки — кнопка: клик переключает график на этот показатель (так же устроено у Kaspi).
+   Сбрасываем всё, что браузер рисует у кнопки по умолчанию, чтобы она осталась просто цифрой
+   с подписью. */
 .bonus-funnel-step {
   min-width: 0;
+  padding: 6px 10px;
+  margin: -6px 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bonus-funnel-step:hover {
+  background: var(--bg-card-hover);
+}
+
+/* Выбранный показатель: подсвечиваем и рамкой, и цветом цифры — одной рамки на тёмном фоне
+   мало, чтобы взгляд сразу находил активную кнопку. */
+.bonus-funnel-step.selected {
+  border-color: var(--accent-brand);
+  background: var(--bg-card-hover);
+}
+
+.bonus-funnel-step.selected .bonus-funnel-value {
+  color: var(--accent-brand);
 }
 
 .bonus-funnel-value {
@@ -1541,6 +1585,10 @@ input[type="date"] {
 .bonus-funnel-aside {
   margin-left: auto;
   opacity: 0.75;
+}
+
+.bonus-funnel-aside.selected {
+  opacity: 1;
 }
 
 @media (max-width: 560px) {
