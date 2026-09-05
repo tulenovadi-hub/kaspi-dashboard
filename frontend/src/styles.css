@@ -1581,6 +1581,34 @@ input[type="date"] {
   font-size: 16px;
 }
 
+/* Блок производных показателей над строкой воронки (ДРР, доля выручки по рекламе). Отдельно,
+   потому что это не кнопки: по дням отношение считать не на чем, и в ряду с переключателями
+   графика они читались как «сломанные» кнопки. */
+.metric-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 40px;
+}
+
+.metric-summary-value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.metric-summary-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.metric-summary-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
 /* Хвост строки: избранное и выплаченные бонусы. Это не ступени воронки, поэтому отодвинуты
    вправо общим блоком — если бы margin-left: auto стоял на каждом, они разъехались бы по краям. */
 .bonus-funnel-tail {
@@ -1601,20 +1629,6 @@ input[type="date"] {
 
 /* Цифра без кнопки в той же строке (ДРР на "Рекламе товаров"): по дням её не рисуем,
    поэтому не делаем кликабельной — но выглядеть она должна как соседи. */
-.bonus-funnel-static {
-  padding: 6px 10px;
-  margin: -6px 0;
-  border: 1px solid transparent;
-  cursor: default;
-  /* Подписи тут длиннее, чем у шагов воронки ("доля выручки по рекламе") — ограничиваем ширину,
-     чтобы такая цифра не растягивала всю строку в одну длинную колонку. */
-  max-width: 170px;
-}
-
-.bonus-funnel-static:hover {
-  background: none;
-}
-
 .bonus-funnel-cost .bonus-funnel-value {
   color: var(--accent-down);
 }

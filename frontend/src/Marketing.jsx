@@ -25,6 +25,26 @@ function getMatchedRevenue(products, productIds) {
   return matched.reduce((sum, p) => sum + Number(p.total_revenue || 0), 0);
 }
 
+// Производные показатели — ДРР и доля выручки по рекламе. Отдельным блоком в начале страницы,
+// а не в строке воронки: они не переключают график (по дням отношение считать не на чем) и
+// в общем ряду с кнопками только сбивали с толку. Пункт без значения не рисуется вовсе:
+// у кампании без привязки к товару знаменателя нет, и прочерк был бы враньём.
+function DerivedStats({ items }) {
+  const shown = items.filter(Boolean);
+  if (shown.length === 0) return null;
+  return (
+    <div className="card metric-summary">
+      {shown.map((item) => (
+        <div className="metric-summary-item" key={item.label}>
+          <div className="metric-summary-value">{item.value}</div>
+          <div className="metric-summary-label">{item.label}</div>
+          {item.note && <div className="metric-summary-note">{item.note}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Marketing({ password, active = true, isOnline = true }) {
   const [from, setFrom] = useState(() => toISODate(startOfMonth()));
   const [to, setTo] = useState(() => toISODate(daysAgo(0)));
@@ -106,23 +126,26 @@ export default function Marketing({ password, active = true, isOnline = true }) 
           pointerEvents: loading ? 'none' : 'auto',
         }}
       >
+        <DerivedStats
+          items={[
+            {
+              label: 'ДРР',
+              value: formatDrr(data.totalCost, data.totalAdRevenue),
+              note: `${formatDrr(data.totalCost, totalRevenue)} от всей выручки`,
+            },
+            {
+              label: 'Доля выручки по рекламе',
+              value: formatDrr(data.totalAdRevenue, totalRevenue),
+              note: `вся выручка за период ${formatMoney(totalRevenue)}`,
+            },
+          ]}
+        />
+
         {hasFunnel ? (
           <CampaignFunnel
             totals={t}
             cost={data.totalCost}
             costLabel="расходы на рекламу"
-            extraStats={[
-              {
-                label: 'ДРР',
-                value: formatDrr(data.totalCost, data.totalAdRevenue),
-                note: `${formatDrr(data.totalCost, totalRevenue)} от всей выручки`,
-              },
-              {
-                label: 'доля выручки по рекламе',
-                value: formatDrr(data.totalAdRevenue, totalRevenue),
-                note: `вся выручка ${formatMoney(totalRevenue)}`,
-              },
-            ]}
             metric={metric}
             onSelect={setMetric}
           />
@@ -158,27 +181,30 @@ export default function Marketing({ password, active = true, isOnline = true }) 
                   transition: 'opacity 0.25s ease',
                 }}
               >
+                <DerivedStats
+                  items={[
+                    {
+                      label: 'ДРР',
+                      value: formatDrr(campaignData.totalCost, campaignData.totalAdRevenue),
+                      note: matchedRevenue
+                        ? `${formatDrr(campaignData.totalCost, matchedRevenue)} от выручки товара`
+                        : null,
+                    },
+                    // У кампании "вся выручка" — это выручка её товаров. Без привязки к товару
+                    // знаменателя нет, и показывать нечего.
+                    matchedRevenue && {
+                      label: 'Доля выручки по рекламе',
+                      value: formatDrr(campaignData.totalAdRevenue, matchedRevenue),
+                      note: `выручка товара ${formatMoney(matchedRevenue)}`,
+                    },
+                  ]}
+                />
+
                 {hasFunnel ? (
                   <CampaignFunnel
                     totals={campaignData.totals || {}}
                     cost={campaignData.totalCost}
                     costLabel="расходы на рекламу"
-                    extraStats={[
-                      {
-                        label: 'ДРР',
-                        value: formatDrr(campaignData.totalCost, campaignData.totalAdRevenue),
-                        note: matchedRevenue
-                          ? `${formatDrr(campaignData.totalCost, matchedRevenue)} от выручки товара`
-                          : null,
-                      },
-                      // У кампании "вся выручка" — это выручка её товаров. Без привязки к товару
-                      // знаменателя нет, и показывать нечего: пропускаем целиком, а не рисуем прочерк.
-                      matchedRevenue && {
-                        label: 'доля выручки по рекламе',
-                        value: formatDrr(campaignData.totalAdRevenue, matchedRevenue),
-                        note: `выручка товара ${formatMoney(matchedRevenue)}`,
-                      },
-                    ]}
                     metric={metric}
                     onSelect={setMetric}
                   />

@@ -22,10 +22,11 @@ export const METRICS = {
 // показывает количество заказов, повторный — сумму этих заказов (она же в скобках). Так сумма
 // продаж не занимает отдельную кнопку, но остаётся доступной.
 //
-// costLabel — подпись под расходом ("выплачено бонусов" / "расходы на рекламу"), extraStats —
-// список цифр в конце строки БЕЗ кнопок (ДРР и доля выручки по рекламе: они производные, по дням
-// их не рисуем). У каждой — value, label и необязательная третья строка note.
-export default function CampaignFunnel({ totals, cost, costLabel, extraStats = [], metric, onSelect }) {
+// costLabel — подпись под расходом ("выплачено бонусов" / "расходы на рекламу").
+// Производные показатели (ДРР, доля выручки по рекламе) сюда НЕ кладём: они не кнопки, по дням
+// их не рисуем, и в одной строке с воронкой они смотрелись плохо — для них отдельный блок
+// наверху страницы (см. DerivedStats в Marketing.jsx).
+export default function CampaignFunnel({ totals, cost, costLabel, metric, onSelect }) {
   const value = (key) => totals[key] || 0;
   const pct = (key, prev) => (prev > 0 ? `${((value(key) / prev) * 100).toFixed(1)}%` : null);
 
@@ -86,13 +87,6 @@ export default function CampaignFunnel({ totals, cost, costLabel, extraStats = [
           <div className="bonus-funnel-value">{formatMoney(cost || 0)}</div>
           <div className="bonus-funnel-label">{costLabel}</div>
         </button>
-        {extraStats.filter(Boolean).map((stat) => (
-          <div className="bonus-funnel-step bonus-funnel-static" key={stat.label}>
-            <div className="bonus-funnel-value">{stat.value}</div>
-            <div className="bonus-funnel-label">{stat.label}</div>
-            {stat.note && <div className="bonus-funnel-pct">{stat.note}</div>}
-          </div>
-        ))}
       </div>
     </div>
   );
