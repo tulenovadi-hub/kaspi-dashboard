@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { fetchDeliveryReturns, syncDeliveryReturns, deleteDeliveryReturn, returnDeliveryOrderToStock } from './api.js';
+import { fetchDeliveryReturns, syncDeliveryReturns, archiveDeliveryReturn, returnDeliveryOrderToStock, removeDeliveryOrderFromStock } from './api.js';
 import { formatMoney } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
 
@@ -48,6 +48,15 @@ function isDone(o) {
   return o.tracking_status === 'RETURNED';
 }
 
+// Кнопка "+ / − в остаток" имеет смысл только у заказов, которые реально уехали в возврат.
+// В основной таблице показываем её всегда, в архиве — только если заказ всё ещё вычтен из
+// остатка: так убранная крестиком строка с невернувшимся товаром не остаётся без управления,
+// но 390 архивных строк не покрываются красными кнопками "− из остатка".
+function showStockButton(o, mode) {
+  if (!o.in_return_flow) return false;
+  return mode === 'archive' ? o.subtracted_from_stock : true;
+}
+
 function wonderLabel(o) {
   return o.wonder_received === true ? 'Да' : o.wonder_received === false ? 'Нет' : '—';
 }
@@ -68,7 +77,7 @@ function createEmptyFilters() {
 }
 
 function OrdersTable({
-  orders, onDelete, deletingId, showDaysColumn, emptyText, onReturnToStock, returningId,
+  orders, onArchive, archivingId, showDaysColumn, emptyText, onToggleStock, togglingId, stockButtonMode,
   filters, updateFilter, toggleSetValue, selectAll, selectNone, statusOptions, cityOptions,
 }) {
   return (
@@ -205,21 +214,23 @@ function OrdersTable({
                 </td>
                 <td className="num">
                   <div className="batch-row-actions">
-                    {onReturnToStock && o.awaiting_stock && (
+                    {showStockButton(o, stockButtonMode) && (
                       <button
-                        className="return-to-stock-button"
-                        onClick={() => onReturnToStock(o.order_number)}
-                        disabled={returningId === o.order_number}
-                        title="Товар физически доехал до склада — вернуть эти штуки в остаток на «Складе»"
+                        className={`return-to-stock-button${o.subtracted_from_stock ? '' : ' is-undo'}`}
+                        onClick={() => onToggleStock(o)}
+                        disabled={togglingId === o.order_number}
+                        title={o.subtracted_from_stock
+                          ? 'Товар физически доехал до склада — вернуть эти штуки в остаток на «Складе»'
+                          : 'Отменить: снова вычесть эти штуки из остатка на «Складе»'}
                       >
-                        {returningId === o.order_number ? '…' : '+ в остаток'}
+                        {togglingId === o.order_number ? '…' : (o.subtracted_from_stock ? '+ в остаток' : '− из остатка')}
                       </button>
                     )}
                     <button
                       className="batch-delete"
-                      onClick={() => onDelete(o.order_number)}
-                      disabled={deletingId === o.order_number}
-                      title="Убрать из списка"
+                      onClick={() => onArchive(o.order_number)}
+                      disabled={archivingId === o.order_number}
+                      title="Убрать строку в архив внизу страницы"
                     >
                       ✕
                     </button>
@@ -241,10 +252,10 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   const [hasData, setHasData] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
-  const [deletingId, setDeletingId] = useState(null);
+  const [archivingId, setArchivingId] = useState(null);
   const [filters, setFilters] = useState(createEmptyFilters);
   const [showArchive, setShowArchive] = useState(false);
-  const [returningId, setReturningId] = useState(null);
+  const [togglingId, setTogglingId] = useState(null);
 
   function loadData() {
     setLoading(true);
@@ -275,23 +286,26 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
       .finally(() => setSyncing(false));
   }
 
-  // Подтверждение руками: товар доехал до склада. После этого заказ перестаёт вычитаться из
-  // остатка на "Складе" и уезжает в архив, поэтому список перечитываем целиком.
-  function handleReturnToStock(orderNumber) {
-    setReturningId(orderNumber);
+  // Подтверждение руками ("+ в остаток") и его отмена ("− из остатка"). Строка остаётся на месте,
+  // меняется только кнопка, поэтому список перечитываем целиком — цифры на "Складе" уже другие.
+  function handleToggleStock(order) {
+    const request = order.subtracted_from_stock ? returnDeliveryOrderToStock : removeDeliveryOrderFromStock;
+    setTogglingId(order.order_number);
     setError('');
-    returnDeliveryOrderToStock(password, orderNumber)
+    request(password, order.order_number)
       .then(() => loadData())
       .catch((err) => setError(err.message))
-      .finally(() => setReturningId(null));
+      .finally(() => setTogglingId(null));
   }
 
-  function handleDelete(orderNumber) {
-    setDeletingId(orderNumber);
-    deleteDeliveryReturn(password, orderNumber)
-      .then(() => setOrders((prev) => prev.filter((o) => o.order_number !== orderNumber)))
+  // Крестик: убрать строку из основной таблицы в архив (запись не удаляется).
+  function handleArchive(orderNumber) {
+    setArchivingId(orderNumber);
+    setError('');
+    archiveDeliveryReturn(password, orderNumber)
+      .then(() => loadData())
       .catch((err) => setError(err.message))
-      .finally(() => setDeletingId(null));
+      .finally(() => setArchivingId(null));
   }
 
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
@@ -328,20 +342,25 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
     });
   }, [orders, filters]);
 
-  // В основной таблице — ТОЛЬКО заказы, ждущие добавления в остаток (awaiting_stock с сервера:
-  // товар уехал, возврат идёт или уже доехал по трекингу, а владелец приём ещё не подтвердила).
-  // Это ровно те заказы, из-за которых уменьшен остаток на "Складе". Всё остальное — сотни
-  // разрешившихся отмен за всю историю — в свёрнутом архиве внизу (владелец попросила 2026-09-07:
-  // "не хочу видеть все эти заказы здесь").
-  const activeReturns = useMemo(() => filteredOrders.filter((o) => o.awaiting_stock), [filteredOrders]);
-  const archivedOrders = useMemo(() => filteredOrders.filter((o) => !o.awaiting_stock), [filteredOrders]);
+  // В основной таблице — заказы, реально уехавшие в возврат и не убранные крестиком. Добавление
+  // в остаток строку отсюда НЕ убирает (владелец попросила 2026-09-07: "не нужно отправлять из
+  // этой таблицы ничего в архив после добавления в остаток") — уводит её только крестик. Всё
+  // остальное, включая сотни разрешившихся отмен за всю историю, — в свёрнутом архиве внизу.
+  const activeReturns = useMemo(() => filteredOrders.filter((o) => !o.archived_at && o.in_return_flow), [filteredOrders]);
+  const archivedOrders = useMemo(() => filteredOrders.filter((o) => o.archived_at || !o.in_return_flow), [filteredOrders]);
 
   const suspiciousCount = orders.filter((o) => o.suspicious).length;
-  const activeCount = orders.filter((o) => o.awaiting_stock).length;
-  const awaitingUnits = orders.reduce((sum, o) => sum + (o.awaiting_stock ? Number(o.quantity || 0) : 0), 0);
+  // Считаем по ВСЕМ заказам, а не только по видимым в основной таблице: если строку убрали
+  // крестиком, не добавив товар в остаток (например, посылка потерялась), штуки всё равно
+  // вычтены со "Склада", и это должно быть видно.
+  const subtractedOrders = orders.filter((o) => o.subtracted_from_stock);
+  const subtractedUnits = subtractedOrders.reduce((sum, o) => sum + Number(o.quantity || 0), 0);
+  const subtractedInArchive = subtractedOrders.filter((o) => o.archived_at).length;
 
-  const tableProps = { filters, updateFilter, toggleSetValue, selectAll, selectNone, statusOptions, cityOptions, deletingId, onDelete: handleDelete };
-  const activeTableProps = { ...tableProps, onReturnToStock: handleReturnToStock, returningId };
+  const tableProps = {
+    filters, updateFilter, toggleSetValue, selectAll, selectNone, statusOptions, cityOptions,
+    archivingId, onArchive: handleArchive, onToggleStock: handleToggleStock, togglingId,
+  };
 
   return (
     <div>
@@ -350,13 +369,13 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
       </div>
 
       <div style={{ color: '#6b7690', fontSize: 13, marginBottom: 16 }}>
-        В таблице — заказы, отменённые при доставке, товар по которым ещё не принят обратно: на
-        «Складе» эти штуки вычтены из остатка колонкой «Возвращается». Когда убедитесь, что коробка
-        физически доехала, нажмите «+ в остаток» — только тогда штуки вернутся в остаток, а заказ
-        уедет в архив внизу страницы. Само по себе «Вернулся на склад» в трекинге Kaspi остаток не
-        меняет. Статус берётся из настоящего трекинга Kaspi Delivery; подозрительный — если движения
-        нет {thresholdDays}+ дней. «Принят складом» — сверка со списком возвратов у партнёра Wonder.
-        Список обновляется каждую ночь; кнопка «✕» убирает строку из списка совсем.
+        В таблице — заказы, отменённые при доставке. Пока товар по ним не принят обратно, на
+        «Складе» эти штуки вычтены из остатка колонкой «Возвращается». Убедились, что коробка
+        физически доехала, — нажмите «+ в остаток», только тогда штуки вернутся в остаток.
+        Промахнулись — та же кнопка станет красной «− из остатка» и вернёт всё назад. Само по себе «Вернулся на склад» в трекинге Kaspi остаток не меняет. Статус берётся
+        из настоящего трекинга Kaspi Delivery; подозрительный — если движения нет {thresholdDays}+
+        дней. «Принят складом» — сверка со списком возвратов у партнёра Wonder. Список обновляется
+        каждую ночь; крестик убирает строку в архив внизу страницы.
       </div>
 
       <div className="batches-toolbar">
@@ -379,16 +398,17 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
           <OrdersTable
             orders={activeReturns}
             showDaysColumn
-            emptyText="Сейчас ни один заказ не ждёт добавления в остаток — все возвраты закрыты"
-            {...activeTableProps}
+            emptyText="Сейчас нет заказов в возврате"
+            {...tableProps}
           />
         )}
       </div>
 
       {!loading && orders.length > 0 && (
         <div className="report-note">
-          Ждут добавления в остаток: {activeCount} заказ(ов), {awaitingUnits} шт — на «Складе» эти штуки вычтены из остатка.
-          Из них подозрительных (без движения {thresholdDays}+ дней): {suspiciousCount}.
+          Вычтено из остатка на «Складе»: {subtractedOrders.length} заказ(ов), {subtractedUnits} шт
+          {subtractedInArchive > 0 && ` (из них ${subtractedInArchive} уже убрано в архив)`}.
+          Подозрительных (без движения {thresholdDays}+ дней): {suspiciousCount}.
           Всего отслеживается за всю историю: {orders.length}.
         </div>
       )}
@@ -405,7 +425,7 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
           </button>
           {showArchive && (
             <div className="card" style={{ marginTop: 12 }}>
-              <OrdersTable orders={archivedOrders} {...tableProps} />
+              <OrdersTable orders={archivedOrders} stockButtonMode="archive" {...tableProps} />
             </div>
           )}
         </>

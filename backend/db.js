@@ -416,6 +416,26 @@ async function initDb() {
     if (res.rowCount > 0) console.log(`Бэкфилл stock_returned_at: разобранными отмечено ${res.rowCount} отмен`);
   }
 
+  // Когда заказ убран из основной таблицы "Проблемных возвратов" крестиком. Строка не удаляется —
+  // она уезжает в архив внизу страницы. Раньше крестик удалял запись из базы совсем; теперь
+  // удаление осталось только как ручной DELETE через API (см. routes/deliveryReturns.js).
+  // NULL — заказ ещё в основной таблице.
+  await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;`);
+
+  // Тот же разовый бэкфилл, что и у stock_returned_at, и по тому же условию: в основной таблице
+  // остаются только заказы, реально едущие обратно на момент появления колонки (те самые три).
+  // Условие "колонка ещё нигде не заполнена" обязательно — initDb() выполняется при каждом
+  // старте сервера, и без него бэкфилл прятал бы в архив свежие возвраты.
+  const archivedBackfill = await pool.query(`SELECT 1 FROM delivery_cancellations WHERE archived_at IS NOT NULL LIMIT 1`);
+  if (archivedBackfill.rowCount === 0) {
+    const res = await pool.query(`
+      UPDATE delivery_cancellations
+      SET archived_at = now()
+      WHERE tracking_active IS DISTINCT FROM true
+    `);
+    if (res.rowCount > 0) console.log(`Бэкфилл archived_at: в архив отправлено ${res.rowCount} отмен`);
+  }
+
   // Пользователи сайта с ролями. Раньше был один общий пароль на всех (DASHBOARD_PASSWORD) —
   // теперь у каждого свой логин/пароль. role: 'admin' | 'manager' | 'marketer'.
   await pool.query(`

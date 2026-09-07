@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
     const result = await pool.query(
       `SELECT dc.order_number, dc.creation_date, dc.total_price, dc.cancellation_reason, dc.delivery_mode,
               dc.origin_city, dc.state, dc.status, dc.tracking_status, dc.tracking_active,
-              dc.last_track_at, dc.wonder_received, dc.stock_returned_at,
+              dc.last_track_at, dc.wonder_received, dc.stock_returned_at, dc.archived_at,
               items.product_names, items.quantity
        FROM delivery_cancellations dc
        LEFT JOIN orders o ON o.code = dc.order_number
@@ -51,11 +51,15 @@ router.get('/', async (req, res) => {
         product_names: r.product_names,
         quantity: r.quantity === null ? null : Number(r.quantity),
         stock_returned_at: r.stock_returned_at,
-        // "Ждёт добавления в остаток" — товар уехал со склада, возврат по нему идёт или уже
-        // доехал по трекингу, но владелец ещё не подтвердила приём кнопкой. Ровно эти заказы
-        // вычтены из остатка на "Складе" (см. computeWarehouseStock) и показываются в основной
-        // таблице; всё остальное — архив.
-        awaiting_stock: r.stock_returned_at === null && (r.tracking_active === true || r.tracking_status === 'RETURNED'),
+        archived_at: r.archived_at,
+        // Заказ реально уехал в возврат: либо едет прямо сейчас, либо Kaspi уже отчитался о
+        // приёме. Только у таких есть смысл в кнопке "+ / − в остаток" — товар, который вообще
+        // не отправляли, в остатке и так лежит.
+        in_return_flow: r.tracking_active === true || r.tracking_status === 'RETURNED',
+        // Вычтен ли заказ прямо сейчас из остатка на "Складе" (то же условие, что и в
+        // computeWarehouseStock). От архива это НЕ зависит: если заказ убрали крестиком, не
+        // добавив в остаток (например, посылка потерялась), товара на полке всё равно нет.
+        subtracted_from_stock: r.stock_returned_at === null && (r.tracking_active === true || r.tracking_status === 'RETURNED'),
         creation_date: r.creation_date,
         days_since: daysSince,
         days_since_last_track: daysSinceLastTrack,
@@ -115,10 +119,11 @@ router.post('/sync', async (req, res) => {
   }
 });
 
-// "Добавить в остаток" — владелец сама убедилась, что вернувшийся товар физически доехал до
-// склада. До нажатия этой кнопки штуки вычтены из остатка на "Складе" (колонка "Возвращается"),
-// после — снова в остатке, а заказ уезжает в архив. Автоматически по трекингу Kaspi этого не
-// происходит специально: трекинг говорит "вернулся на склад" раньше, чем товар реально доходит.
+// "+ в остаток" — владелец сама убедилась, что вернувшийся товар физически доехал до склада. До
+// нажатия этой кнопки штуки вычтены из остатка на "Складе" (колонка "Возвращается"), после —
+// снова в остатке. Автоматически по трекингу Kaspi этого не происходит специально: трекинг
+// говорит "вернулся на склад" раньше, чем товар реально доходит. Строка при этом ОСТАЁТСЯ в
+// основной таблице (в архив её убирает только крестик) — чтобы промах можно было тут же отменить.
 router.post('/:orderNumber/return-to-stock', async (req, res) => {
   try {
     const result = await pool.query(
@@ -137,7 +142,50 @@ router.post('/:orderNumber/return-to-stock', async (req, res) => {
   }
 });
 
-// Пользователь убирает заказ из списка вручную, когда разобрался с ним на Kaspi.
+// "− из остатка" — отмена предыдущего действия (промахнулась кнопкой, или товар оказался не тем).
+// Штуки снова вычитаются из остатка на "Складе".
+router.delete('/:orderNumber/return-to-stock', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `UPDATE delivery_cancellations SET stock_returned_at = NULL
+       WHERE order_number = $1 AND stock_returned_at IS NOT NULL
+       RETURNING order_number`,
+      [req.params.orderNumber]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Заказ не найден или и так не добавлен в остаток' });
+    }
+    res.json({ ok: true, order: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось убрать заказ из остатка' });
+  }
+});
+
+// Крестик в таблице — убрать заказ из основной таблицы в архив. Строка НЕ удаляется: она видна
+// внизу страницы, и если товар так и не был добавлен в остаток, там у неё останется кнопка
+// "+ в остаток". Раньше крестик удалял запись из базы совсем — теперь для этого есть отдельный
+// DELETE ниже (в интерфейсе не используется, только руками через API).
+router.post('/:orderNumber/archive', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `UPDATE delivery_cancellations SET archived_at = now()
+       WHERE order_number = $1 AND archived_at IS NULL
+       RETURNING order_number`,
+      [req.params.orderNumber]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Заказ не найден или уже в архиве' });
+    }
+    res.json({ ok: true, order: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось убрать заказ в архив' });
+  }
+});
+
+// Полное удаление записи. В интерфейсе кнопки нет (крестик отправляет в архив) — остаётся как
+// ручная операция через API на случай мусорной записи.
 router.delete('/:orderNumber', async (req, res) => {
   try {
     await pool.query('DELETE FROM delivery_cancellations WHERE order_number = $1', [req.params.orderNumber]);

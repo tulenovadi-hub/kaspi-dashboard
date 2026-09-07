@@ -268,9 +268,19 @@ export function syncDeliveryReturns(password) {
   return apiRequest('/api/delivery-returns/sync', password, { method: 'POST', timeoutMs: LONG_TIMEOUT_MS });
 }
 
-// "Добавить в остаток" — подтверждение руками, что вернувшийся товар доехал до склада.
+// "+ в остаток" — подтверждение руками, что вернувшийся товар доехал до склада.
 export function returnDeliveryOrderToStock(password, orderNumber) {
   return apiRequest(`/api/delivery-returns/${orderNumber}/return-to-stock`, password, { method: 'POST' });
+}
+
+// "− из остатка" — отмена предыдущего действия, штуки снова вычитаются из остатка.
+export function removeDeliveryOrderFromStock(password, orderNumber) {
+  return apiRequest(`/api/delivery-returns/${orderNumber}/return-to-stock`, password, { method: 'DELETE' });
+}
+
+// Крестик в таблице: убрать строку в архив (не удаляя её).
+export function archiveDeliveryReturn(password, orderNumber) {
+  return apiRequest(`/api/delivery-returns/${orderNumber}/archive`, password, { method: 'POST' });
 }
 
 export function deleteDeliveryReturn(password, orderNumber) {
