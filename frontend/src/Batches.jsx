@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { fetchBatchProducts, fetchBatches, addBatch, updateBatch, deleteBatch, markBatchReceived } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY } from './dateUtils.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
+import BatchesMobile, { ReceiveConfirm } from './BatchesMobile.jsx';
+import { useIsMobile } from './useIsMobile.js';
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -24,7 +26,7 @@ function makeExpenseRow(saved) {
 
 // editingBatch === null -> режим создания. editingBatch объект -> режим редактирования (товар и склад
 // продукта не меняются, только цена/логистика/количество/дата/примечание/склад отгрузки).
-function BatchModal({ password, products, warehouses, editingBatch, onClose, onSaved }) {
+function BatchModal({ password, products, warehouses, editingBatch, onClose, onSaved, onDelete }) {
   const isEdit = Boolean(editingBatch);
 
   useBodyScrollLock();
@@ -528,6 +530,20 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
           <button className="primary-button batch-submit" type="submit" disabled={saving}>
             {saving ? 'Сохраняем...' : isEdit ? 'Сохранить изменения' : 'Создать поставку'}
           </button>
+
+          {/* Удаление живёт здесь только на телефоне: в мобильном списке крестика у карточки
+              нет намеренно (легко задеть при прокрутке), и это единственный способ удалить
+              поставку. На компьютере onDelete не передают — там остаётся крестик в таблице. */}
+          {isEdit && onDelete && (
+            <button
+              type="button"
+              className="batch-delete-wide"
+              onClick={() => onDelete(editingBatch.id)}
+              disabled={saving}
+            >
+              Удалить поставку
+            </button>
+          )}
         </form>
       </div>
     </div>
@@ -544,6 +560,12 @@ export default function Batches({ password, onClose, active = true, isOnline = t
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingBatch, setEditingBatch] = useState(null);
+
+  // На телефоне вместо таблицы на 8 колонок — лента карточек (BatchesMobile.jsx), но форма
+  // создания и редактирования общая с компьютером: та же BatchModal ниже.
+  const isMobile = useIsMobile();
+  const [receiveCandidate, setReceiveCandidate] = useState(null); // поставка, по которой спросили подтверждение
+  const [receiving, setReceiving] = useState(false);
 
   const [search, setSearch] = useState('');
   const [productFilter, setProductFilter] = useState('');
@@ -587,6 +609,21 @@ export default function Batches({ password, onClose, active = true, isOnline = t
       .catch((err) => setError(err.message));
   }
 
+  // На телефоне кнопка "Отметить прибывшей" стоит прямо в ленте, поэтому сначала спрашиваем
+  // подтверждение: случайный тап иначе молча переводил бы товар в остаток склада.
+  function confirmReceive() {
+    if (!receiveCandidate) return;
+    setReceiving(true);
+    markBatchReceived(password, receiveCandidate.id)
+      .then(() => {
+        setReceiveCandidate(null);
+        setShowModal(false);
+        loadAll();
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setReceiving(false));
+  }
+
   function openCreate() {
     setEditingBatch(null);
     setShowModal(true);
@@ -624,6 +661,7 @@ export default function Batches({ password, onClose, active = true, isOnline = t
 
       {error && <div className="error-banner">{error}</div>}
 
+      {!isMobile && (
       <div className="batches-toolbar">
         <input
           className="toolbar-input"
@@ -669,6 +707,7 @@ export default function Batches({ password, onClose, active = true, isOnline = t
           + Создать новую поставку
         </button>
       </div>
+      )}
 
       {loading && !hasData ? (
         <div className="card">
@@ -676,7 +715,22 @@ export default function Batches({ password, onClose, active = true, isOnline = t
         </div>
       ) : (
       <div style={{ opacity: loading || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
-      {filtered.length === 0 ? (
+      {isMobile ? (
+        <BatchesMobile
+          batches={filtered}
+          products={products}
+          warehouses={warehouses}
+          search={search}
+          onSearch={setSearch}
+          productFilter={productFilter}
+          onProductFilter={setProductFilter}
+          warehouseFilter={warehouseFilter}
+          onWarehouseFilter={setWarehouseFilter}
+          onCreate={openCreate}
+          onOpen={openEdit}
+          onAskReceive={setReceiveCandidate}
+        />
+      ) : filtered.length === 0 ? (
         <div className="card">
           <div className="empty-state">Поставок пока нет — нажмите «Создать новую поставку»</div>
         </div>
@@ -765,6 +819,16 @@ export default function Batches({ password, onClose, active = true, isOnline = t
             setShowModal(false);
             loadAll();
           }}
+          onDelete={isMobile ? (id) => { setShowModal(false); handleDelete(id); } : undefined}
+        />
+      )}
+
+      {receiveCandidate && (
+        <ReceiveConfirm
+          batch={receiveCandidate}
+          busy={receiving}
+          onConfirm={confirmReceive}
+          onCancel={() => setReceiveCandidate(null)}
         />
       )}
     </div>

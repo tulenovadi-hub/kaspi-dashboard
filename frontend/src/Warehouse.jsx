@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { fetchWarehouse, fetchInventoryValue, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
+import WarehouseMobile from './WarehouseMobile.jsx';
+import { useIsMobile } from './useIsMobile.js';
 
 // Сжимаем картинку на клиенте перед отправкой — это просто маленькая иконка-превью на
 // "Складе", полное разрешение исходного фото не нужно, а без сжатия загрузка была бы
@@ -111,6 +113,12 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
   const [imageBusy, setImageBusy] = useState(null); // product_id, который сейчас загружается/удаляется
   const [inventory, setInventory] = useState(null); // сводка "деньги в товаре" — считается отдельным роутом
 
+  // На телефоне вместо таблицы на 8 колонок рисуются карточки товаров (WarehouseMobile.jsx):
+  // 799px таблицы в 313px экрана не помещаются никаким способом.
+  const isMobile = useIsMobile();
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [mobileCity, setMobileCity] = useState('');
+
   function loadAll() {
     setLoading(true);
     setError('');
@@ -206,7 +214,7 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
 
       {error && <div className="error-banner">{error}</div>}
 
-      {inventory && <InventorySummary inventory={inventory} />}
+      {inventory && !isMobile && <InventorySummary inventory={inventory} />}
 
       {!loading && products.length > 0 && (
         <div className="batches-toolbar">
@@ -234,6 +242,22 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
         <div className="card">
           <div className="empty-state">Ничего не найдено по заданным фильтрам</div>
         </div>
+      ) : isMobile ? (
+        <WarehouseMobile
+          products={filtered}
+          cities={cities}
+          images={images}
+          imageBusy={imageBusy}
+          expanded={expanded}
+          onToggleExpand={toggleExpand}
+          onImageChange={handleImageChange}
+          onImageRemove={handleImageRemove}
+          inventory={inventory}
+          summaryOpen={summaryOpen}
+          onToggleSummary={() => setSummaryOpen((v) => !v)}
+          activeCity={mobileCity || cities[0]}
+          onSelectCity={setMobileCity}
+        />
       ) : (
         cities.map((city) => {
           const cityProducts = groupedByWarehouse[city];
