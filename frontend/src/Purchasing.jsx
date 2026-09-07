@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { fetchPurchasing, updatePurchasingSettings, fetchProductImages } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
+import PurchasingMobile from './PurchasingMobile.jsx';
+import { useIsMobile } from './useIsMobile.js';
 
 const STATUS_LABELS = { critical: 'Критично', soon: 'Скоро', normal: 'В норме' };
 const TABS = [
@@ -125,6 +127,10 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
   const [activeTab, setActiveTab] = useState('all');
   const [showSettings, setShowSettings] = useState(false);
 
+  // На телефоне вместо таблицы на 11 колонок — карточки товаров (PurchasingMobile.jsx).
+  // Окно настройки параметров общее с компьютером — своё делать нельзя, разъедется.
+  const isMobile = useIsMobile();
+
   function loadAll() {
     setLoading(true);
     setError('');
@@ -163,7 +169,7 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
 
       {error && <div className="error-banner">{error}</div>}
 
-      {!loading && data && (
+      {!loading && data && !isMobile && (
         <>
           <div className="stats-row-2">
             <div className="stat-card">
@@ -195,6 +201,7 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
         </>
       )}
 
+      {!isMobile && (
       <div className="batches-toolbar">
         <input
           className="toolbar-input"
@@ -213,7 +220,30 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
           + Создать поставку
         </button>
       </div>
+      )}
 
+      {isMobile ? (
+        <div style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+          {loading && !hasData ? (
+            <div className="card"><div className="empty-state">Загрузка...</div></div>
+          ) : data && (
+            <PurchasingMobile
+              products={filtered}
+              totalCount={products.length}
+              totals={data.totals}
+              settings={data.settings}
+              images={images}
+              search={search}
+              onSearch={setSearch}
+              activeTab={activeTab}
+              onTab={setActiveTab}
+              onOpenSettings={() => setShowSettings(true)}
+              onExportCsv={() => exportCsv(filtered)}
+              onGoToBatches={onGoToBatches}
+            />
+          )}
+        </div>
+      ) : (
       <div className="card" style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {loading && !hasData ? (
           <div className="empty-state">Загрузка...</div>
@@ -321,6 +351,7 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
           </div>
         )}
       </div>
+      )}
 
       {data && (
         <div className="report-note">

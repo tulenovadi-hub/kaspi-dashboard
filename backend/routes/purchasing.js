@@ -102,6 +102,12 @@ async function computePurchasing() {
     const rawOrderUpTo = rawReorderPoint + dailySales * leadTimeDays; // S = s + спрос за один цикл поставки
 
     const daysLeft = dailySales > 0 ? stockPlusTransit / dailySales : null;
+    // Отдельно — на сколько дней хватит того, что РЕАЛЬНО лежит на складе, без товара в пути.
+    // Нужно мобильной версии: там шкала запаса рисуется двумя частями (густая — склад,
+    // полупрозрачная — добавка от того, что едет), иначе не видно, что запас держится на ещё
+    // не приехавшей партии. Считается здесь, а не на клиенте, чтобы обе цифры шли от одного
+    // и того же неокруглённого dailySales.
+    const daysStock = dailySales > 0 ? entry.remaining / dailySales : null;
 
     let status;
     if (dailySales === 0) {
@@ -128,6 +134,7 @@ async function computePurchasing() {
       in_transit: inTransit,
       stock_plus_transit: stockPlusTransit,
       days_left: daysLeft === null ? null : Math.round(daysLeft * 100) / 100,
+      days_stock: daysStock === null ? null : Math.round(daysStock * 100) / 100,
       excess_qty: excessQty,
       excess_value: excessQty * costPrice,
       to_purchase: toPurchase,
