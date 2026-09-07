@@ -7,6 +7,15 @@ const { fetchOrdersByStatus, fetchOrderByCode } = require('./kaspiClient');
 const { fetchTrackingStatus } = require('./kaspiLogistics');
 const { fetchAllWonderOrderCodes } = require('./wonderClient');
 
+// За сколько дней назад искать НОВЫЕ отмены (и в кнопке "Проверить сейчас", и в ночном cron).
+// Окно считается по дате СОЗДАНИЯ заказа, а не по дате отмены — так фильтрует Kaspi. Раньше было
+// 2 дня, и этого не хватало: заказ, созданный три недели назад и отменённый сегодня, не находился
+// вообще никогда и в список не попадал совсем. 20 дней покрывают практически все реальные отмены,
+// а стоят почти ничего: поиск идёт кусками по 10 дней по двум статусам, то есть 4 запроса к Kaspi
+// вместо 2 (~1-3 с на фоне ~3 минут всего прогона; 98% времени занимает перепроверка трекинга уже
+// известных заказов, которая от этого окна не зависит вовсе).
+const SEARCH_WINDOW_DAYS = 20;
+
 function upsertFromAttrs(client, attrs) {
   const originCity = attrs.originAddress && attrs.originAddress.city ? attrs.originAddress.city.name : null;
   const returnedToWarehouse = attrs.kaspiDelivery ? attrs.kaspiDelivery.returnedToWarehouse : null;
@@ -133,4 +142,4 @@ async function refreshWonderReceived() {
   return count;
 }
 
-module.exports = { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived };
+module.exports = { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS };

@@ -6,7 +6,7 @@ const cron = require('node-cron');
 
 const { initDb, pool } = require('./db');
 const { syncRecentOrders } = require('./syncJob');
-const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived } = require('./deliveryReturnsSync');
+const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS } = require('./deliveryReturnsSync');
 const authRoutes = require('./routes/auth');
 const usersRoutes = require('./routes/users');
 const statsRoutes = require('./routes/stats');
@@ -134,12 +134,13 @@ initDb()
       console.log('Запуск плановой ночной синхронизации...');
       syncRecentOrders().catch((err) => console.error('Ошибка плановой синхронизации:', err));
 
-      // Отменённые при доставке заказы: новые за последние 2 дня + перепроверка уже
+      // Отменённые при доставке заказы: новые за последние SEARCH_WINDOW_DAYS дней (окно
+      // считается по дате создания заказа, см. комментарий у константы) + перепроверка уже
       // отслеживаемых незавершённых заказов (вдруг переехали в архив) + обновление реального
       // трекинга доставки/возврата. Исходный бэкфилл всей истории делается один раз вручную
       // (см. backend/routes/deliveryReturns.js POST /sync).
       const now = Date.now();
-      syncDeliveryCancellations(now - 2 * 24 * 60 * 60 * 1000, now)
+      syncDeliveryCancellations(now - SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000, now)
         .then(() => refreshTrackedOrders())
         .then(() => refreshTrackingStatuses())
         .then(() => refreshWonderReceived())

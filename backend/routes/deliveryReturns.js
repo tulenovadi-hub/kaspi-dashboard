@@ -1,6 +1,6 @@
 const express = require('express');
 const { pool } = require('../db');
-const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived } = require('../deliveryReturnsSync');
+const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS } = require('../deliveryReturnsSync');
 
 const router = express.Router();
 
@@ -60,16 +60,17 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Ручной запуск проверки: находит новые отмены за диапазон (по умолчанию последние 2 дня —
-// то же самое, что и ночная синхронизация; можно передать { "from": "2026-01-01" } для
-// разового бэкфилла), перепроверяет статус ещё не архивных заказов в основном API, и
-// обновляет реальный трекинг доставки/возврата для всех незавершённых заказов.
+// Ручной запуск проверки: находит новые отмены за диапазон (по умолчанию последние
+// SEARCH_WINDOW_DAYS дней — то же самое, что и ночная синхронизация; можно передать
+// { "from": "2026-01-01" } для разового бэкфилла), перепроверяет статус ещё не архивных
+// заказов в основном API, и обновляет реальный трекинг доставки/возврата для всех
+// незавершённых заказов.
 router.post('/sync', async (req, res) => {
   try {
     const dateToMs = Date.now();
     const dateFromMs = req.body && req.body.from
       ? new Date(req.body.from).getTime()
-      : dateToMs - 2 * 24 * 60 * 60 * 1000;
+      : dateToMs - SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
     const foundNew = await syncDeliveryCancellations(dateFromMs, dateToMs);
     const refreshed = await refreshTrackedOrders();
