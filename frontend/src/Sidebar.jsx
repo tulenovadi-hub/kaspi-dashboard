@@ -118,7 +118,7 @@ const NAV_ITEMS = [
       { key: 'orders', label: 'Заказы', icon: 'orders' },
       { key: 'selfbuy', label: 'Самовыкупы', icon: 'selfbuy' },
       { key: 'geography', label: 'География заказов', icon: 'geography' },
-      { key: 'delivery_returns', label: 'Проблемные возвраты', icon: 'deliveryReturns' },
+      { key: 'delivery_returns', label: 'Отмены при доставке', icon: 'deliveryReturns' },
     ],
   },
   {

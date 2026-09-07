@@ -365,7 +365,7 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   return (
     <div>
       <div className="app-header">
-        <h1 className="app-title">Проблемные возвраты</h1>
+        <h1 className="app-title">Отмены при доставке</h1>
       </div>
 
       <div style={{ color: '#6b7690', fontSize: 13, marginBottom: 16 }}>
