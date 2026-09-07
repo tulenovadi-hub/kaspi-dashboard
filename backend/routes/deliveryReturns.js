@@ -85,7 +85,10 @@ router.post('/sync', async (req, res) => {
       console.error('Не удалось сверить заказы с Wonder:', err);
     }
 
-    res.json({ ok: true, found_new: foundNew, refreshed, tracking_checked: trackingChecked, wonder_checked: wonderChecked });
+    // window_days отдаём наружу, чтобы по ответу было видно, за какой период реально искали
+    // (у ручного бэкфилла с { "from": ... } он больше, чем обычные SEARCH_WINDOW_DAYS).
+    const windowDays = Math.round((dateToMs - dateFromMs) / (24 * 60 * 60 * 1000));
+    res.json({ ok: true, window_days: windowDays, found_new: foundNew, refreshed, tracking_checked: trackingChecked, wonder_checked: wonderChecked });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось проверить отменённые заказы' });
