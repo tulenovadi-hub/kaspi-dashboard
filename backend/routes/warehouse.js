@@ -14,7 +14,8 @@ const IN_PROGRESS_STATUSES = ['ACCEPTED_BY_MERCHANT', 'APPROVED_BY_BANK'];
 const { DISPLAY_CITIES: DISPLAY_WAREHOUSES, CITY_ORDER: WAREHOUSE_SORT_ORDER } = require('../warehouseMapping');
 
 // Считает остатки по методу FIFO отдельно для каждого склада (города):
-// партии одного города списываются только продажами, отгруженными с этого же города
+// партии одного города списываются только продажами (и возвратами в пути, см. ниже),
+// отгруженными с этого же города
 // (Kaspi возвращает город отгрузки в attributes.originAddress.city.name — сохраняем
 // его в orders.origin_city при синхронизации).
 //
@@ -22,6 +23,10 @@ const { DISPLAY_CITIES: DISPLAY_WAREHOUSES, CITY_ORDER: WAREHOUSE_SORT_ORDER } =
 // значение, введённое при добавлении/редактировании партии) — настоящий остаток здесь всегда
 // пересчитывается заново по факту продаж, эту функцию и нужно переиспользовать всюду, где нужен
 // реальный остаток (например, AI Финансист), а не читать remaining_quantity напрямую.
+//
+// remaining здесь — это то, что РЕАЛЬНО ЛЕЖИТ НА ПОЛКЕ: из него вычтено и проданное, и то, что
+// сейчас едет обратно после отмены при доставке (поле returning) — владелец явно попросила
+// 2026-09-07 не показывать в остатке товар, возврат которого ещё не подтверждён.
 async function computeWarehouseStock() {
   // Партии со статусом 'in_transit' (заказаны у поставщика, физически ещё не приехали) не входят
   // в реальный остаток склада — они учитываются отдельно на "Закупе" в колонке "В пути".
@@ -55,6 +60,39 @@ async function computeWarehouseStock() {
   );
   const soldProductNames = new Map(soldResult.rows.map((r) => [r.product_id, r.product_name]));
 
+  // "Возвращается" — товар, который уехал с этого склада и сейчас физически едет обратно после
+  // отмены при доставке. На полке его нет, поэтому из остатка он вычитается, как и продажа.
+  //
+  // Признак берём из delivery_cancellations.tracking_active — он взводится ТОЛЬКО если последнее
+  // событие в трекинге Kaspi начинается с RETURN_ (см. deliveryReturnsSync.js), то есть посылка
+  // реально в обратном пути и возврат на склад ещё НЕ подтверждён. Как только приходит событие
+  // RETURNED, флаг гаснет, и штуки сами возвращаются в остаток — отдельного действия руками не
+  // нужно. Заказы, у которых возврата не было вовсе (отменили до отправки) или он уже завершён,
+  // сюда не попадают никогда, поэтому вся масса старых архивных отмен остаток не трогает.
+  //
+  // Из выборки исключены заказы, статус которых у нас всё ещё "продажа" (VALID_STATUSES): такой
+  // заказ уже списан со склада как проданный, и вычесть его второй раз означало бы посчитать
+  // одну и ту же штуку дважды.
+  const returningResult = await pool.query(
+    `SELECT oi.product_id, MAX(oi.product_name) AS product_name, o.origin_city AS warehouse,
+            SUM(oi.quantity) AS returning_qty
+     FROM delivery_cancellations dc
+     JOIN orders o ON o.code = dc.order_number
+     JOIN order_items oi ON oi.order_id = o.id
+     WHERE dc.tracking_active = true
+       AND o.origin_city IS NOT NULL
+       AND o.creation_date >= $1::date
+       AND o.status <> ALL($2::text[])
+     GROUP BY oi.product_id, o.origin_city`,
+    [STOCK_CUTOFF_DATE, VALID_STATUSES]
+  );
+  const returningMap = new Map(
+    returningResult.rows.map((r) => [`${r.product_id}::${r.warehouse}`, Number(r.returning_qty)])
+  );
+  for (const r of returningResult.rows) {
+    if (!soldProductNames.has(r.product_id)) soldProductNames.set(r.product_id, r.product_name);
+  }
+
   // Группируем партии по паре (товар, склад) — у каждого склада своя FIFO-очередь
   const byKey = new Map();
   for (const b of batchesResult.rows) {
@@ -74,9 +112,11 @@ async function computeWarehouseStock() {
   const products = [];
   for (const [key, info] of byKey) {
     const sold = soldMap.get(key) || { completed: 0, inProgress: 0 };
-    // Списываем со склада и завершённые, и ещё обрабатываемые заказы — товар физически уже уехал
-    // в обоих случаях, просто в разных колонках показываем для наглядности.
-    let toConsume = sold.completed + sold.inProgress;
+    const returning = returningMap.get(key) || 0;
+    // Списываем со склада и завершённые, и ещё обрабатываемые заказы, и те, что едут обратно после
+    // отмены — товара физически нет на полке во всех трёх случаях, просто в разных колонках
+    // показываем для наглядности.
+    let toConsume = sold.completed + sold.inProgress + returning;
     let totalSupplied = 0;
     let remainingValue = 0;
 
@@ -98,6 +138,7 @@ async function computeWarehouseStock() {
       total_supplied: totalSupplied,
       total_sold: sold.completed,
       in_progress: sold.inProgress,
+      returning,
       remaining: totalRemaining,
       remaining_value: remainingValue,
       current_cost_price: activeBatch ? activeBatch.cost_price : null,
@@ -112,26 +153,30 @@ async function computeWarehouseStock() {
     });
   }
 
-  // Продажи с городом, для которого вообще нет ни одной партии — это тоже важно показать,
-  // иначе продажи "потеряются" молча. Добавляем их отдельными строками с нулевым остатком.
-  for (const [key, sold] of soldMap) {
+  // Продажи (и возвраты в пути) с городом, для которого вообще нет ни одной партии — это тоже
+  // важно показать, иначе они "потеряются" молча. Добавляем их отдельными строками с нулевым
+  // остатком.
+  for (const key of new Set([...soldMap.keys(), ...returningMap.keys()])) {
     const [productId, warehouse] = key.split('::');
     const alreadyListed = products.some((p) => p.product_id === productId && p.warehouse === warehouse);
-    if (!alreadyListed) {
-      products.push({
-        product_id: productId,
-        product_name: soldProductNames.get(productId) || productId,
-        warehouse,
-        total_supplied: 0,
-        total_sold: sold.completed,
-        in_progress: sold.inProgress,
-        remaining: 0,
-        remaining_value: 0,
-        current_cost_price: null,
-        oversold_qty: sold.completed + sold.inProgress,
-        batches: [],
-      });
-    }
+    if (alreadyListed) continue;
+
+    const sold = soldMap.get(key) || { completed: 0, inProgress: 0 };
+    const returning = returningMap.get(key) || 0;
+    products.push({
+      product_id: productId,
+      product_name: soldProductNames.get(productId) || productId,
+      warehouse,
+      total_supplied: 0,
+      total_sold: sold.completed,
+      in_progress: sold.inProgress,
+      returning,
+      remaining: 0,
+      remaining_value: 0,
+      current_cost_price: null,
+      oversold_qty: sold.completed + sold.inProgress + returning,
+      batches: [],
+    });
   }
 
   return products;

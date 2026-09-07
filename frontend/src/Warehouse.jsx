@@ -251,6 +251,7 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
                         <th className="num">Поставлено</th>
                         <th className="num">Продано</th>
                         <th className="num">В обработке</th>
+                        <th className="num">Возвращается</th>
                         <th className="num">Себестоимость (FIFO)</th>
                         <th className="num">Стоимость остатка</th>
                       </tr>
@@ -309,12 +310,15 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
                               <td className="num">{formatNumber(p.total_supplied)}</td>
                               <td className="num">{formatNumber(p.total_sold)}</td>
                               <td className="num">{formatNumber(p.in_progress)}</td>
+                              <td className="num" title={p.returning > 0 ? 'Отменено при доставке и едет обратно на склад. Из остатка вычтено — вернётся в остаток, когда трекинг Kaspi подтвердит приём на складе' : undefined}>
+                                {p.returning > 0 ? formatNumber(p.returning) : '—'}
+                              </td>
                               <td className="num">{p.current_cost_price !== null ? formatMoney(p.current_cost_price) : '—'}</td>
                               <td className="num">{formatMoney(p.remaining_value)}</td>
                             </tr>
                             {expanded === rowKey && p.batches.length > 0 && (
                               <tr>
-                                <td colSpan={7} className="warehouse-batches-cell">
+                                <td colSpan={8} className="warehouse-batches-cell">
                                   <table className="product-table warehouse-sub-table">
                                     <thead>
                                       <tr>
