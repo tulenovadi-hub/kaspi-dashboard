@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
+// Наборы показателей НЕ дублируются здесь: они выводятся из колонок таблиц в reportColumns.js,
+// поэтому мобильная версия не может отстать от компьютерной — новая колонка появляется в обеих
+// сама. Всё, что относится к показателям (порядок ленты, знак, пояснения), правится там же.
+import { METRICS, MONTH_LINES, PRODUCT_LINES } from './reportColumns.js';
 
 // Мобильная версия "Отчёта". На компьютере страница — четыре таблицы, у главной 14 колонок;
 // на айфоне от неё видно две с половиной колонки из четырнадцати, а "Чистая прибыль" и "Маржа"
@@ -11,56 +15,8 @@ import { useBodyScrollLock } from './useBodyScrollLock.js';
 //   показатель (лента сверху) → месяцы столбиками → тап по месяцу → все статьи месяца
 //   → тап по товару → все статьи этого товара
 //
-// ВАЖНО: набор показателей здесь ОБЯЗАН совпадать с MAIN_COLUMNS/PRODUCT_COLUMNS в Report.jsx.
-// Это единственная причина, по которой мобильная версия — отдельный компонент, а не CSS: если
-// в отчёт добавят колонку, её нужно дописать и сюда, иначе на телефоне цифра просто исчезнет.
-
-// Показатели в ленте — это все 13 колонок MAIN_COLUMNS, кроме самого месяца. Порядок не как в
-// таблице, а по частоте использования: прибыль и маржа первыми.
-const METRICS = [
-  { key: 'net_profit', label: 'Чистая прибыль', tone: 'up' },
-  { key: 'margin', label: 'Маржа', tone: 'up', percent: true },
-  { key: 'revenue', label: 'Выручка', tone: 'up' },
-  { key: 'cost_of_goods', label: 'Себестоимость', tone: 'down' },
-  { key: 'commission', label: 'Комиссия', tone: 'down' },
-  { key: 'marketing', label: 'Маркетинг', tone: 'down' },
-  { key: 'delivery', label: 'Доставка', tone: 'down' },
-  { key: 'taxes', label: 'Налоги (3%)', tone: 'down' },
-  { key: 'returns', label: 'Возвраты', tone: 'down' },
-  { key: 'cost_of_returns', label: 'Себестоимость возвратов', tone: 'down' },
-  { key: 'packaging', label: 'Упаковка', tone: 'down' },
-  { key: 'other_expenses', label: 'Прочие расходы', tone: 'down' },
-  { key: 'roi', label: 'ROI', tone: 'up', percent: true },
-];
-
-// Статьи месяца в том порядке, в котором они съедают выручку. Набор = MAIN_COLUMNS без
-// выручки, прибыли, маржи и ROI — они показываются отдельно, в шапке и итоге.
-const MONTH_LINES = [
-  { key: 'cost_of_goods', label: 'Себестоимость' },
-  { key: 'returns', label: 'Возвраты' },
-  { key: 'cost_of_returns', label: 'Себестоимость возвратов', credit: true },
-  { key: 'commission', label: 'Комиссия' },
-  { key: 'delivery', label: 'Доставка' },
-  { key: 'taxes', label: 'Налоги (3%)' },
-  { key: 'marketing', label: 'Маркетинг' },
-  { key: 'packaging', label: 'Упаковка' },
-  { key: 'other_expenses', label: 'Прочие расходы' },
-];
-
-// То же для товара = PRODUCT_COLUMNS: маркетинг раскрыт на три источника, упаковки нет вовсе,
-// "Прочие расходы" сервер по товарам не считает — как и в таблице, показываем прочерк.
-const PRODUCT_LINES = [
-  { key: 'cost_of_goods', label: 'Себестоимость' },
-  { key: 'returns', label: 'Возвраты' },
-  { key: 'cost_of_returns', label: 'Себестоимость возвратов', credit: true },
-  { key: 'commission', label: 'Комиссия' },
-  { key: 'delivery', label: 'Доставка' },
-  { key: 'taxes', label: 'Налоги (3%)' },
-  { key: 'marketing_ads', label: 'Реклама товаров' },
-  { key: 'marketing_bonuses', label: 'Бонусы от продавца' },
-  { key: 'marketing_reviews', label: 'Бонусы за отзыв' },
-  { key: 'other_expenses', label: 'Прочие расходы', note: 'не разносятся по товарам' },
-];
+// Мобильная версия — отдельный компонент, а не CSS: рисовать оба дерева и прятать одно значило бы
+// грузить разбивки по товарам дважды. Показатели при этом общие с таблицей (см. reportColumns.js).
 
 const SCOPES = [
   { key: 'main', label: 'Алматы + Астана' },

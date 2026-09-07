@@ -3,23 +3,10 @@ import { uploadKaspiPayReport, fetchMonthlyReport, fetchMonthProductBreakdown } 
 import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
 import ReportMobile from './ReportMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
-
-// columns — массив { key, label }. key === 'month' форматируется отдельно (название месяца),
-// остальные — через formatMoney, кроме margin/roi (по имени колонки определяем формат).
-// Столбцы, которые красим сплошным цветом в "Основном отчёте"
-const GREEN_KEYS = new Set(['revenue', 'net_profit']);
-const RED_KEYS = new Set(['cost_of_goods', 'returns', 'cost_of_returns', 'commission', 'delivery', 'taxes', 'marketing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'packaging', 'other_expenses']);
-
-// Колонки, для которых под суммой показываем её долю от выручки — и в строке месяца, и в
-// разбивке по товарам (там доля считается от выручки этого товара). "Чистая прибыль" сюда не
-// входит — для неё уже есть отдельная колонка "Маржа" с тем же смыслом.
-// Единый "Маркетинг" есть только в строке месяца, а в разбивке по товарам он раскрыт на три
-// колонки — поэтому в наборе перечислены и он, и все три.
-const PERCENT_OF_REVENUE_KEYS = new Set([
-  'cost_of_goods', 'returns', 'cost_of_returns', 'commission', 'delivery', 'taxes',
-  'marketing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews',
-  'packaging', 'other_expenses',
-]);
+import {
+  GENERAL_COLUMNS, MAIN_COLUMNS, PRODUCT_COLUMNS, SELF_BUY_COLUMNS,
+  GREEN_KEYS, RED_KEYS, PERCENT_OF_REVENUE_KEYS, PERCENT_VALUE_KEYS,
+} from './reportColumns.js';
 
 function hexToRgb(hex) {
   const n = parseInt(hex.replace('#', ''), 16);
@@ -55,7 +42,7 @@ function renderRowCells(columns, row, colorize, showPercentOfRevenue) {
 
     const value = row[col.key];
 
-    if (col.key === 'margin' || col.key === 'roi') {
+    if (PERCENT_VALUE_KEYS.has(col.key)) {
       const style = colorize ? { color: gradientColor(value, col.key === 'margin' ? 30 : 50) } : undefined;
       return <td key={col.key} className="num" style={style}>{value === undefined ? '—' : formatPercent(value)}</td>;
     }
@@ -159,60 +146,6 @@ function MonthlyTable({
     </div>
   );
 }
-
-const GENERAL_COLUMNS = [
-  { key: 'month', label: 'Месяц' },
-  { key: 'revenue', label: 'Выручка' },
-  { key: 'taxes', label: 'Налоги (3%)' },
-];
-
-const MAIN_COLUMNS = [
-  { key: 'month', label: 'Месяц' },
-  { key: 'revenue', label: 'Выручка' },
-  { key: 'cost_of_goods', label: 'Себестоимость' },
-  { key: 'returns', label: 'Возвраты' },
-  { key: 'cost_of_returns', label: 'Себестоимость возвратов' },
-  { key: 'commission', label: 'Комиссия' },
-  { key: 'delivery', label: 'Доставка' },
-  { key: 'taxes', label: 'Налоги (3%)' },
-  { key: 'marketing', label: 'Маркетинг' },
-  { key: 'packaging', label: 'Упаковка' },
-  { key: 'other_expenses', label: 'Прочие расходы' },
-  { key: 'net_profit', label: 'Чистая прибыль' },
-  { key: 'margin', label: 'Маржа' },
-  { key: 'roi', label: 'ROI' },
-];
-
-// Разбивка по товарам внутри развёрнутого месяца "Основного отчёта" — те же колонки, что в
-// MAIN_COLUMNS, только вместо "Месяц" — товар, а единый "Маркетинг" раскрыт на три источника
-// (реклама, бонусы от продавца, бонусы за отзыв) — все три точно разносятся по товару через
-// привязку кампания→товар. "Прочие расходы" на уровне товара не считаются вообще — это расход
-// бизнеса в целом, а не конкретного товара — renderRowCells сам покажет "—" для этого поля.
-const PRODUCT_COLUMNS = [
-  { key: 'product_name', label: 'Товар' },
-  { key: 'revenue', label: 'Выручка' },
-  { key: 'cost_of_goods', label: 'Себестоимость' },
-  { key: 'returns', label: 'Возвраты' },
-  { key: 'cost_of_returns', label: 'Себестоимость возвратов' },
-  { key: 'commission', label: 'Комиссия' },
-  { key: 'delivery', label: 'Доставка' },
-  { key: 'taxes', label: 'Налоги (3%)' },
-  { key: 'marketing_ads', label: 'Реклама товаров' },
-  { key: 'marketing_bonuses', label: 'Бонусы от продавца' },
-  { key: 'marketing_reviews', label: 'Бонусы за отзыв' },
-  { key: 'other_expenses', label: 'Прочие расходы' },
-  { key: 'net_profit', label: 'Чистая прибыль' },
-  { key: 'margin', label: 'Маржа' },
-  { key: 'roi', label: 'ROI' },
-];
-
-const SELF_BUY_COLUMNS = [
-  { key: 'month', label: 'Месяц' },
-  { key: 'revenue', label: 'Выручка' },
-  { key: 'commission', label: 'Комиссия' },
-  { key: 'delivery', label: 'Доставка' },
-  { key: 'taxes', label: 'Налоги (3%)' },
-];
 
 export default function Report({ password, active = true, isOnline = true }) {
   const [months, setMonths] = useState([]);
