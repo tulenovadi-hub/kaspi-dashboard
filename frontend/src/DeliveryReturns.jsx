@@ -62,7 +62,7 @@ function createEmptyFilters() {
 }
 
 function OrdersTable({
-  orders, onDelete, deletingId, showDaysColumn,
+  orders, onDelete, deletingId, showDaysColumn, emptyText,
   filters, updateFilter, toggleSetValue, selectAll, selectNone, statusOptions, cityOptions,
 }) {
   return (
@@ -173,7 +173,7 @@ function OrdersTable({
         <tbody>
           {orders.length === 0 ? (
             <tr>
-              <td colSpan={showDaysColumn ? 9 : 8} className="empty-state">Ничего не найдено по заданным фильтрам</td>
+              <td colSpan={showDaysColumn ? 9 : 8} className="empty-state">{emptyText || 'Ничего не найдено по заданным фильтрам'}</td>
             </tr>
           ) : (
             orders.map((o) => (
@@ -220,6 +220,7 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
   const [filters, setFilters] = useState(createEmptyFilters);
+  const [showArchive, setShowArchive] = useState(false);
 
   function loadData() {
     setLoading(true);
@@ -292,13 +293,20 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
     });
   }, [orders, filters]);
 
-  // Заказы, отменённые ДО передачи в доставку (tracking_status === 'CANCELLED') — товар никуда
-  // не уезжал и возвращать было нечего, такие никогда не бывают подозрительными. Выносим их в
-  // отдельную таблицу ниже, чтобы не засорять основной список, где важны реальные возвраты.
-  const mainOrders = useMemo(() => filteredOrders.filter((o) => o.tracking_status !== 'CANCELLED'), [filteredOrders]);
-  const cancelledBeforeDelivery = useMemo(() => filteredOrders.filter((o) => o.tracking_status === 'CANCELLED'), [filteredOrders]);
+  // В основной таблице — ТОЛЬКО заказы, которые прямо сейчас едут обратно на склад
+  // (tracking_active, то есть последнее событие трекинга — шаг возврата, и приём на складе ещё не
+  // подтверждён). Это ровно те заказы, из-за которых остаток на "Складе" уменьшен, и единственные,
+  // с которыми ещё можно что-то сделать. Всё остальное — сотни разрешившихся отмен за всю историю
+  // — уезжает в свёрнутый архив внизу страницы (владелец попросила 2026-09-07: "не хочу видеть все
+  // эти заказы здесь").
+  const activeReturns = useMemo(() => filteredOrders.filter((o) => o.tracking_active === true), [filteredOrders]);
+  const archivedOrders = useMemo(() => filteredOrders.filter((o) => o.tracking_active !== true), [filteredOrders]);
 
   const suspiciousCount = orders.filter((o) => o.suspicious).length;
+  const activeCount = orders.filter((o) => o.tracking_active === true).length;
+  // "Ожидает в пункте выдачи" — заказ надо забрать физически. Такие уехали в архив (возврат по ним
+  // уже не идёт), но потерять их нельзя, поэтому считаем отдельно и пишем прямо над архивом.
+  const waitingPickup = orders.filter((o) => o.tracking_status === 'WAITING_IN_PICKUP_POINT');
 
   const tableProps = { filters, updateFilter, toggleSetValue, selectAll, selectNone, statusOptions, cityOptions, deletingId, onDelete: handleDelete };
 
@@ -309,14 +317,12 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
       </div>
 
       <div style={{ color: '#6b7690', fontSize: 13, marginBottom: 16 }}>
-        Заказы, отменённые при доставке (Kaspi Доставка). Статус берётся из настоящего трекинга Kaspi
-        Delivery, а не из основного API заказов (там поле возврата на склад оказалось ненадёжным).
-        Подозрительным заказ помечается только если он всё ещё «Едет обратно на склад», но без
-        единого движения уже {thresholdDays}+ дней; заказы «Ожидает в пункте выдачи» подсвечены
-        отдельно — их нужно забрать физически. «Принят складом» сверяется со списком возвратов у
-        партнёра Wonder — «Нет» значит, что заказ не найден у Wonder ни в одном статусе. Список
-        пополняется и перепроверяется каждую ночь — уберите строку кнопкой «✕», когда разобрались
-        с заказом на Kaspi.
+        В таблице — только заказы, которые прямо сейчас едут обратно на склад после отмены при
+        доставке: приём по ним ещё не подтверждён, и на «Складе» этот товар уже вычтен из остатка
+        колонкой «Возвращается». Всё разрешившееся — в архиве внизу страницы. Статус берётся из
+        настоящего трекинга Kaspi Delivery; подозрительный — если движения нет {thresholdDays}+ дней.
+        «Принят складом» — сверка со списком возвратов у партнёра Wonder. Список обновляется каждую
+        ночь; кнопка «✕» убирает строку, когда разобрались с заказом на Kaspi.
       </div>
 
       <div className="batches-toolbar">
@@ -336,26 +342,43 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
         ) : orders.length === 0 ? (
           <div className="empty-state">Сейчас нет заказов, отменённых при доставке</div>
         ) : (
-          <OrdersTable orders={mainOrders} showDaysColumn {...tableProps} />
+          <OrdersTable
+            orders={activeReturns}
+            showDaysColumn
+            emptyText="Сейчас ни один заказ не едет обратно — все возвраты закрыты"
+            {...tableProps}
+          />
         )}
       </div>
 
       {!loading && orders.length > 0 && (
         <div className="report-note">
-          Всего отслеживается: {orders.length}. Подозрительных: {suspiciousCount}.
+          Едут обратно сейчас: {activeCount}. Из них подозрительных (без движения {thresholdDays}+ дней): {suspiciousCount}.
+          Всего отслеживается за всю историю: {orders.length}.
         </div>
       )}
 
-      {!loading && orders.some((o) => o.tracking_status === 'CANCELLED') && (
+      {!loading && waitingPickup.length > 0 && (
+        <div className="report-note" style={{ color: '#ff6b6b' }}>
+          Ожидают в пункте выдачи: {waitingPickup.length} ({waitingPickup.map((o) => o.order_number).join(', ')}) — их нужно забрать физически. Возврат по ним не идёт, поэтому они в архиве.
+        </div>
+      )}
+
+      {!loading && archivedOrders.length > 0 && (
         <>
-          <div className="section-title">Отменены до передачи в доставку</div>
+          <div className="section-title">Архив</div>
           <div style={{ color: '#6b7690', fontSize: 13, marginBottom: 16 }}>
-            Товар физически никуда не уезжал — возвращать было нечего. Показаны отдельно, чтобы не
-            путать с реальными возвратами выше.
+            Отмены, по которым возврат уже не идёт: товар вернулся на склад, или его вообще не
+            отправляли (отменили до передачи в доставку). Остаток на «Складе» они не уменьшают.
           </div>
-          <div className="card">
-            <OrdersTable orders={cancelledBeforeDelivery} {...tableProps} />
-          </div>
+          <button className="orders-toolbar-reset" onClick={() => setShowArchive((v) => !v)}>
+            {showArchive ? 'Свернуть архив' : `Показать архив (${archivedOrders.length})`}
+          </button>
+          {showArchive && (
+            <div className="card" style={{ marginTop: 12 }}>
+              <OrdersTable orders={archivedOrders} {...tableProps} />
+            </div>
+          )}
         </>
       )}
     </div>
