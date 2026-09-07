@@ -268,6 +268,11 @@ export function syncDeliveryReturns(password) {
   return apiRequest('/api/delivery-returns/sync', password, { method: 'POST', timeoutMs: LONG_TIMEOUT_MS });
 }
 
+// "Добавить в остаток" — подтверждение руками, что вернувшийся товар доехал до склада.
+export function returnDeliveryOrderToStock(password, orderNumber) {
+  return apiRequest(`/api/delivery-returns/${orderNumber}/return-to-stock`, password, { method: 'POST' });
+}
+
 export function deleteDeliveryReturn(password, orderNumber) {
   return apiRequest(`/api/delivery-returns/${orderNumber}`, password, { method: 'DELETE' });
 }

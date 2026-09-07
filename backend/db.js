@@ -388,6 +388,34 @@ async function initDb() {
   // номеру заказа со списком refund-order-groups у Wonder. NULL — ещё не проверяли.
   await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS wonder_received BOOLEAN;`);
 
+  // Когда владелец РУКАМИ подтвердила, что вернувшийся товар физически доехал до склада и его
+  // можно снова считать остатком (кнопка "Добавить в остаток" на "Проблемных возвратах").
+  // NULL — товар уехал и обратно ещё не принят, значит на "Складе" он вычтен из остатка.
+  // Автоматически по трекингу Kaspi это НЕ проставляется: владелец попросила 2026-09-07 добавлять
+  // в остаток только после того, как сама убедится, что товар доехал.
+  await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS stock_returned_at TIMESTAMPTZ;`);
+
+  // Разовый бэкфилл для уже накопленной истории: все отмены, которые на момент появления колонки
+  // не были в активном возврате, считаются давно разобранными — их товар (если он вообще уезжал)
+  // давно лежит на складе и учтён в остатке. Иначе сотни архивных отмен разом вычлись бы из
+  // остатков задним числом. Владелец явно попросила: "Не учитываем те заказы которые уже ушли в
+  // архив на сегодняшний день". Условие `tracking_active IS DISTINCT FROM true` оставляет NULL
+  // ровно у тех заказов, что реально едут обратно прямо сейчас.
+  //
+  // ВАЖНО: бэкфилл должен отработать РОВНО ОДИН РАЗ, а initDb() выполняется при каждом старте
+  // сервера (а Render перезапускается часто). Если гнать его всегда, он будет сам проставлять
+  // "принято на склад" заказам, по которым трекинг уже сказал RETURNED, — а именно их владелец и
+  // должна подтверждать руками. Поэтому сначала проверяем, что колонка ещё нигде не заполнена.
+  const backfilled = await pool.query(`SELECT 1 FROM delivery_cancellations WHERE stock_returned_at IS NOT NULL LIMIT 1`);
+  if (backfilled.rowCount === 0) {
+    const res = await pool.query(`
+      UPDATE delivery_cancellations
+      SET stock_returned_at = now()
+      WHERE tracking_active IS DISTINCT FROM true
+    `);
+    if (res.rowCount > 0) console.log(`Бэкфилл stock_returned_at: разобранными отмечено ${res.rowCount} отмен`);
+  }
+
   // Пользователи сайта с ролями. Раньше был один общий пароль на всех (DASHBOARD_PASSWORD) —
   // теперь у каждого свой логин/пароль. role: 'admin' | 'manager' | 'marketer'.
   await pool.query(`

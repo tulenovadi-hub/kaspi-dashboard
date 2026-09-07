@@ -2240,6 +2240,35 @@ input[type="date"] {
   background: rgba(255, 107, 107, 0.04);
 }
 
+/* Кнопка "Добавить в остаток" в строке возврата — действие подтверждающее, поэтому зелёная,
+   в отличие от красного крестика "убрать из списка" рядом. */
+.return-to-stock-button {
+  background: var(--accent-up-dim);
+  border: none;
+  color: var(--accent-up);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.return-to-stock-button:hover:not(:disabled) {
+  filter: brightness(1.25);
+}
+
+.return-to-stock-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Количество рядом с наименованием товара в строке возврата — показываем, только если штук
+   больше одной, поэтому оно должно читаться как приписка, а не как отдельная колонка. */
+.orders-item-qty {
+  color: var(--text-muted);
+}
+
 /* ===== Warehouse (Склад) ===== */
 .warehouse-warning {
   display: block;
