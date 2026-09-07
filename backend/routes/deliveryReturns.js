@@ -184,6 +184,27 @@ router.post('/:orderNumber/archive', async (req, res) => {
   }
 });
 
+// Вернуть строку из архива в основную таблицу. Кнопки в интерфейсе пока нет (в архиве их было бы
+// под сотню, а нужна такая операция редко) — но действие крестика не должно быть необратимым,
+// поэтому через API откатить можно.
+router.delete('/:orderNumber/archive', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `UPDATE delivery_cancellations SET archived_at = NULL
+       WHERE order_number = $1 AND archived_at IS NOT NULL
+       RETURNING order_number`,
+      [req.params.orderNumber]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Заказ не найден или и так не в архиве' });
+    }
+    res.json({ ok: true, order: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось вернуть заказ из архива' });
+  }
+});
+
 // Полное удаление записи. В интерфейсе кнопки нет (крестик отправляет в архив) — остаётся как
 // ручная операция через API на случай мусорной записи.
 router.delete('/:orderNumber', async (req, res) => {
