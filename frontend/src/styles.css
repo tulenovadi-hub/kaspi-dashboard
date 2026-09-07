@@ -3329,3 +3329,146 @@ input[type="date"] {
   font-family: var(--font-mono);
   color: var(--text-primary);
 }
+
+/* ===== Отчёт на телефоне (ReportMobile.jsx) =====
+   Показатель сверху → месяцы полосками → шторка месяца → разворот товара.
+   Таблиц здесь нет вообще: 14 колонок на 375px не помещаются никаким способом. */
+.rm { display: flex; flex-direction: column; }
+
+.rm-scope { display: flex; gap: 6px; margin-bottom: 6px; }
+.rm-scope-pill {
+  flex: 1 1 0; border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); font-family: inherit; font-size: 13px;
+  padding: 8px 10px; border-radius: 10px; cursor: pointer;
+}
+.rm-scope-pill[aria-pressed="true"] {
+  background: rgba(110, 139, 255, 0.14); color: var(--accent-brand); border-color: transparent;
+  font-weight: 600;
+}
+.rm-scope-hint { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
+
+/* Лента показателей. Горизонтальная прокрутка тут осознанная и безопасная: элементы
+   одинаковые и короткие, потерять в ней нечего — в отличие от таблицы, где вбок уезжают
+   именно те колонки, ради которых страницу открыли. */
+.rm-metrics {
+  display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.rm-metrics::-webkit-scrollbar { display: none; }
+.rm-metric {
+  flex: 0 0 auto; border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); font-family: inherit; font-size: 12.5px;
+  padding: 7px 13px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+}
+.rm-metric[aria-pressed="true"] {
+  background: var(--accent-brand); border-color: var(--accent-brand);
+  color: #0b1020; font-weight: 600;
+}
+
+.rm-caption {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin: 2px 2px 8px; font-size: 12px; color: var(--text-muted);
+}
+.rm-caption b { font-family: var(--font-mono); font-weight: 500; color: var(--text-secondary); }
+
+.rm-card { padding: 6px; }
+
+.rm-bar-row {
+  display: grid; grid-template-columns: 58px 1fr; gap: 4px 10px; align-items: center;
+  width: 100%; background: none; border: none; color: inherit; font-family: inherit;
+  padding: 10px 8px; border-radius: 10px; cursor: pointer; text-align: left;
+}
+.rm-bar-row:active { background: var(--bg-card-hover); }
+.rm-bar-month { font-size: 12.5px; color: var(--text-secondary); }
+.rm-bar-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rm-bar-track {
+  flex: 1 1 auto; height: 8px; border-radius: 5px;
+  background: rgba(255, 255, 255, 0.05); overflow: hidden;
+}
+.rm-bar-track i { display: block; height: 100%; border-radius: 5px; }
+.rm-bar-value {
+  flex: 0 0 auto; font-family: var(--font-mono); font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rm-hint { font-size: 12px; color: var(--text-muted); margin: 10px 2px 0; }
+
+/* ===== Шторка месяца ===== */
+.rm-sheet-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(6, 9, 16, 0.65); display: flex; align-items: flex-end;
+}
+.rm-sheet {
+  width: 100%; max-height: 88vh; overflow-y: auto;
+  background: var(--bg-card); border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0; padding: 6px 16px 28px;
+  /* Вырез снизу на айфоне: без этого последняя строка уезжает под системную полосу. */
+  padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+}
+.rm-sheet-grip { width: 38px; height: 4px; border-radius: 3px; background: var(--border); margin: 6px auto 12px; }
+.rm-sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.rm-sheet-title { font-size: 18px; font-weight: 650; }
+.rm-sheet-scope { font-size: 12px; color: var(--text-muted); }
+.rm-sheet-close {
+  border: none; background: none; color: var(--text-muted);
+  font-size: 24px; line-height: 1; cursor: pointer; padding: 0 4px;
+}
+.rm-sheet-section {
+  margin: 18px 0 2px; font-size: 12px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-muted); font-weight: 600;
+}
+
+/* ===== Разбор: статья / сумма / доля / полоска доли ===== */
+.rm-breakdown { margin-top: 6px; }
+.rm-line {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 10px;
+  padding: 9px 0 8px; border-bottom: 1px solid rgba(38, 47, 69, 0.6);
+}
+.rm-line:last-child { border-bottom: none; }
+.rm-line-label { font-size: 13.5px; color: var(--text-secondary); }
+.rm-line-value {
+  font-size: 13.5px; text-align: right;
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.rm-line-empty { color: var(--text-muted); }
+.rm-line-share { font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono); }
+.rm-line-bar { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.05); }
+.rm-line-bar i { display: block; height: 100%; border-radius: 2px; }
+.rm-line-strong .rm-line-label,
+.rm-line-total .rm-line-label { color: var(--text-primary); font-weight: 600; font-size: 14.5px; }
+.rm-line-strong .rm-line-value,
+.rm-line-total .rm-line-value { font-size: 16px; font-weight: 600; }
+.rm-line-total {
+  margin-top: 6px; padding-top: 11px;
+  border-top: 1px solid var(--border); border-bottom: none;
+}
+
+/* ===== Товары внутри шторки ===== */
+.rm-product { border-bottom: 1px solid rgba(38, 47, 69, 0.6); }
+.rm-product:last-child { border-bottom: none; }
+.rm-product.is-open { background: rgba(110, 139, 255, 0.05); border-radius: 10px; }
+.rm-product-head {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 10px;
+  width: 100%; text-align: left; background: none; border: none; color: inherit;
+  font-family: inherit; padding: 11px 8px; border-radius: 10px; cursor: pointer;
+}
+.rm-product-name { font-size: 13.5px; }
+.rm-product-profit {
+  text-align: right; font-size: 13.5px;
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.rm-product-meta { font-size: 11.5px; color: var(--text-muted); font-family: var(--font-mono); }
+.rm-right { text-align: right; }
+.rm-product-body { padding: 0 8px 10px; }
+.rm-products-state { padding: 14px 4px; font-size: 13px; color: var(--text-muted); }
+.rm-products-error { color: var(--accent-down); }
+
+/* Длинная справка "как считаются цифры" на телефоне свёрнута: она полезная, но на 375px
+   занимает несколько экранов и отодвигает всё остальное. */
+.report-note-details summary {
+  cursor: pointer; font-weight: 600; color: var(--text-secondary);
+  padding: 4px 0; list-style: none;
+}
+.report-note-details summary::-webkit-details-marker { display: none; }
+.report-note-details summary::before { content: '▸ '; }
+.report-note-details[open] summary::before { content: '▾ '; }

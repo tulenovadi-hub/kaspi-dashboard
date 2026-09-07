@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { uploadKaspiPayReport, fetchMonthlyReport, fetchMonthProductBreakdown } from './api.js';
 import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
+import ReportMobile from './ReportMobile.jsx';
+import { useIsMobile } from './useIsMobile.js';
 
 // columns — массив { key, label }. key === 'month' форматируется отдельно (название месяца),
 // остальные — через formatMoney, кроме margin/roi (по имени колонки определяем формат).
@@ -232,12 +234,16 @@ export default function Report({ password, active = true, isOnline = true }) {
   const [productLoading, setProductLoading] = useState({});
   const [productError, setProductError] = useState({});
 
-  function handleToggleMonth(scope, month) {
-    const opening = expandedMonth[scope] !== month;
-    setExpandedMonth((prev) => ({ ...prev, [scope]: opening ? month : null }));
+  // На телефоне вместо двух широких таблиц рисуется ReportMobile — другая раскладка, а не
+  // другая вёрстка той же (см. комментарий в ReportMobile.jsx).
+  const isMobile = useIsMobile();
 
+  // Ленивая загрузка разбивки по товарам. Вынесена из обработчика клика отдельно, потому что
+  // мобильной версии нужно просто "загрузи для этого месяца", без переключения раскрытой строки.
+  // Кэш общий на обе версии — ключ тот же составной "scope:month".
+  function loadProductBreakdown(scope, month) {
     const key = `${scope}:${month}`;
-    if (!opening || productBreakdowns[key] || productLoading[key]) return;
+    if (productBreakdowns[key] || productLoading[key]) return;
 
     setProductLoading((prev) => ({ ...prev, [key]: true }));
     setProductError((prev) => ({ ...prev, [key]: '' }));
@@ -245,6 +251,12 @@ export default function Report({ password, active = true, isOnline = true }) {
       .then((res) => setProductBreakdowns((prev) => ({ ...prev, [key]: res.products })))
       .catch((err) => setProductError((prev) => ({ ...prev, [key]: err.message })))
       .finally(() => setProductLoading((prev) => ({ ...prev, [key]: false })));
+  }
+
+  function handleToggleMonth(scope, month) {
+    const opening = expandedMonth[scope] !== month;
+    setExpandedMonth((prev) => ({ ...prev, [scope]: opening ? month : null }));
+    if (opening) loadProductBreakdown(scope, month);
   }
 
   function loadReport() {
@@ -325,36 +337,49 @@ export default function Report({ password, active = true, isOnline = true }) {
         <div className="empty-state">Загрузка...</div>
       ) : (
         <div style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
-          <MonthlyTable
-            title="Основной отчёт (все склады)"
-            subtitle="Все склады и все заказы, включая самовыкупы и заказы с нераспознанной точкой продаж"
-            months={monthsAll}
-            columns={MAIN_COLUMNS}
-            colorize
-            showPercentOfRevenue
-            expandable
-            scope="all"
-            expandedMonth={expandedMonth.all || null}
-            onToggleMonth={handleToggleMonth}
-            productBreakdowns={productBreakdowns}
-            productLoading={productLoading}
-            productError={productError}
-          />
-          <MonthlyTable
-            title="Основной отчёт (Алматы, Астана)"
-            subtitle="Только продажи со складов основного магазина — без самовыкупов"
-            months={monthsMainCities}
-            columns={MAIN_COLUMNS}
-            colorize
-            showPercentOfRevenue
-            expandable
-            scope="main"
-            expandedMonth={expandedMonth.main || null}
-            onToggleMonth={handleToggleMonth}
-            productBreakdowns={productBreakdowns}
-            productLoading={productLoading}
-            productError={productError}
-          />
+          {isMobile ? (
+            <ReportMobile
+              monthsAll={monthsAll}
+              monthsMainCities={monthsMainCities}
+              onLoadProducts={loadProductBreakdown}
+              productBreakdowns={productBreakdowns}
+              productLoading={productLoading}
+              productError={productError}
+            />
+          ) : (
+            <>
+              <MonthlyTable
+                title="Основной отчёт (все склады)"
+                subtitle="Все склады и все заказы, включая самовыкупы и заказы с нераспознанной точкой продаж"
+                months={monthsAll}
+                columns={MAIN_COLUMNS}
+                colorize
+                showPercentOfRevenue
+                expandable
+                scope="all"
+                expandedMonth={expandedMonth.all || null}
+                onToggleMonth={handleToggleMonth}
+                productBreakdowns={productBreakdowns}
+                productLoading={productLoading}
+                productError={productError}
+              />
+              <MonthlyTable
+                title="Основной отчёт (Алматы, Астана)"
+                subtitle="Только продажи со складов основного магазина — без самовыкупов"
+                months={monthsMainCities}
+                columns={MAIN_COLUMNS}
+                colorize
+                showPercentOfRevenue
+                expandable
+                scope="main"
+                expandedMonth={expandedMonth.main || null}
+                onToggleMonth={handleToggleMonth}
+                productBreakdowns={productBreakdowns}
+                productLoading={productLoading}
+                productError={productError}
+              />
+            </>
+          )}
           <div className="report-row">
             <MonthlyTable title="Общий отчёт" months={months} columns={GENERAL_COLUMNS} className="report-col" />
             <MonthlyTable title="Самовыкупы (Юбилейное, Талдыкорган)" months={monthsSelfBuyCities} columns={SELF_BUY_COLUMNS} className="report-col" />
@@ -362,7 +387,12 @@ export default function Report({ password, active = true, isOnline = true }) {
         </div>
       )}
 
-      <div className="report-note">
+      {/* Справка "как считаются цифры" одна и та же, но на телефоне она свёрнута:
+          текста тут на несколько экранов, и развёрнутым он отодвигает всё остальное. */}
+      {isMobile ? (
+        <details className="report-note report-note-details">
+          <summary>Как считаются цифры</summary>
+          <div>
         ⚠️ Наверху две одинаковые по колонкам таблицы, и различаются они только набором заказов. «Основной отчёт (все склады)» берёт ВСЕ операции
         Kaspi Pay без фильтра по городу отгрузки: туда входят Алматы и Астана, все склады самовыкупов, а также заказы, у которых точка продаж не
         распозналась или которых вообще нет в данных заказов Kaspi (в отчёт по городам такие не попадают ни в одну из таблиц). Именно поэтому выручка
@@ -390,7 +420,39 @@ export default function Report({ password, active = true, isOnline = true }) {
         Число под суммой в каждой расходной колонке — доля этой статьи от выручки: в строке месяца от выручки за этот месяц, а в разбивке по товарам —
         от выручки самого товара (сколько из 100% его выручки уходит именно сюда). Поэтому доли товара и доли месяца не обязаны совпадать: у дорогого
         товара своя структура расходов. «Прочие расходы» и «Упаковка» на уровне товара не считаются, там прочерк и доли нет.
-      </div>
+</div>
+        </details>
+      ) : (
+        <div className="report-note">
+        ⚠️ Наверху две одинаковые по колонкам таблицы, и различаются они только набором заказов. «Основной отчёт (все склады)» берёт ВСЕ операции
+        Kaspi Pay без фильтра по городу отгрузки: туда входят Алматы и Астана, все склады самовыкупов, а также заказы, у которых точка продаж не
+        распозналась или которых вообще нет в данных заказов Kaspi (в отчёт по городам такие не попадают ни в одну из таблиц). Именно поэтому выручка
+        и налог в верхней таблице ближе всего к тому, что уходит в декларацию. Две оговорки: во-первых, в неё входят самовыкупы — это ваши собственные
+        покупки, они поднимают и выручку, и «прибыль», поэтому для оценки реального заработка смотрите вторую таблицу; во-вторых, себестоимость (FIFO
+        по партиям) считается только по заказам с известным складом — у заказа с нераспознанной точкой продаж списывать товар не с чего, так что его
+        выручка в верхнюю таблицу попадёт, а себестоимость — нет, и прибыль по нему окажется завышенной. «Основной отчёт (Алматы, Астана)» —
+        прежний отчёт по складам основного магазина, он не изменился.
+        Налог считается упрощённо: 3% с чистого оборота (выручка минус возвраты). Себестоимость считается по методу FIFO на основе партий на «Поставках»,
+        и только по тем заказам, которые реально есть в загруженном Excel-отчёте Kaspi Pay со статусом «Покупка». «Себестоимость возвратов» — справочная
+        колонка (приближённая оценка по текущей активной партии товара), в расчёт чистой прибыли она не входит — себестоимость возвращённого товара уже
+        разово списана в момент продажи и повторно не вычитается. «Прочие расходы» в основном отчёте — это сумма категории «Прочие затраты» из раздела
+        «Расходы» (Google Таблица) за тот же месяц; категория «Товар» туда не входит — она уже учтена через себестоимость, а «Вывод» не входит, так как это
+        не операционный расход бизнеса. Таблицы по городам определяются по номеру заказа: он совпадает и в Excel-отчёте Kaspi Pay, и в данных заказов Kaspi.
+        «Маркетинг» в «Основном отчёте» — сумма трёх источников продвижения товара за тот же месяц: реклама товаров, бонусы от продавца и бонусы за отзыв
+        (все три заливаются Tampermonkey-скриптом со страниц marketing.kaspi.kz); ни один из них не привязан к городу отгрузки, поэтому считаются по всему
+        магазину целиком, а не только по Алматы и Астане. «Упаковка» — сумма категории «Упаковка» из раздела «Расходы» (Google Таблица) за тот же месяц;
+        вносится туда вручную, тоже считается по всему магазину целиком.
+        Клик по строке месяца в «Основном отчёте» разворачивает разбивку по товарам: себестоимость там точная (та же FIFO), а комиссия, доставка и сумма
+        возвратов у Kaspi Pay привязаны только к заказу целиком — если в заказе несколько разных товаров, эти три величины делятся между ними пропорционально
+        выручке. Единый «Маркетинг» здесь раскрыт на три отдельные колонки — «Реклама товаров», «Бонусы от продавца» и «Бонусы за отзыв» — все три считаются
+        через привязку кампании к товару (если кампания продвигает сразу несколько товаров — её расход делится между ними поровну; кампании без сохранённой
+        привязки к товару в разбивку не попадают). «Прочие расходы» и «Упаковка» на уровне товара не считаются — это расходы всего бизнеса, а не конкретного
+        товара, поэтому в разбивке там прочерк.
+        Число под суммой в каждой расходной колонке — доля этой статьи от выручки: в строке месяца от выручки за этот месяц, а в разбивке по товарам —
+        от выручки самого товара (сколько из 100% его выручки уходит именно сюда). Поэтому доли товара и доли месяца не обязаны совпадать: у дорогого
+        товара своя структура расходов. «Прочие расходы» и «Упаковка» на уровне товара не считаются, там прочерк и доли нет.
+</div>
+      )}
     </div>
   );
 }
