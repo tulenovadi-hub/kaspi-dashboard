@@ -3537,8 +3537,9 @@ input[type="date"] {
   padding: 0; cursor: pointer; text-align: left;
 }
 .wm-name { font-size: 13.5px; font-weight: 500; line-height: 1.35; }
+/* Стрелка — нарисованный svg, а не символ: ▶ на айфоне подменяется цветным эмодзи. */
 .wm-chevron {
-  display: inline-block; color: var(--text-muted); font-size: 10px;
+  flex: 0 0 auto; vertical-align: -1px; color: var(--text-muted);
   transition: transform 0.26s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 .wm-card.is-open .wm-chevron { transform: rotate(90deg); }
@@ -3577,25 +3578,38 @@ input[type="date"] {
 .wm-batch-right { text-align: right; font-family: var(--font-mono); }
 
 /* ----- Склад: картинка товара в карточке ----- */
-.wm-thumb-wrap { position: relative; flex: 0 0 auto; width: 44px; height: 44px; cursor: pointer; }
+.wm-thumb-wrap {
+  position: relative; flex: 0 0 auto; width: 44px; height: 44px; cursor: pointer;
+  padding: 0; border: none; background: none; border-radius: 10px;
+}
+.wm-thumb-wrap:disabled { cursor: default; }
 .wm-thumb {
   width: 44px; height: 44px; border-radius: 10px; object-fit: cover;
   border: 1px solid var(--border); display: block;
 }
 .wm-thumb-empty { background: linear-gradient(140deg, #1f2942, #141b2b); }
+/* Показывается только у товара без картинки (или пока идёт загрузка): у товара с картинкой
+   ничего поверх фото не висит — тап открывает окно "заменить или удалить". */
 .wm-thumb-overlay {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  background: rgba(6, 9, 16, 0.55); color: var(--text-secondary); font-size: 12px;
-  border-radius: 10px; opacity: 0; transition: opacity 0.15s ease;
-}
-.wm-thumb-wrap:active .wm-thumb-overlay { opacity: 1; }
-.wm-thumb-empty + .wm-thumb-overlay { opacity: 1; }
-.wm-thumb-remove {
-  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
-  border-radius: 50%; border: none; background: var(--accent-down); color: #fff;
-  font-size: 12px; line-height: 1; cursor: pointer; padding: 0;
+  background: rgba(6, 9, 16, 0.45); color: var(--text-secondary); font-size: 15px;
+  border-radius: 10px;
 }
 .wm-thumb-input { display: none; }
+
+.wm-photo-dialog .bm-dialog-text { margin-bottom: 12px; }
+.wm-photo-preview {
+  display: block; width: 100%; max-height: 220px; object-fit: contain;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--bg);
+  margin-bottom: 14px;
+}
+/* .bm-btn задаёт border: none и объявлен НИЖЕ по файлу, поэтому селектор здесь составной —
+   иначе рамка у кнопки удаления просто не появится (одинаковая специфичность, побеждает
+   правило, которое идёт позже). */
+.bm-btn.wm-btn-danger {
+  background: transparent; color: var(--accent-down);
+  border: 1px solid rgba(255, 107, 107, 0.35);
+}
 
 /* ----- Поставки: шапка "Ждём прибытия" ----- */
 .bm-summary {

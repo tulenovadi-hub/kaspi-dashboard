@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { formatMoney, formatNumber } from './dateUtils.js';
 
 // Мобильная версия "Склада". На компьютере это таблица из восьми колонок; на айфоне от неё
@@ -13,6 +13,38 @@ import { formatMoney, formatNumber } from './dateUtils.js';
 // Ни одна цифра из таблицы не потеряна: то, чего нет в шапке карточки, лежит в развороте.
 
 const CARD_HIDDEN_HINT = 'Показано только то, что говорит о состоянии сейчас';
+
+// Стрелка раскрытия. Рисуем svg, а не символ: ▶ и ► на айфоне подменяются цветным эмодзи и
+// выбиваются из общего стиля страницы.
+function Chevron() {
+  return (
+    <svg className="wm-chevron" viewBox="0 0 8 12" width="7" height="10" aria-hidden="true" focusable="false">
+      <path d="M1.6 1.4 6 6l-4.4 4.6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Модалка картинки товара. Раньше поверх фото висел красный крестик — на маленькой карточке он
+// и мозолил глаза, и легко нажимался случайно. Теперь тап по фото открывает окно с выбором:
+// заменить или удалить. У товара без картинки окна нет — сразу открывается выбор файла.
+function PhotoDialog({ product, image, busy, onReplace, onRemove, onClose }) {
+  return (
+    <div className="bm-dialog-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bm-dialog wm-photo-dialog" role="dialog" aria-modal="true">
+        <div className="bm-dialog-title">Картинка товара</div>
+        <div className="bm-dialog-text">{product.product_name}</div>
+        {image && <img className="wm-photo-preview" src={image} alt={product.product_name} />}
+        <div className="bm-dialog-actions">
+          <button className="bm-btn bm-btn-ok" onClick={onReplace} disabled={busy}>
+            {busy ? 'Загружаем…' : 'Заменить картинку'}
+          </button>
+          <button className="bm-btn wm-btn-danger" onClick={onRemove} disabled={busy}>Удалить картинку</button>
+          <button className="bm-btn bm-btn-quiet" onClick={onClose} disabled={busy}>Отмена</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function shortMoney(value) {
   const v = Number(value) || 0;
@@ -71,6 +103,23 @@ export default function WarehouseMobile({
   onImageChange, onImageRemove, inventory, summaryOpen, onToggleSummary,
   activeCity, onSelectCity,
 }) {
+  // Один скрытый input на весь список: открываем его и из модалки ("заменить"), и по тапу
+  // на пустую картинку. Товар, для которого выбирают файл, держим в ref — на момент
+  // срабатывания onChange модалка уже закрыта.
+  const fileInputRef = useRef(null);
+  const uploadTargetRef = useRef(null);
+  const [photoFor, setPhotoFor] = useState(null);
+
+  function pickFile(productId) {
+    uploadTargetRef.current = productId;
+    if (fileInputRef.current) fileInputRef.current.click();
+  }
+
+  function handleThumbClick(product) {
+    if (images[product.product_id]) setPhotoFor(product);
+    else pickFile(product.product_id);
+  }
+
   const city = cities.includes(activeCity) ? activeCity : cities[0];
   // Сортировка по остатку: сверху то, чего много, внизу — то, что заканчивается.
   // При равных остатках порядок стабильный — по стоимости остатка.
@@ -112,37 +161,28 @@ export default function WarehouseMobile({
           <article key={rowKey} className={`wm-card${isOpen ? ' is-open' : ''}`}>
             <div className="wm-card-head">
               {/* Картинку грузим тем же способом, что и на компьютере — иначе на телефоне
-                  эта возможность просто исчезла бы. Клик по картинке не должен разворачивать
-                  карточку, поэтому она вне кнопки-заголовка. */}
-              <label className="wm-thumb-wrap" title="Нажмите, чтобы загрузить картинку">
+                  эта возможность просто исчезла бы. Тап по фото открывает окно "заменить или
+                  удалить", а не разворачивает карточку, поэтому это отдельная кнопка. */}
+              <button
+                type="button"
+                className="wm-thumb-wrap"
+                onClick={() => handleThumbClick(p)}
+                disabled={busy}
+                title={images[p.product_id] ? 'Заменить или удалить картинку' : 'Добавить картинку'}
+              >
                 {images[p.product_id] ? (
                   <img className="wm-thumb" src={images[p.product_id]} alt={p.product_name} />
                 ) : (
                   <div className="wm-thumb wm-thumb-empty" />
                 )}
-                <div className="wm-thumb-overlay">{busy ? '…' : '✎'}</div>
-                {images[p.product_id] && !busy && (
-                  <button
-                    type="button"
-                    className="wm-thumb-remove"
-                    title="Удалить картинку"
-                    onClick={(e) => onImageRemove(p.product_id, e)}
-                  >
-                    ×
-                  </button>
+                {(busy || !images[p.product_id]) && (
+                  <div className="wm-thumb-overlay">{busy ? '…' : '＋'}</div>
                 )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="wm-thumb-input"
-                  disabled={busy}
-                  onChange={(e) => onImageChange(p.product_id, e)}
-                />
-              </label>
+              </button>
 
               <button className="wm-card-main" onClick={() => onToggleExpand(rowKey)} aria-expanded={isOpen}>
                 <div className="wm-name">
-                  <span className="wm-chevron">▶</span> {p.product_name}
+                  <Chevron /> {p.product_name}
                 </div>
                 <div className="wm-stock">
                   {formatNumber(p.remaining)}
@@ -186,6 +226,29 @@ export default function WarehouseMobile({
           </article>
         );
       })}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="wm-thumb-input"
+        onChange={(e) => {
+          const productId = uploadTargetRef.current;
+          setPhotoFor(null);
+          if (productId) onImageChange(productId, e);
+        }}
+      />
+
+      {photoFor && (
+        <PhotoDialog
+          product={photoFor}
+          image={images[photoFor.product_id]}
+          busy={imageBusy === photoFor.product_id}
+          onReplace={() => pickFile(photoFor.product_id)}
+          onRemove={(e) => { const id = photoFor.product_id; setPhotoFor(null); onImageRemove(id, e); }}
+          onClose={() => setPhotoFor(null)}
+        />
+      )}
     </div>
   );
 }
