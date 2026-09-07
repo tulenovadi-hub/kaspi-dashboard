@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const { pool } = require('../db');
 
 const router = express.Router();
 
@@ -51,6 +52,30 @@ router.get('/merchantproduct/:productId', async (req, res) => {
     res.json(response.data);
   } catch (err) {
     res.status(500).json({ error: err.message, details: err.response ? err.response.data : null });
+  }
+});
+
+// Что о заказе лежит в НАШЕЙ базе (а не в Kaspi): статус, из которого считается остаток на
+// Складе, город отгрузки и позиции. Нужно, чтобы проверять расхождения вида "заказ отменён при
+// доставке, а в остатке он всё ещё списан/не списан" — статус в orders обновляется только когда
+// синхронизация захватывает заказ по ДАТЕ СОЗДАНИЯ, поэтому у старых заказов он может быть
+// устаревшим. Только чтение.
+router.get('/db-order/:code', async (req, res) => {
+  try {
+    const order = await pool.query(
+      `SELECT id, code, creation_date, total_price, state, status, origin_city, pickup_point_id
+       FROM orders WHERE code = $1`,
+      [req.params.code]
+    );
+    if (order.rowCount === 0) return res.json({ found: false });
+
+    const items = await pool.query(
+      `SELECT product_id, product_name, quantity, total_price FROM order_items WHERE order_id = $1`,
+      [order.rows[0].id]
+    );
+    res.json({ found: true, order: order.rows[0], items: items.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
