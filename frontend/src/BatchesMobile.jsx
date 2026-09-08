@@ -6,7 +6,8 @@ import { formatMoney, formatNumber, formatDateDMY } from './dateUtils.js';
 // фильтров подряд высотой в треть экрана до первой строки.
 //
 // Владелец выбрала вариант "сначала то, что едет": экран начинается с блока "Ждём прибытия"
-// (только поставки в пути, по дате, с суммой вложенного), история прибывших свёрнута внизу.
+// (только поставки в пути, с суммой вложенного), история прибывших свёрнута внизу. Порядок в
+// обеих лентах — по дате создания записи, новые сверху (см. byCreated ниже).
 // Регулярное действие на этой странице ровно одно — отметить пришедшую поставку, — и оно
 // должно быть первым, до чего дотягивается палец.
 //
@@ -107,10 +108,12 @@ export default function BatchesMobile({
   const [showHistory, setShowHistory] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
-  const transit = batches
-    .filter((b) => b.status === 'in_transit')
-    .sort((a, b) => String(a.received_date).localeCompare(String(b.received_date)));
-  const received = batches.filter((b) => b.status !== 'in_transit');
+  // Обе ленты — по дате СОЗДАНИЯ записи, новые сверху: владелец попросила 2026-09-08, чтобы
+  // только что заведённая поставка оказывалась первой, а не терялась среди прочих по дате
+  // прибытия. Дата прибытия осталась в самой карточке и в подписи "через N дней".
+  const byCreated = (a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''));
+  const transit = batches.filter((b) => b.status === 'in_transit').sort(byCreated);
+  const received = batches.filter((b) => b.status !== 'in_transit').slice().sort(byCreated);
 
   const transitQty = transit.reduce((sum, b) => sum + Number(b.quantity || 0), 0);
   const transitValue = transit.reduce((sum, b) => sum + Number(b.cost_price || 0) * Number(b.quantity || 0), 0);
