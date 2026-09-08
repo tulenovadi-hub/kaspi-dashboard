@@ -5,7 +5,7 @@ import SalesChart from './SalesChart.jsx';
 import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
 import { fetchSummary, fetchProducts, fetchSummaryProfit, fetchInventoryValue, triggerSync } from './api.js';
-import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber } from './dateUtils.js';
+import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber, shiftDays, daysInRange } from './dateUtils.js';
 import SalesViewMobile from './SalesViewMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 
@@ -25,6 +25,11 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   // по выручке). Приходит из того же /summary-profit, что и итоговая цифра.
   const [profitDays, setProfitDays] = useState([]);
 
+  // Итоги ПРЕДЫДУЩЕГО периода такой же длины — для процента изменения у каждого показателя
+  // на телефоне. На компьютере не грузятся: там дельта только "сегодня к вчера" в блоке
+  // TodayVsYesterday, и лишние два запроса на каждую смену периода ни к чему.
+  const [prevTotals, setPrevTotals] = useState(null);
+
   const isMobile = useIsMobile();
 
   // "Деньги в товаре" — снимок на сейчас, а не за выбранный период, поэтому грузится один раз
@@ -35,6 +40,36 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [syncing, setSyncing] = useState(false);
+
+  // Предыдущий период: ровно столько же дней, вплотную до начала выбранного.
+  // "С начала месяца" 01.09–08.09 (8 дней) сравнивается с 24.08–31.08.
+  function previousRange() {
+    const length = daysInRange(from, to);
+    return { prevFrom: shiftDays(from, -length), prevTo: shiftDays(from, -1) };
+  }
+
+  function loadPrevTotals() {
+    const { prevFrom, prevTo } = previousRange();
+    setPrevTotals(null);
+    Promise.all([
+      fetchSummary(password, prevFrom, prevTo, mode),
+      fetchSummaryProfit(password, prevFrom, prevTo, mode),
+    ])
+      .then(([summaryRes, profitRes]) => {
+        const revenue = summaryRes.days.reduce((sum, d) => sum + Number(d.total_revenue), 0);
+        const orders = summaryRes.days.reduce((sum, d) => sum + Number(d.orders_count), 0);
+        setPrevTotals({
+          from: prevFrom,
+          to: prevTo,
+          days: daysInRange(prevFrom, prevTo),
+          revenue,
+          orders,
+          avg: orders > 0 ? revenue / orders : 0,
+          profit: Number(profitRes.net_profit) || 0,
+        });
+      })
+      .catch(() => setPrevTotals(null)); // сравнение необязательное — молча прячем процент
+  }
 
   function loadData() {
     setLoading(true);
@@ -95,6 +130,11 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
     if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, from, to, mode]);
+
+  useEffect(() => {
+    if (active && isMobile) loadPrevTotals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, isMobile, from, to, mode]);
 
   // Мобильная версия присылает только ключ пресета — даты считаем тут, теми же правилами,
   // что и PeriodSelector на компьютере.
@@ -164,6 +204,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
                 products={products}
                 todayRevenue={todayRevenue}
                 yesterdayRevenue={yesterdayRevenue}
+                prevTotals={prevTotals}
                 totalRevenue={totalRevenue}
                 totalOrders={totalOrders}
                 avgOrder={avgOrder}

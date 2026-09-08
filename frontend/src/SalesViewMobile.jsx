@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import MetricLineChart from './MetricLineChart.jsx';
-import { formatMoney, formatNumber, percentChange } from './dateUtils.js';
+import { formatMoney, formatNumber, percentChange, shiftDays } from './dateUtils.js';
 
 // Мобильная "Главная". На компьютере это блок "вчера/сегодня", полоса периодов, пять карточек
 // показателей в ряд, график и таблица товаров. На телефоне карточки встают в столбик, и
@@ -34,7 +34,7 @@ function dayLabel(iso) {
 }
 
 export default function SalesViewMobile({
-  days, profitDays, products, todayRevenue, yesterdayRevenue,
+  days, profitDays, products, todayRevenue, yesterdayRevenue, prevTotals,
   totalRevenue, totalOrders, avgOrder, avgOrdersPerDay, periodNetProfit,
   inventoryTotal, usedEstimate, showMarketingNote,
   from, to, presetKey, onPeriodChange, onCustomDates,
@@ -44,38 +44,52 @@ export default function SalesViewMobile({
   const [showDates, setShowDates] = useState(presetKey === 'custom');
   const [showNotes, setShowNotes] = useState(false);
 
-  const delta = percentChange(todayRevenue, yesterdayRevenue);
   const labels = days.map((d) => dayLabel(d.day));
 
   // Показатели — те же пять карточек, что на компьютере. series есть у тех, кого сервер
   // отдаёт по дням; у "Денег в товаре" его нет и быть не может — это снимок на сейчас.
   const METRICS = [
     {
-      key: 'revenue', label: 'Сумма продаж', value: formatMoney(totalRevenue),
+      key: 'revenue', label: 'Сумма продаж', value: totalRevenue, format: formatMoney,
+      prev: prevTotals ? prevTotals.revenue : null,
       series: days.map((d) => Number(d.total_revenue) || 0),
     },
     {
-      key: 'orders', label: 'Количество заказов', value: formatNumber(totalOrders),
+      key: 'orders', label: 'Количество заказов', value: totalOrders, format: formatNumber,
       hint: `⌀ ${avgOrdersPerDay}/день`,
+      prev: prevTotals ? prevTotals.orders : null,
       series: days.map((d) => Number(d.orders_count) || 0),
     },
     {
-      key: 'avg', label: 'Средний чек', value: formatMoney(avgOrder),
+      key: 'avg', label: 'Средний чек', value: avgOrder, format: formatMoney,
+      prev: prevTotals ? prevTotals.avg : null,
       series: days.map((d) => (Number(d.orders_count) ? Number(d.total_revenue) / Number(d.orders_count) : 0)),
     },
     {
-      key: 'profit', label: 'Чистая прибыль', value: formatMoney(periodNetProfit),
+      key: 'profit', label: 'Чистая прибыль', value: periodNetProfit, format: formatMoney,
       tone: periodNetProfit < 0 ? 'down' : 'up',
+      prev: prevTotals ? prevTotals.profit : null,
       series: profitDays.length ? profitDays.map((d) => Number(d.net_profit) || 0) : null,
     },
     ...(inventoryTotal !== null ? [{
-      key: 'inventory', label: 'Деньги в товаре сейчас', value: formatMoney(inventoryTotal),
+      key: 'inventory', label: 'Деньги в товаре сейчас', value: inventoryTotal, format: formatMoney,
       short: shortMoney(inventoryTotal), snapshot: true,
       note: 'Остаток складов плюс оплаченное в пути — подробности на «Складе»',
     }] : []),
   ];
 
   const current = METRICS.find((m) => m.key === metric) || METRICS[0];
+  // Сравниваем то же самое с тем же самым: показатель за выбранный период против него же за
+  // предыдущий период такой же длины (см. previousRange в SalesView.jsx).
+  //
+  // Проверка prevTotals.to === день перед from обязательна: итоги двух периодов грузятся
+  // разными запросами и приходят вразнобой. Без неё в момент смены периода процент успевает
+  // посчитаться от СТАРОЙ текущей цифры к УЖЕ НОВОЙ предыдущей — на "Сегодня" мелькало
+  // +845,7%, потому что месячная выручка делилась на вчерашнюю.
+  const prevMatchesPeriod = !!prevTotals && prevTotals.to === shiftDays(from, -1);
+  const currentDelta = current.snapshot || !prevMatchesPeriod || current.prev === null || current.prev === undefined
+    ? null
+    : percentChange(current.value, current.prev);
   const color = current.key === 'profit'
     ? (periodNetProfit < 0 ? 'var(--accent-down)' : 'var(--accent-up)')
     : 'var(--accent-brand)';
@@ -133,12 +147,23 @@ export default function SalesViewMobile({
               {current.label}{current.snapshot ? ' · на сейчас' : ' · за период'}
             </div>
             <div className={`svm-big-value${current.tone === 'up' ? ' svm-up' : current.tone === 'down' ? ' svm-down' : ''}`}>
-              {current.value}
+              {current.format(current.value)}
             </div>
           </div>
-          <div className={`svm-delta ${delta === null ? 'flat' : delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat'}`}>
-            {delta === null ? '—' : `${delta > 0 ? '+' : ''}${delta.toFixed(1)}%`}
-          </div>
+          {/* Процент — по ВЫБРАННОМУ показателю и к предыдущему периоду такой же длины.
+              У "Денег в товаре" его нет: это снимок на сейчас, сравнивать не с чем. */}
+          {!current.snapshot && (
+            <div className={`svm-delta ${currentDelta === null ? 'flat' : currentDelta > 0 ? 'up' : currentDelta < 0 ? 'down' : 'flat'}`}>
+              {currentDelta === null ? '…' : `${currentDelta > 0 ? '+' : ''}${currentDelta.toFixed(1)}%`}
+            </div>
+          )}
+        </div>
+        <div className="svm-big-sub">
+          {current.snapshot
+            ? 'снимок на сейчас — сравнивать не с чем'
+            : prevMatchesPeriod
+              ? `${prevTotals.days} дн. до этого (${dayLabel(prevTotals.from)} — ${dayLabel(prevTotals.to)}): ${current.format(current.prev)}`
+              : 'считаем предыдущий период…'}
         </div>
         <div className="svm-big-sub">
           сегодня {formatMoney(todayRevenue)} · вчера {formatMoney(yesterdayRevenue)}
@@ -166,7 +191,7 @@ export default function SalesViewMobile({
             >
               <div className="svm-mini-label">{m.label}</div>
               <div className={`svm-mini-value${m.tone === 'up' ? ' svm-up' : m.tone === 'down' ? ' svm-down' : ''}`}>
-                {m.short || m.value}
+                {m.short || m.format(m.value)}
               </div>
             </button>
           ))}

@@ -68,3 +68,18 @@ export function formatDateDMY(value) {
   const [, year, month, day] = match;
   return `${day}/${month}/${year}`;
 }
+
+// Сдвиг ISO-даты на N дней. Работает в UTC и со строкой, а не с локальным Date, чтобы
+// не словить сдвиг на сутки из-за часового пояса (та же причина, что у formatDateDMY).
+export function shiftDays(isoDate, days) {
+  const d = new Date(`${String(isoDate).slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// Сколько дней в периоде, включая обе границы: 01.09–08.09 = 8 дней.
+export function daysInRange(from, to) {
+  const a = new Date(`${String(from).slice(0, 10)}T00:00:00Z`);
+  const b = new Date(`${String(to).slice(0, 10)}T00:00:00Z`);
+  return Math.round((b - a) / 86400000) + 1;
+}
