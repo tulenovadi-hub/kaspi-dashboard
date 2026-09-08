@@ -53,23 +53,29 @@ export default function SalesViewMobile({
       key: 'revenue', label: 'Сумма продаж', value: totalRevenue, format: formatMoney,
       prev: prevTotals ? prevTotals.revenue : null,
       series: days.map((d) => Number(d.total_revenue) || 0),
+      seriesLabels: labels,
     },
     {
       key: 'orders', label: 'Количество заказов', value: totalOrders, format: formatNumber,
       hint: `⌀ ${avgOrdersPerDay}/день`,
       prev: prevTotals ? prevTotals.orders : null,
       series: days.map((d) => Number(d.orders_count) || 0),
+      seriesLabels: labels,
     },
     {
       key: 'avg', label: 'Средний чек', value: avgOrder, format: formatMoney,
       prev: prevTotals ? prevTotals.avg : null,
       series: days.map((d) => (Number(d.orders_count) ? Number(d.total_revenue) / Number(d.orders_count) : 0)),
+      seriesLabels: labels,
     },
     {
       key: 'profit', label: 'Чистая прибыль', value: periodNetProfit, format: formatMoney,
       tone: periodNetProfit < 0 ? 'down' : 'up',
       prev: prevTotals ? prevTotals.profit : null,
+      // Прибыль приходит отдельным запросом (/summary-profit) и может покрывать не те же дни,
+      // что выручка, — поэтому и подписи для подсказки берём из её собственного ряда.
       series: profitDays.length ? profitDays.map((d) => Number(d.net_profit) || 0) : null,
+      seriesLabels: profitDays.map((d) => dayLabel(d.day)),
     },
     ...(inventoryTotal !== null ? [{
       key: 'inventory', label: 'Деньги в товаре сейчас', value: inventoryTotal, format: formatMoney,
@@ -171,7 +177,12 @@ export default function SalesViewMobile({
         </div>
 
         {current.series ? (
-          <MetricLineChart values={current.series} labels={labels} color={color} />
+          <MetricLineChart
+            values={current.series}
+            labels={current.seriesLabels || labels}
+            color={color}
+            format={current.format}
+          />
         ) : (
           <div className="svm-no-chart">
             {current.snapshot

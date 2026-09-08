@@ -15,6 +15,16 @@ import React, { useEffect, useRef, useState } from 'react';
 // форма менялась в первом же кадре, а дальше 285 мс не происходило ничего. С нормированной
 // формой скорость перехода не зависит от того, отличаются ряды в 5 раз или в 32 000.
 //
+// ЗНАЧЕНИЕ ЗА ОТДЕЛЬНЫЙ ДЕНЬ: по графику можно вести пальцем (или мышью) — выбранный день
+// отмечается вертикальным пунктиром и точкой, а над ней всплывает дата и цифра, как в
+// recharts-подсказке на компьютере. Тонкости:
+//   • подпись берёт значение из ИСХОДНОГО ряда values, а не из анимированной формы shown —
+//     иначе во время переезда линии в подсказке мелькали бы промежуточные, несуществующие числа;
+//   • touch-action: pan-y (в styles.css) — вертикальная прокрутка страницы пальцем по графику
+//     продолжает работать, перехватывается только горизонтальное ведение;
+//   • после отпускания палец отметку НЕ сбрасывает: на телефоне значение читают уже после того,
+//     как убрали палец с экрана. Мышь — наоборот, снимает отметку при уходе с графика.
+//
 // ДРУГИЕ ГРАБЛИ, на которые уже наступили:
 //   1. Зависимость эффекта — СТРОКА-подпись, а не массив: массив создаётся заново на каждый
 //      рендер родителя, и с зависимостью [values] эффект перезапускался бы постоянно, перебивая
@@ -26,6 +36,8 @@ import React, { useEffect, useRef, useState } from 'react';
 //      в браузерной панели, где страница всегда hidden).
 
 const DURATION = 380;
+const W = 320;
+const PAD_X = 6;
 
 function prefersReducedMotion() {
   return typeof window !== 'undefined'
@@ -49,11 +61,17 @@ function toShape(values) {
   };
 }
 
-export default function MetricLineChart({ values, labels, color = 'var(--accent-brand)', height = 140 }) {
+export default function MetricLineChart({
+  values, labels, color = 'var(--accent-brand)', height = 140, format = (v) => v,
+}) {
   const target = toShape(values);
   const [shown, setShown] = useState(target);
   const shownRef = useRef(target); // то, что реально нарисовано прямо сейчас
   const signature = `${target.points.join('|')}#${target.zero}`;
+
+  const plotRef = useRef(null);
+  const draggingRef = useRef(false);
+  const [picked, setPicked] = useState(null); // индекс выбранного дня или null
 
   useEffect(() => {
     const start = shownRef.current;
@@ -85,13 +103,11 @@ export default function MetricLineChart({ values, labels, color = 'var(--accent-
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
 
-  const w = 320;
-  const padX = 6;
   const bottom = height - 20;
   const top = 12;
 
   const points = shown.points;
-  const x = (i) => padX + (i * (w - padX * 2)) / Math.max(1, points.length - 1);
+  const x = (i) => PAD_X + (i * (W - PAD_X * 2)) / Math.max(1, points.length - 1);
   const y = (share) => bottom - share * (bottom - top);
 
   const line = points.map((share, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(share).toFixed(1)}`).join(' ');
@@ -100,34 +116,134 @@ export default function MetricLineChart({ values, labels, color = 'var(--accent-
   // Иначе линия совпала бы с осью и была бы просто лишней чертой.
   const showZero = shown.zero > 0.005;
 
+  // Индекс держим в состоянии как есть, а зажимаем при отрисовке: при смене периода дней
+  // становится меньше, и сохранённый индекс мог бы вылезти за конец нового ряда.
+  const active = picked === null || points.length === 0
+    ? null
+    : Math.min(picked, points.length - 1);
+
+  function indexFromClientX(clientX) {
+    const el = plotRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || points.length === 0) return null;
+    if (points.length === 1) return 0;
+    // Из пикселей экрана — в координаты viewBox (по горизонтали svg растянут на всю ширину).
+    const vx = ((clientX - rect.left) / rect.width) * W;
+    const stepX = (W - PAD_X * 2) / (points.length - 1);
+    const i = Math.round((vx - PAD_X) / stepX);
+    return Math.max(0, Math.min(points.length - 1, i));
+  }
+
+  function pick(e) {
+    const i = indexFromClientX(e.clientX);
+    if (i !== null) setPicked(i);
+  }
+
+  function onPointerDown(e) {
+    draggingRef.current = true;
+    // Захват указателя — чтобы палец, уехавший за край графика, продолжал вести отметку.
+    if (e.currentTarget.setPointerCapture) {
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* не критично */ }
+    }
+    pick(e);
+  }
+
+  function onPointerMove(e) {
+    if (draggingRef.current || e.pointerType === 'mouse') pick(e);
+  }
+
+  function onPointerUp() {
+    draggingRef.current = false;
+  }
+
+  function onPointerLeave(e) {
+    // Мышь ушла с графика — подсказку убираем. Палец после отпускания её оставляет.
+    if (e.pointerType === 'mouse' && !draggingRef.current) setPicked(null);
+  }
+
+  let tip = null;
+  if (active !== null) {
+    const pxShare = (x(active) / W) * 100;
+    const py = y(points[active]);
+    const style = {};
+    if (pxShare <= 22) style.left = 0;
+    else if (pxShare >= 78) style.right = 0;
+    else style.left = `${pxShare}%`;
+    // Возле верхнего края подсказке некуда всплывать — тогда роняем её под точку.
+    const below = py < 58;
+    style.top = below ? py + 12 : py - 12;
+    style.transform = [
+      pxShare > 22 && pxShare < 78 ? 'translateX(-50%)' : '',
+      below ? '' : 'translateY(-100%)',
+    ].filter(Boolean).join(' ');
+    // Минус в отдельный день красим красным, даже если весь период в плюсе и линия зелёная —
+    // так же, как в подсказке графика на компьютере.
+    const dayValue = values[active];
+    tip = (
+      <div className="mlc-tip" style={style}>
+        <span className="mlc-tip-day">{labels[active] || ''}</span>
+        <span className="mlc-tip-value" style={{ color: dayValue < 0 ? 'var(--accent-down)' : color }}>
+          {format(dayValue)}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className="mlc">
-      <svg
-        className="mlc-svg"
-        viewBox={`0 0 ${w} ${height}`}
-        preserveAspectRatio="none"
-        role="img"
-        aria-label="График по дням выбранного периода"
+      <div
+        className="mlc-plot"
+        ref={plotRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onPointerLeave={onPointerLeave}
       >
-        {showZero && (
-          <line
-            x1={padX}
-            y1={y(shown.zero)}
-            x2={w - padX}
-            y2={y(shown.zero)}
-            stroke="var(--border)"
-            strokeWidth="1"
-            strokeDasharray="4 4"
-          />
-        )}
-        <path d={area} fill={color} opacity="0.12" />
-        <path className="mlc-line" d={line} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-        {points.map((share, i) => (
-          <circle key={i} cx={x(i)} cy={y(share)} r="2.6" fill={color} />
-        ))}
-      </svg>
+        <svg
+          className="mlc-svg"
+          viewBox={`0 0 ${W} ${height}`}
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="График по дням выбранного периода"
+        >
+          {showZero && (
+            <line
+              x1={PAD_X}
+              y1={y(shown.zero)}
+              x2={W - PAD_X}
+              y2={y(shown.zero)}
+              stroke="var(--border)"
+              strokeWidth="1"
+              strokeDasharray="4 4"
+            />
+          )}
+          <path d={area} fill={color} opacity="0.12" />
+          <path className="mlc-line" d={line} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+          {points.map((share, i) => (
+            <circle key={i} cx={x(i)} cy={y(share)} r="2.6" fill={color} />
+          ))}
+          {active !== null && (
+            <>
+              <line
+                x1={x(active)}
+                y1={top - 8}
+                x2={x(active)}
+                y2={bottom}
+                stroke="var(--text-muted)"
+                strokeWidth="1"
+                strokeDasharray="3 3"
+              />
+              <circle cx={x(active)} cy={y(points[active])} r="4.5" fill="var(--bg-card)" stroke={color} strokeWidth="2.5" />
+            </>
+          )}
+        </svg>
+        {tip}
+      </div>
       <div className="mlc-caption">
         <span>{labels[0]}</span>
+        {active === null && <span className="mlc-hint">коснитесь графика</span>}
         <span>{labels[labels.length - 1]}</span>
       </div>
     </div>
