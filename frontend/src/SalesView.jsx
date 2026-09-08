@@ -6,6 +6,8 @@ import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
 import { fetchSummary, fetchProducts, fetchSummaryProfit, fetchInventoryValue, triggerSync } from './api.js';
 import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber } from './dateUtils.js';
+import SalesViewMobile from './SalesViewMobile.jsx';
+import { useIsMobile } from './useIsMobile.js';
 
 export default function SalesView({ password, onLogout, mode, title, showSync, active = true, isOnline = true }) {
   const [from, setFrom] = useState(toISODate(startOfMonth()));
@@ -19,6 +21,11 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [periodNetProfit, setPeriodNetProfit] = useState(0);
   const [usedEstimate, setUsedEstimate] = useState(false);
+  // Чистая прибыль по дням — только для графика на телефоне (на компьютере график всегда
+  // по выручке). Приходит из того же /summary-profit, что и итоговая цифра.
+  const [profitDays, setProfitDays] = useState([]);
+
+  const isMobile = useIsMobile();
 
   // "Деньги в товаре" — снимок на сейчас, а не за выбранный период, поэтому грузится один раз
   // и не перезапрашивается при смене дат. На самовыкупах не показывается: цифра общая по
@@ -47,6 +54,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
         setProducts(productsRes.products);
         setPeriodNetProfit(Number(profitRes.net_profit) || 0);
         setUsedEstimate(!!profitRes.used_estimate);
+        setProfitDays(Array.isArray(profitRes.days) ? profitRes.days : []);
 
         // Если сейчас открыт конкретный товар — не выкидываем на список при смене периода,
         // а просто подтягиваем его актуальные "Продано за период" под новый диапазон дат
@@ -88,6 +96,23 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, from, to, mode]);
 
+  // Мобильная версия присылает только ключ пресета — даты считаем тут, теми же правилами,
+  // что и PeriodSelector на компьютере.
+  function handleMobilePreset(key) {
+    const map = {
+      today: [daysAgo(0), daysAgo(0)],
+      yesterday: [daysAgo(1), daysAgo(1)],
+      '7days': [daysAgo(6), daysAgo(0)],
+      '14days': [daysAgo(13), daysAgo(0)],
+      '30days': [daysAgo(29), daysAgo(0)],
+      '90days': [daysAgo(89), daysAgo(0)],
+      month: [startOfMonth(), daysAgo(0)],
+    };
+    const range = map[key];
+    if (!range) return;
+    handlePeriodChange({ from: toISODate(range[0]), to: toISODate(range[1]), presetKey: key });
+  }
+
   function handlePeriodChange({ from: newFrom, to: newTo, presetKey: newPreset }) {
     setFrom(newFrom);
     setTo(newTo);
@@ -109,6 +134,60 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   // Среднее количество заказов в день за период
   const daysCount = summaryDays.length || 1;
   const avgOrdersPerDay = totalOrders > 0 ? (totalOrders / daysCount).toFixed(1) : 0;
+
+  if (isMobile) {
+    return (
+      <>
+        {error && <div className="error-banner">{error}</div>}
+        {loading && summaryDays.length === 0 && products.length === 0 ? (
+          <div className="empty-state">Загрузка данных...</div>
+        ) : (
+          <div style={{
+            opacity: loading || !isOnline ? 0.55 : 1,
+            transition: 'opacity 0.25s ease',
+            pointerEvents: loading ? 'none' : 'auto',
+          }}>
+            {selectedProduct ? (
+              <ProductDetail
+                password={password}
+                product={selectedProduct}
+                from={from}
+                to={to}
+                mode={mode}
+                isOnline={isOnline}
+                onClose={() => setSelectedProduct(null)}
+              />
+            ) : (
+              <SalesViewMobile
+                days={summaryDays}
+                profitDays={profitDays}
+                products={products}
+                todayRevenue={todayRevenue}
+                yesterdayRevenue={yesterdayRevenue}
+                totalRevenue={totalRevenue}
+                totalOrders={totalOrders}
+                avgOrder={avgOrder}
+                avgOrdersPerDay={avgOrdersPerDay}
+                periodNetProfit={periodNetProfit}
+                inventoryTotal={inventoryTotal}
+                usedEstimate={usedEstimate}
+                showMarketingNote={mode !== 'selfbuy'}
+                from={from}
+                to={to}
+                presetKey={presetKey}
+                onPeriodChange={handleMobilePreset}
+                onCustomDates={(f, t) => handlePeriodChange({ from: f, to: t, presetKey: 'custom' })}
+                showSync={showSync}
+                syncing={syncing}
+                onSync={handleManualSync}
+                onSelectProduct={setSelectedProduct}
+              />
+            )}
+          </div>
+        )}
+      </>
+    );
+  }
 
   return (
     <>

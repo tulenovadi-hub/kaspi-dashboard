@@ -3824,3 +3824,91 @@ input[type="date"] {
   font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary);
   border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px;
 }
+
+/* ===== Главная на телефоне (SalesViewMobile.jsx) =====
+   На компьютере пять карточек показателей стоят в ряд; на телефоне они вставали в столбик и
+   страница вырастала до 1873px (2,3 экрана), а график начинался только после ~900px прокрутки.
+   Здесь один показатель крупно + его график, остальные — маленькими плитками. */
+.svm-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.svm-head .app-title { margin: 0; }
+
+.svm-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
+.svm-chips::-webkit-scrollbar { display: none; }
+.svm-chip {
+  flex: 0 0 auto; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary);
+  font-family: inherit; font-size: 12.5px; padding: 6px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+}
+.svm-chip[aria-pressed="true"] {
+  background: rgba(110, 139, 255, 0.14); color: var(--accent-brand); border-color: transparent; font-weight: 600;
+}
+
+.svm-dates { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; color: var(--text-muted); }
+.svm-dates input {
+  flex: 1 1 0; min-width: 0; border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-primary); border-radius: 9px; padding: 8px 9px;
+  font-family: var(--font-mono); font-size: 12.5px;
+}
+
+.svm-big { border: 1px solid var(--border); border-radius: 14px; background: var(--bg-card); padding: 13px 13px 10px; }
+.svm-big-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.svm-big-label { font-size: 11.5px; color: var(--text-muted); }
+.svm-big-value {
+  font-family: var(--font-mono); font-size: 26px; font-weight: 700;
+  letter-spacing: -0.01em; font-variant-numeric: tabular-nums; line-height: 1.15;
+}
+.svm-up { color: var(--accent-up); }
+.svm-down { color: var(--accent-down); }
+.svm-big-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; }
+.svm-delta { flex: 0 0 auto; font-family: var(--font-mono); font-size: 12px; padding: 3px 8px; border-radius: 7px; }
+.svm-delta.up { background: var(--accent-up-dim); color: var(--accent-up); }
+.svm-delta.down { background: var(--accent-down-dim); color: var(--accent-down); }
+.svm-delta.flat { background: rgba(255, 255, 255, 0.06); color: var(--text-secondary); }
+
+.svm-no-chart { font-size: 12px; color: var(--text-muted); padding: 26px 2px 18px; text-align: center; }
+.svm-metric-note { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+.svm-minis { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+.svm-mini {
+  border: 1px solid var(--border); border-radius: 10px; background: transparent; color: inherit;
+  text-align: left; padding: 7px 9px; cursor: pointer; font-family: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.svm-mini[aria-pressed="true"] { border-color: var(--accent-brand); background: rgba(110, 139, 255, 0.12); }
+.svm-mini-label { font-size: 10.5px; color: var(--text-muted); }
+.svm-mini-value { font-family: var(--font-mono); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.svm-notes-toggle {
+  width: 100%; margin-top: 10px; border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); border-radius: 10px; padding: 9px;
+  font-family: inherit; font-size: 12.5px; cursor: pointer;
+}
+.svm-notes-toggle:active { background: var(--bg-card-hover); }
+.svm-notes { padding: 10px 2px 0; font-size: 11.5px; color: var(--text-muted); line-height: 1.5; }
+.svm-notes p { margin: 0 0 8px; }
+
+.svm-sec-title {
+  margin: 18px 2px 8px; font-size: 12px; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--text-muted); font-weight: 600;
+}
+.svm-products { padding: 4px 10px; }
+.svm-prod {
+  display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; width: 100%;
+  background: none; border: none; border-bottom: 1px solid rgba(38, 47, 69, 0.6);
+  color: inherit; font-family: inherit; text-align: left; padding: 10px 2px; cursor: pointer;
+}
+.svm-prod:last-child { border-bottom: none; }
+.svm-prod:active { background: var(--bg-card-hover); }
+.svm-prod-name { font-size: 13.5px; }
+.svm-prod-sum { font-family: var(--font-mono); font-size: 13.5px; text-align: right; font-variant-numeric: tabular-nums; }
+.svm-prod-meta { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+.svm-right { text-align: right; }
+.svm-prod-bar { grid-column: 1 / -1; height: 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.05); overflow: hidden; }
+.svm-prod-bar i { display: block; height: 100%; border-radius: 3px; background: var(--accent-brand); }
+
+/* График с анимацией перехода между показателями (MetricLineChart.jsx) */
+.mlc { margin-top: 10px; }
+.mlc-svg { width: 100%; height: 140px; display: block; }
+.mlc-caption {
+  display: flex; justify-content: space-between;
+  font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px;
+}

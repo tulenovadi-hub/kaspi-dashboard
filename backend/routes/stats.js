@@ -233,6 +233,24 @@ async function computeKnownProfitRatio(from, to, mode, kptByOrder, costData) {
 // Сумма расходов на маркетинг (реклама + бонусы от продавца + бонусы за отзыв) за произвольный
 // диапазон дат — просто SUM того, что реально загружено, без каких-либо прогнозов на
 // недостающие дни (в отличие от оценки чистой прибыли по свежим заказам ниже).
+// Маркетинг по дням — нужен дневному графику чистой прибыли на телефоне. Все три источника
+// хранят дату расхода, поэтому разложить по дням можно честно, а не размазывать итог поровну.
+async function fetchMarketingByDay(from, to) {
+  const [adsResult, bonusResult, reviewResult] = await Promise.all([
+    pool.query(`SELECT expense_date::text AS day, COALESCE(SUM(cost), 0) AS total FROM ad_expenses WHERE expense_date BETWEEN $1 AND $2 GROUP BY expense_date`, [from, to]),
+    pool.query(`SELECT expense_date::text AS day, COALESCE(SUM(bonus_amount), 0) AS total FROM bonus_expenses WHERE expense_date BETWEEN $1 AND $2 GROUP BY expense_date`, [from, to]),
+    pool.query(`SELECT expense_date::text AS day, COALESCE(SUM(bonus_amount), 0) AS total FROM review_bonus_expenses WHERE expense_date BETWEEN $1 AND $2 GROUP BY expense_date`, [from, to]),
+  ]);
+  const byDay = new Map();
+  for (const rows of [adsResult.rows, bonusResult.rows, reviewResult.rows]) {
+    for (const r of rows) {
+      const day = String(r.day).slice(0, 10);
+      byDay.set(day, (byDay.get(day) || 0) + Number(r.total));
+    }
+  }
+  return byDay;
+}
+
 async function fetchMarketingTotalForRange(from, to) {
   const [adsResult, bonusResult, reviewResult] = await Promise.all([
     pool.query(`SELECT COALESCE(SUM(cost), 0) AS total FROM ad_expenses WHERE expense_date BETWEEN $1 AND $2`, [from, to]),
@@ -254,9 +272,12 @@ async function computeSummaryNetProfit(from, to, mode) {
   // Маркетинг не привязан к городу отгрузки, поэтому вычитаем его только на "Главной" (mode
   // !== 'selfbuy') — так же, как колонка "Маркетинг" в "Отчёте" есть только в "Основном отчёте"
   // (Алматы, Астана), а не в "Самовыкупах".
-  const [itemsResult, kptResult, costData, marketing] = await Promise.all([
+  const [itemsResult, kptResult, costData, marketing, marketingByDay] = await Promise.all([
     pool.query(
-      `SELECT oi.product_id, oi.quantity, oi.total_price, o.code AS order_number, o.id AS order_id
+      // day — та же "казахстанская" дата, что и в /summary (сдвиг +5 часов), иначе выручка и
+      // прибыль одного заказа попадали бы на разные дни графика.
+      `SELECT oi.product_id, oi.quantity, oi.total_price, o.code AS order_number, o.id AS order_id,
+              to_char((oi.creation_date + interval '5 hours')::date, 'YYYY-MM-DD') AS day
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        WHERE oi.creation_date >= $1::timestamp - interval '5 hours'
@@ -273,10 +294,28 @@ async function computeSummaryNetProfit(from, to, mode) {
     ),
     computeCostsByOrderItem(mode),
     mode !== 'selfbuy' ? fetchMarketingTotalForRange(from, to) : Promise.resolve(0),
+    mode !== 'selfbuy' ? fetchMarketingByDay(from, to) : Promise.resolve(new Map()),
   ]);
 
+  // Прибыль по дням — для графика на телефоне. Собирается тем же проходом, что и итог, поэтому
+  // сумма дней сходится с числом в карточке (маркетинг тоже вычитается по дням, а не поровну).
+  const profitByDay = new Map();
+  const estimatedDays = new Set();
+  const addDayProfit = (day, value) => profitByDay.set(day, (profitByDay.get(day) || 0) + value);
+  function buildDays() {
+    const days = [];
+    for (let d = from; d <= to; d = addDays(d, 1)) {
+      days.push({
+        day: d,
+        net_profit: Math.round(((profitByDay.get(d) || 0) - (marketingByDay.get(d) || 0)) * 100) / 100,
+        is_estimated: estimatedDays.has(d),
+      });
+    }
+    return days;
+  }
+
   if (itemsResult.rows.length === 0) {
-    return { netProfit: -marketing, usedEstimate: false };
+    return { netProfit: -marketing, usedEstimate: false, days: buildDays() };
   }
 
   // order_id -> сумма всех позиций в этом заказе (для деления комиссии/доставки по товарам)
@@ -331,6 +370,7 @@ async function computeSummaryNetProfit(from, to, mode) {
 
     knownNetProfit += netProfitItem;
     knownNetRevenue += netRevenueItem;
+    addDayProfit(it.day, netProfitItem);
 
     const stat = perProductKnown.get(it.product_id) || { revenue: 0, profit: 0 };
     stat.revenue += netRevenueItem;
@@ -360,11 +400,14 @@ async function computeSummaryNetProfit(from, to, mode) {
     const stat = perProductKnown.get(it.product_id);
     const ratio = stat && stat.revenue > 0 ? stat.profit / stat.revenue : overallRatio;
     estimatedNetProfit += revenue * ratio;
+    addDayProfit(it.day, revenue * ratio);
+    estimatedDays.add(it.day); // в этом дне есть заказы без Excel-отчёта — прибыль дня оценочная
   }
 
   return {
     netProfit: knownNetProfit + estimatedNetProfit - marketing,
     usedEstimate: unknownItems.length > 0,
+    days: buildDays(),
   };
 }
 
@@ -375,8 +418,8 @@ router.get('/summary-profit', async (req, res) => {
   }
 
   try {
-    const { netProfit, usedEstimate } = await computeSummaryNetProfit(from, to, mode);
-    res.json({ net_profit: netProfit, used_estimate: usedEstimate });
+    const { netProfit, usedEstimate, days } = await computeSummaryNetProfit(from, to, mode);
+    res.json({ net_profit: netProfit, used_estimate: usedEstimate, days });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить чистую прибыль' });
