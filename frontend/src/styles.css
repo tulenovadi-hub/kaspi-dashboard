@@ -529,6 +529,16 @@ button,
   color: var(--accent-brand);
 }
 
+/* Что принесла кнопка "Обновить сейчас": "Из Kaspi: 3 заказа" или "Новых заказов нет".
+   Раньше кнопка молчала, и понять, сработала ли она, было нельзя вообще. */
+.sync-result {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  animation: banner-in 0.24s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
 .sync-status {
   font-family: var(--font-mono);
   font-size: 12px;

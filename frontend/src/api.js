@@ -164,8 +164,15 @@ export function fetchProductStats(password, productId, from, to, mode = 'main') 
   return apiRequest(`/api/stats/product/${encodeURIComponent(productId)}?from=${from}&to=${to}&mode=${mode}`, password);
 }
 
+// wait: true — сервер ответит только когда реально закончит тянуть заказы из Kaspi.
+// Без этого кнопка "Обновить сейчас" гасла раньше, чем данные доезжали до базы (см. server.js).
 export function triggerSync(password) {
-  return apiRequest('/api/sync', password, { method: 'POST', timeoutMs: LONG_TIMEOUT_MS });
+  return apiRequest('/api/sync', password, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ wait: true }),
+    timeoutMs: LONG_TIMEOUT_MS,
+  });
 }
 
 export function fetchBatchProducts(password) {

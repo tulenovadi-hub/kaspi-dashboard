@@ -65,6 +65,16 @@ export function formatRecords(count) {
   return `${n} записей`;
 }
 
+// Рядом с formatRecords и по той же причине: "1 заказ", а не "1 заказов".
+export function formatOrders(count) {
+  const n = Number(count) || 0;
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${n} заказ`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${n} заказа`;
+  return `${n} заказов`;
+}
+
 export function formatPercent(value) {
   if (value === null || value === undefined) return '—';
   return `${value >= 0 ? '' : ''}${value.toFixed(1)}%`;

@@ -196,7 +196,7 @@ export default function SalesViewMobile({
   totalRevenue, totalOrders, avgOrder, avgOrdersPerDay, periodNetProfit,
   inventoryTotal, usedEstimate, showMarketingNote,
   from, to, presetKey, onPeriodChange, onCustomDates,
-  showSync, syncing, onSync, onSelectProduct,
+  showSync, syncing, onSync, syncResult, onSelectProduct,
 }) {
   const [metric, setMetric] = useState('revenue');
   const [showPeriod, setShowPeriod] = useState(false);
@@ -265,6 +265,7 @@ export default function SalesViewMobile({
   return (
     <div className="svm">
       <div className="svm-head">
+        {syncResult && <span className="sync-result">{syncResult}</span>}
         {showSync && (
           <button className="sync-button" onClick={onSync} disabled={syncing}>
             {syncing ? 'Обновляем...' : 'Обновить сейчас'}

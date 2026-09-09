@@ -5,7 +5,7 @@ import SalesChart from './SalesChart.jsx';
 import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
 import { fetchSummary, fetchProducts, fetchSummaryProfit, fetchInventoryValue, triggerSync } from './api.js';
-import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber, shiftDays, daysInRange } from './dateUtils.js';
+import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber, shiftDays, daysInRange, formatOrders } from './dateUtils.js';
 import SalesViewMobile from './SalesViewMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import { useAppRefresh } from './useAppRefresh.js';
@@ -47,6 +47,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState('');
 
   // Предыдущий период: ровно столько же дней, вплотную до начала выбранного.
   // "С начала месяца" 01.09–08.09 (8 дней) сравнивается с 24.08–31.08.
@@ -166,10 +167,23 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
     setPresetKey(newPreset);
   }
 
+  // Кнопка ждёт, пока сервер реально сходит в Kaspi (wait: true в api.js), и только потом
+  // перечитывает страницу. До 2026-09-10 ответ приходил сразу, ещё до похода в Kaspi, и
+  // страница обновлялась пустой — свежий заказ появлялся сам через несколько секунд, и
+  // выглядело это так, будто кнопка не работает.
   function handleManualSync() {
     setSyncing(true);
+    setSyncResult('');
+    setError('');
     triggerSync(password)
-      .then(() => loadData())
+      .then((res) => {
+        setSyncResult(
+          res && typeof res.orders === 'number'
+            ? (res.orders > 0 ? `Из Kaspi: ${formatOrders(res.orders)}` : 'Новых заказов нет')
+            : 'Готово'
+        );
+        return loadData();
+      })
       .catch((err) => setError(err.message))
       .finally(() => setSyncing(false));
   }
@@ -226,6 +240,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
                 onPeriodChange={handleMobilePreset}
                 onCustomDates={(f, t) => handlePeriodChange({ from: f, to: t, presetKey: 'custom' })}
                 showSync={showSync}
+                syncResult={syncResult}
                 syncing={syncing}
                 onSync={handleManualSync}
                 onSelectProduct={setSelectedProduct}
@@ -243,6 +258,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
         <h1 className="app-title">{title}</h1>
         {showSync && (
           <div className="sync-status">
+            {syncResult && <span className="sync-result">{syncResult}</span>}
             <button className="sync-button" onClick={handleManualSync} disabled={syncing}>
               {syncing ? 'Обновляем...' : 'Обновить сейчас'}
             </button>
