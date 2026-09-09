@@ -5,6 +5,7 @@ import FilterHeader from './FilterHeader.jsx';
 import OrdersMobile from './OrdersMobile.jsx';
 import { getStatusLabel } from './orderStatus.js';
 import { useIsMobile } from './useIsMobile.js';
+import { useAppRefresh } from './useAppRefresh.js';
 
 // С какой даты проверяем доставку — раньше этой даты данных недостаточно для сравнения.
 const DELIVERY_CHECK_FROM = '2026-01-01';
@@ -75,10 +76,14 @@ export default function Orders({ password, active = true, isOnline = true }) {
       });
   }
 
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
+
   useEffect(() => {
     if (active) loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, password]);
+  }, [active, password, refreshTick]);
 
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
   const resetFilters = () => setFilters(createEmptyFilters());

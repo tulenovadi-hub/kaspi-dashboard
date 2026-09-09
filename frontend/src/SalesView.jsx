@@ -8,6 +8,7 @@ import { fetchSummary, fetchProducts, fetchSummaryProfit, fetchInventoryValue, t
 import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber, shiftDays, daysInRange } from './dateUtils.js';
 import SalesViewMobile from './SalesViewMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
+import { useAppRefresh } from './useAppRefresh.js';
 
 export default function SalesView({ password, onLogout, mode, title, showSync, active = true, isOnline = true }) {
   const [from, setFrom] = useState(toISODate(startOfMonth()));
@@ -31,6 +32,11 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   const [prevTotals, setPrevTotals] = useState(null);
 
   const isMobile = useIsMobile();
+
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
+
 
   // "Деньги в товаре" — снимок на сейчас, а не за выбранный период, поэтому грузится один раз
   // и не перезапрашивается при смене дат. На самовыкупах не показывается: цифра общая по
@@ -124,17 +130,17 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
       .then((res) => setInventoryTotal(res.total))
       .catch(() => {}); // плитка необязательная — молча прячем, если не посчиталось
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, mode, password]);
+  }, [active, mode, password, refreshTick]);
 
   useEffect(() => {
     if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, from, to, mode]);
+  }, [active, from, to, mode, refreshTick]);
 
   useEffect(() => {
     if (active && isMobile) loadPrevTotals();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, isMobile, from, to, mode]);
+  }, [active, isMobile, from, to, mode, refreshTick]);
 
   // Мобильная версия присылает только ключ пресета — даты считаем тут, теми же правилами,
   // что и PeriodSelector на компьютере.

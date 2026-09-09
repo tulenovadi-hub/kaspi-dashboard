@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchUsers, createUser, updateUser, deleteUser } from './api.js';
+import { useAppRefresh } from './useAppRefresh.js';
 
 function CreateUserForm({ password, onCreated }) {
   const [username, setUsername] = useState('');
@@ -158,10 +159,14 @@ export default function Settings({ password, username, active = true, isOnline =
       });
   }
 
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
+
   useEffect(() => {
     if (active) loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [active, refreshTick]);
 
   return (
     <div>

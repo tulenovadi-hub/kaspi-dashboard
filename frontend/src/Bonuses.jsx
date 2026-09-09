@@ -4,6 +4,7 @@ import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './d
 import PeriodSelector from './PeriodSelector.jsx';
 import MetricChart from './MetricChart.jsx';
 import CampaignFunnel, { METRICS } from './CampaignFunnel.jsx';
+import { useAppRefresh } from './useAppRefresh.js';
 
 // Одинаковая страница используется для двух разных программ бонусов Kaspi (от продавца и за
 // отзыв): структура данных у них общая, разные только источник (fetchExpenses) и подписи.
@@ -39,10 +40,14 @@ export default function Bonuses({
       .finally(() => setLoading(false));
   }
 
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
+
   useEffect(() => {
     if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, password, from, to, fetchExpenses]);
+  }, [active, password, from, to, fetchExpenses, refreshTick]);
 
   // Данные конкретной кампании — грузятся отдельно, только когда выбрана строка в таблице
   useEffect(() => {

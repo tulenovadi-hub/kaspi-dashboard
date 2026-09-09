@@ -3,6 +3,7 @@ import { fetchWarehouse, fetchInventoryValue, fetchProductImages, uploadProductI
 import { formatMoney, formatNumber } from './dateUtils.js';
 import WarehouseMobile from './WarehouseMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
+import { useAppRefresh } from './useAppRefresh.js';
 
 // Сжимаем картинку на клиенте перед отправкой — это просто маленькая иконка-превью на
 // "Складе", полное разрешение исходного фото не нужно, а без сжатия загрузка была бы
@@ -147,10 +148,14 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
       });
   }
 
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
+
   useEffect(() => {
     if (active) loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, password]);
+  }, [active, password, refreshTick]);
 
   function toggleExpand(key) {
     setExpanded((prev) => (prev === key ? null : key));

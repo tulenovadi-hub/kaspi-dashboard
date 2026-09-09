@@ -7,11 +7,15 @@ import React, { useEffect, useRef, useState } from 'react';
 // режиме Safari СВОЙ pull-to-refresh не показывает — он есть только во вкладке браузера.
 // Поэтому жест приходится ловить самим.
 //
-// Что делает жест: `window.location.reload()`. Это честнее, чем перезапрашивать данные текущей
-// страницы: страницы грузят себя сами в useEffect по `active`, у каждой свой набор запросов, и
-// единой "перезагрузи всё" ручки нет. Полная перезагрузка заодно подтягивает обновившийся
-// фронтенд с Vercel. Открытый раздел при этом сохраняется (см. sessionStorage в Dashboard.jsx),
-// так что после обновления остаёшься на той же странице.
+// Что делает жест: зовёт `onRefresh` (в Dashboard это `requestAppRefresh()` из useAppRefresh.js),
+// то есть просит открытую страницу перезапросить данные. Страница при этом НЕ размонтируется:
+// содержимое остаётся на месте и тускнеет, как в офлайне.
+//
+// Сначала жест делал `window.location.reload()` — и страница на секунду пропадала в белый экран.
+// Владелец 2026-09-09: «у нас же есть функция затемнения всех элементов в офлайн-режиме, пусть
+// при обновлении просто так же затемняется, а не пропадает». Отсюда и переход на сигнал.
+// Плата за это: новая версия фронтенда с Vercel жестом больше не подтягивается — она приезжает
+// при следующем полном запуске приложения.
 //
 // ГРАБЛИ, которые уже учтены:
 //   1. Жест ловим ТОЛЬКО когда страница реально в самом верху (scrollY <= 0) и палец повёл
@@ -25,8 +29,11 @@ import React, { useEffect, useRef, useState } from 'react';
 
 const THRESHOLD = 70; // сколько нужно протянуть, чтобы жест сработал
 const MAX_PULL = 110; // дальше индикатор не едет, как бы сильно ни тянули
+// Сколько крутится сам индикатор. Он не ждёт ответа сервера: пока данные едут, страница и так
+// затемнена своим `loading`, а вечно висящий кружок поверх неё только мешал бы.
+const SPIN_MS = 800;
 
-export function usePullToRefresh(enabled = true) {
+export function usePullToRefresh(enabled = true, onRefresh = null) {
   const [pull, setPull] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const startY = useRef(null);
@@ -37,6 +44,10 @@ export function usePullToRefresh(enabled = true) {
   // создавался. Класть побочный эффект (перезагрузку) внутрь функционального setState нельзя —
   // апдейтер обязан быть чистым.
   const pullRef = useRef(0);
+  // Колбэк держим в ref: он приходит из Dashboard новой функцией на каждый рендер, а
+  // пересобирать из-за этого слушатели touch-событий незачем.
+  const refreshRef = useRef(onRefresh);
+  refreshRef.current = onRefresh;
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -87,9 +98,12 @@ export function usePullToRefresh(enabled = true) {
         pullRef.current = THRESHOLD;
         setPull(THRESHOLD);
         setRefreshing(true);
-        // Небольшая пауза — чтобы индикатор успел показать, что обновление началось,
-        // а не мигнул и исчез вместе со страницей.
-        setTimeout(() => window.location.reload(), 220);
+        if (refreshRef.current) refreshRef.current();
+        setTimeout(() => {
+          pullRef.current = 0;
+          setPull(0);
+          setRefreshing(false);
+        }, SPIN_MS);
         return;
       }
       pullRef.current = 0;

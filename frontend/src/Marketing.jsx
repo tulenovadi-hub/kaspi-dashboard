@@ -4,6 +4,7 @@ import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './d
 import PeriodSelector from './PeriodSelector.jsx';
 import MetricChart from './MetricChart.jsx';
 import CampaignFunnel, { METRICS } from './CampaignFunnel.jsx';
+import { useAppRefresh } from './useAppRefresh.js';
 
 // ДРР считается двумя способами, и оба нужны:
 //  * от продаж ПО РЕКЛАМЕ (gmv) — ровно то, что Kaspi называет "Доля рекламных расходов";
@@ -79,10 +80,14 @@ export default function Marketing({ password, active = true, isOnline = true }) 
       .finally(() => setLoading(false));
   }
 
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
+
   useEffect(() => {
     if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, password, from, to]);
+  }, [active, password, from, to, refreshTick]);
 
   // Данные конкретной кампании — грузятся отдельно, только когда выбран товар
   useEffect(() => {

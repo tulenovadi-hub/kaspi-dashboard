@@ -7,6 +7,7 @@ import {
   GENERAL_COLUMNS, MAIN_COLUMNS, PRODUCT_COLUMNS, SELF_BUY_COLUMNS,
   GREEN_KEYS, RED_KEYS, PERCENT_OF_REVENUE_KEYS, PERCENT_VALUE_KEYS,
 } from './reportColumns.js';
+import { useAppRefresh } from './useAppRefresh.js';
 
 function hexToRgb(hex) {
   const n = parseInt(hex.replace('#', ''), 16);
@@ -209,10 +210,14 @@ export default function Report({ password, active = true, isOnline = true }) {
       });
   }
 
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
+
   useEffect(() => {
     if (active) loadReport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [active, refreshTick]);
 
   function handleFileChange(e) {
     const file = e.target.files[0];

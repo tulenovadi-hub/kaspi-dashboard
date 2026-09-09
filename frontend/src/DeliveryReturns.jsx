@@ -4,6 +4,7 @@ import { formatMoney } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
 import DeliveryReturnsMobile from './DeliveryReturnsMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
+import { useAppRefresh } from './useAppRefresh.js';
 
 function formatDate(value) {
   if (!value) return '—';
@@ -294,10 +295,14 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
       });
   }
 
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
+
   useEffect(() => {
     if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, password]);
+  }, [active, password, refreshTick]);
 
   function handleSync() {
     setSyncing(true);

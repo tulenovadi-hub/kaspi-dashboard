@@ -20,6 +20,7 @@ import ComingSoon from './ComingSoon.jsx';
 import { useOnlineStatus } from './useOnlineStatus.js';
 import { useIsMobile } from './useIsMobile.js';
 import { usePullToRefresh, PullToRefreshIndicator } from './usePullToRefresh.jsx';
+import { requestAppRefresh } from './useAppRefresh.js';
 
 const SECTION_TITLES = {};
 
@@ -46,7 +47,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
   // Жест "потяни вниз, чтобы обновить" — только на телефоне: на компьютере touch-событий нет,
   // и вешать слушатели незачем.
   const isMobile = useIsMobile();
-  const { pull, refreshing, threshold } = usePullToRefresh(isMobile);
+  const { pull, refreshing, threshold } = usePullToRefresh(isMobile, requestAppRefresh);
 
   // Защита на случай, если роль не даёт доступа к текущему разделу (например, роль сменили
   // прямо во время работы, или view остался от предыдущей роли) — просто откатываемся на Главную.

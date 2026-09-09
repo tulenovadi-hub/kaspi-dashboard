@@ -4,6 +4,7 @@ import { formatMoney, formatNumber, formatDateDMY } from './dateUtils.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
 import BatchesMobile, { ReceiveConfirm } from './BatchesMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
+import { useAppRefresh } from './useAppRefresh.js';
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -77,6 +78,10 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
   const extraPerUnit = Number(quantity) ? extraTotalKzt / Number(quantity) : 0;
 
   const costPrice = (Number(purchasePrice) || 0) + (Number(logisticsCost) || 0) + extraPerUnit;
+
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
 
   useEffect(() => {
     const amount = Number(purchaseAmountForeign);
@@ -594,7 +599,7 @@ export default function Batches({ password, onClose, active = true, isOnline = t
   useEffect(() => {
     if (active) loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [active, refreshTick]);
 
   function handleDelete(id) {
     if (!window.confirm('Удалить эту поставку?')) return;

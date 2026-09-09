@@ -4,6 +4,7 @@ import { formatMoney, formatNumber } from './dateUtils.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
 import PurchasingMobile from './PurchasingMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
+import { useAppRefresh } from './useAppRefresh.js';
 
 const STATUS_LABELS = { critical: 'Критично', soon: 'Скоро', normal: 'В норме' };
 const TABS = [
@@ -151,10 +152,14 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
       });
   }
 
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
+
   useEffect(() => {
     if (active) loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [active, refreshTick]);
 
   const products = data ? data.products : [];
   const filtered = products

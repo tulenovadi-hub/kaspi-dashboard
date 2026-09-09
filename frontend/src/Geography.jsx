@@ -3,6 +3,7 @@ import { fetchGeography } from './api.js';
 import { formatMoney, formatNumber, toISODate, daysAgo, startOfMonth } from './dateUtils.js';
 import PeriodSelector from './PeriodSelector.jsx';
 import KazakhstanMap from './KazakhstanMap.jsx';
+import { useAppRefresh } from './useAppRefresh.js';
 
 const EMPTY = {
   totals: null, macroRegions: [], regions: [], deliveryModes: [],
@@ -50,6 +51,10 @@ export default function Geography({ password, active = true, isOnline = true }) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
+
   useEffect(() => {
     if (!active) return;
     setLoading(true);
@@ -58,7 +63,7 @@ export default function Geography({ password, active = true, isOnline = true }) 
       .then((res) => setData(res))
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [active, password, from, to, warehouseMode]);
+  }, [active, password, from, to, warehouseMode, refreshTick]);
 
   function handlePeriodChange({ from: newFrom, to: newTo, presetKey: newPreset }) {
     setFrom(newFrom);

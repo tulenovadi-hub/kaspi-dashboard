@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchUnitEconomicsDefaults, saveUnitEconomicsPreset, deleteUnitEconomicsPreset } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
+import { useAppRefresh } from './useAppRefresh.js';
 
 const STORAGE_KEY = 'unit_economics_input';
 const PRODUCT_KEY = 'unit_economics_product';
@@ -253,6 +254,10 @@ export default function UnitEconomics({ password, active = true, isOnline = true
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
+
   useEffect(() => {
     if (!active) return;
     setLoading(true);
@@ -276,7 +281,7 @@ export default function UnitEconomics({ password, active = true, isOnline = true
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [active, password]);
+  }, [active, password, refreshTick]);
 
   // Ввод сохраняется локально: расчёт часто бросают на середине и возвращаются к нему позже.
   useEffect(() => {

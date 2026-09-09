@@ -3,6 +3,7 @@ import { fetchExpenses, fetchExpensesMonthly, syncExpenses } from './api.js';
 import { formatMoney, formatMonthLabel, formatDateDMY, formatRecords } from './dateUtils.js';
 import ExpensesMobile from './ExpensesMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
+import { useAppRefresh } from './useAppRefresh.js';
 
 export default function Expenses({ password, active = true, isOnline = true }) {
   const [expenses, setExpenses] = useState([]);
@@ -36,10 +37,14 @@ export default function Expenses({ password, active = true, isOnline = true }) {
       });
   }
 
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  const refreshTick = useAppRefresh(active);
+
   useEffect(() => {
     if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [active, refreshTick]);
 
   // На телефоне страница показывает ОДИН месяц, пункта "все месяцы" там нет — поэтому, как
   // только сводка загрузилась, встаём на самый свежий месяц. На компьютере фильтр по умолчанию
