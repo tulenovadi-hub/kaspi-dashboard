@@ -4210,3 +4210,118 @@ input[type="date"] {
   font-size: 12.5px; color: var(--text-secondary);
 }
 .em-sum b { font-family: var(--font-mono); font-size: 14px; color: var(--accent-brand); }
+
+/* ===== Отмены при доставке на телефоне (DeliveryReturnsMobile.jsx) ===== */
+/* Плитки вместо абзаца-сводки. Считаются только по активным заказам; ноль не прячем —
+   "ждут в пункте выдачи: 0" это ответ "забирать нечего", а не отсутствие показателя. */
+.dm-tally { display: flex; gap: 6px; margin: 12px 0 10px; }
+.dm-tile {
+  flex: 1 1 0; min-width: 0; border: 1px solid var(--border); border-radius: 11px;
+  background: var(--bg-card); padding: 8px 9px; display: grid; gap: 1px;
+}
+.dm-tile-value { font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
+.dm-tile-label { font-size: 10.5px; color: var(--text-muted); line-height: 1.25; }
+.dm-tile-down .dm-tile-value { color: var(--accent-down); }
+.dm-tile-warn .dm-tile-value { color: var(--accent-warn); }
+
+.dm-warn-line {
+  font-size: 11.5px; color: var(--accent-warn); margin: -4px 2px 10px; line-height: 1.4;
+}
+
+.dm-note-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: transparent; border: 1px solid var(--border); border-radius: 11px;
+  color: var(--text-secondary); font-family: inherit; font-size: 12.5px; cursor: pointer;
+  padding: 11px; text-align: left;
+}
+.dm-note-toggle[aria-expanded="true"] { border-color: var(--accent-brand); color: var(--text-primary); }
+.dm-chevron { flex: 0 0 auto; transition: transform 0.18s ease; }
+.dm-note-toggle[aria-expanded="true"] .dm-chevron { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .dm-chevron { transition: none; } }
+.dm-note { font-size: 12.5px; color: var(--text-secondary); line-height: 1.55; padding: 10px 3px 2px; }
+.dm-note p { margin: 0 0 9px; }
+.dm-note p:last-child { margin-bottom: 0; }
+.dm-note b { color: var(--text-primary); font-weight: 600; }
+
+.dm-sec {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); margin: 18px 2px 8px;
+}
+.dm-link {
+  background: none; border: none; padding: 0; cursor: pointer; font-family: inherit;
+  font-size: 12px; color: var(--accent-brand); text-transform: none; letter-spacing: 0;
+}
+.dm-link:disabled { color: var(--text-muted); cursor: default; }
+
+.dm-task {
+  border: 1px solid var(--border); border-radius: 13px; background: var(--bg-card);
+  padding: 11px; margin-bottom: 8px;
+}
+.dm-task-alert { border-color: rgba(255, 107, 107, 0.45); background: rgba(255, 107, 107, 0.05); }
+.dm-task-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.dm-task-name { font-size: 14px; font-weight: 650; line-height: 1.25; }
+.dm-task-sum { font-family: var(--font-mono); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.dm-badge {
+  display: inline-block; font-size: 11px; padding: 3px 9px; border-radius: 999px; margin-top: 7px;
+  background: rgba(110, 139, 255, 0.13); color: var(--accent-brand);
+}
+.dm-badge-done { background: var(--accent-up-dim); color: var(--accent-up); }
+.dm-badge-alert { background: var(--accent-down-dim); color: var(--accent-down); }
+.dm-badge-wait { background: var(--accent-warn-dim); color: var(--accent-warn); }
+
+.dm-meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 10px 0 0; font-size: 12px; }
+.dm-meta dt { color: var(--text-muted); }
+.dm-meta dd { margin: 0; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.dm-meta dd.dm-text { font-family: var(--font-display); }
+.dm-meta dd.dm-bad { color: var(--accent-down); font-weight: 600; }
+
+/* Главное действие страницы — зелёная кнопка во всю ширину: промахнуться мимо неё нельзя. */
+.dm-actions { display: flex; gap: 8px; margin-top: 11px; }
+.dm-btn-main {
+  flex: 1; padding: 12px; border-radius: 10px; cursor: pointer; font-family: inherit; font-size: 13.5px;
+  background: var(--accent-up); border: 1px solid var(--accent-up); color: #06231a; font-weight: 650;
+  text-align: center;
+}
+.dm-btn-main:disabled { opacity: 0.6; cursor: default; }
+.dm-btn-undo { background: transparent; border-color: var(--accent-down); color: var(--accent-down); }
+.dm-btn-inline { display: block; margin-top: 8px; padding: 9px; font-size: 13px; }
+.dm-btn-quiet {
+  flex: 0 0 auto; padding: 12px 14px; border-radius: 10px; cursor: pointer; font-family: inherit;
+  font-size: 13px; background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+}
+.dm-btn-quiet:disabled { opacity: 0.6; cursor: default; }
+
+.dm-search {
+  width: 100%; margin-top: 8px; background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-primary); border-radius: 10px; padding: 9px 11px;
+  font-family: inherit; font-size: 13px;
+}
+.dm-search::placeholder { color: var(--text-muted); }
+
+.dm-list { margin-top: 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); overflow: hidden; }
+.dm-row {
+  width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; cursor: pointer;
+  background: transparent; border: none; border-bottom: 1px solid var(--border);
+  color: inherit; font-family: inherit; text-align: left; padding: 9px 11px;
+}
+.dm-row:last-child { border-bottom: none; }
+.dm-row:active { background: var(--bg-card-hover); }
+.dm-row-name { font-size: 12.5px; font-weight: 600; line-height: 1.3; }
+.dm-row-sum { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.dm-row-meta { font-size: 11px; color: var(--text-muted); }
+.dm-row-meta i { font-style: normal; }
+.dm-good { color: var(--accent-up); }
+.dm-row-detail {
+  grid-column: 1 / -1; margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid var(--border); display: grid; gap: 5px;
+}
+.dm-line { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; }
+.dm-line span:first-child { color: var(--text-secondary); }
+.dm-line span:last-child { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+
+.dm-more {
+  width: 100%; margin-top: 10px; padding: 11px; border-radius: 10px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
+  font-family: inherit; font-size: 13px;
+}

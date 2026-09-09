@@ -2,15 +2,33 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { fetchDeliveryReturns, syncDeliveryReturns, archiveDeliveryReturn, returnDeliveryOrderToStock, removeDeliveryOrderFromStock } from './api.js';
 import { formatMoney } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
+import DeliveryReturnsMobile from './DeliveryReturnsMobile.jsx';
+import { useIsMobile } from './useIsMobile.js';
 
 function formatDate(value) {
   if (!value) return '—';
   return new Date(value).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
+// Причины отмены приходят кодами Kaspi. Раньше переведена была только первая, остальные
+// показывались как MERCHANT_OUT_OF_STOCK — на телефоне такая строка занимает пол-экрана и
+// ничего не объясняет, поэтому переведены все девять, что реально встречаются в данных.
 const CANCELLATION_REASON_LABELS = {
   BUYER_CANCELLATION_HIMSELF: 'Отменил покупатель',
+  BUYER_CANCELLATION_BY_COURIER: 'Отменил курьер',
+  BUYER_CANCELLATION_BY_CSC: 'Отменила поддержка Kaspi',
+  MERCHANT_OUT_OF_STOCK: 'Не было в наличии',
+  TIMEOUT_BUYER_PICKUP: 'Не забрал из пункта выдачи',
+  TIMEOUT_BUYER_SIGNATURE: 'Не подписал получение',
+  TIMEOUT_KASPI_DELIVERY: 'Просрочка доставки Kaspi',
+  RFO_REJECTED: 'Отказ при оформлении',
+  TECHNICAL_PROBLEM_CANCELLATION: 'Технический сбой',
 };
+
+function reasonLabel(o) {
+  if (!o.cancellation_reason) return '—';
+  return CANCELLATION_REASON_LABELS[o.cancellation_reason] || humanizeTrackingCode(o.cancellation_reason);
+}
 
 // tracking_status у большинства заказов — это код ПОСЛЕДНЕГО события трекинга Kaspi Delivery
 // (см. backend/deliveryReturnsSync.js), а не фиксированный набор значений — кодов у Kaspi
@@ -65,6 +83,9 @@ const WONDER_OPTIONS = ['Да', 'Нет', '—'];
 
 function createEmptyFilters() {
   return {
+    // Общий поиск по номеру И названию товара — только для телефона: на компьютере номер
+    // фильтруется из заголовка таблицы, а второй строки поиска на маленьком экране негде взять.
+    search: '',
     orderNumber: '',
     dateFrom: '',
     dateTo: '',
@@ -207,7 +228,7 @@ function OrdersTable({
                 <td className={isDone(o) ? 'report-cell-green' : undefined} style={{ color: isHighlighted(o) ? '#ff6b6b' : undefined, fontWeight: isHighlighted(o) || isDone(o) ? 600 : undefined }}>
                   {statusLabel(o)}
                 </td>
-                <td>{CANCELLATION_REASON_LABELS[o.cancellation_reason] || o.cancellation_reason || '—'}</td>
+                <td>{reasonLabel(o)}</td>
                 <td>{o.origin_city || '—'}</td>
                 <td style={{ color: o.wonder_received === false ? '#ff6b6b' : undefined, fontWeight: o.wonder_received === false ? 600 : undefined }}>
                   {wonderLabel(o)}
@@ -256,6 +277,7 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   const [filters, setFilters] = useState(createEmptyFilters);
   const [showArchive, setShowArchive] = useState(false);
   const [togglingId, setTogglingId] = useState(null);
+  const isMobile = useIsMobile();
 
   function loadData() {
     setLoading(true);
@@ -332,6 +354,12 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
       const datePart = String(o.creation_date || '').slice(0, 10);
       if (filters.dateFrom && datePart < filters.dateFrom) return false;
       if (filters.dateTo && datePart > filters.dateTo) return false;
+      if (filters.search) {
+        const q = filters.search.toLowerCase();
+        const inNumber = String(o.order_number).includes(filters.search);
+        const inProduct = String(o.product_names || '').toLowerCase().includes(q);
+        if (!inNumber && !inProduct) return false;
+      }
       if (filters.orderNumber && !String(o.order_number).includes(filters.orderNumber)) return false;
       if (filters.statusExcluded.has(statusLabel(o))) return false;
       if (filters.cityExcluded.has(o.origin_city)) return false;
@@ -350,6 +378,20 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   const archivedOrders = useMemo(() => filteredOrders.filter((o) => o.archived_at || !o.in_return_flow), [filteredOrders]);
 
   const suspiciousCount = orders.filter((o) => o.suspicious).length;
+
+  // Цифры для телефона считаются ТОЛЬКО по активным заказам: архив в них не входит
+  // (правило владельца 2026-09-09 — в макете плитка "ждут в пункте выдачи" показывала 2,
+  // а это были две архивные записи от декабря 2025, по которым возврат давно закрыт).
+  // Список активных берётся из orders, а не из filteredOrders: поиск на телефоне относится
+  // к архиву, и сужать им карточки "в возврате" нельзя.
+  const activeUnfiltered = useMemo(
+    () => orders.filter((o) => !o.archived_at && o.in_return_flow),
+    [orders],
+  );
+  const mobileSubtracted = activeUnfiltered.filter((o) => o.subtracted_from_stock);
+  const mobileSubtractedUnits = mobileSubtracted.reduce((sum, o) => sum + Number(o.quantity || 0), 0);
+  const mobileSuspicious = activeUnfiltered.filter((o) => o.suspicious).length;
+  const mobileWaiting = activeUnfiltered.filter((o) => o.tracking_status === 'WAITING_IN_PICKUP_POINT').length;
   // Считаем по ВСЕМ заказам, а не только по видимым в основной таблице: если строку убрали
   // крестиком, не добавив товар в остаток (например, посылка потерялась), штуки всё равно
   // вычтены со "Склада", и это должно быть видно.
@@ -361,6 +403,46 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
     filters, updateFilter, toggleSetValue, selectAll, selectNone, statusOptions, cityOptions,
     archivingId, onArchive: handleArchive, onToggleStock: handleToggleStock, togglingId,
   };
+
+  // Телефон — отдельный компонент, но данные, действия ("+ в остаток", "в архив",
+  // "Проверить сейчас") и подписи статусов у него общие с таблицей.
+  if (isMobile) {
+    return (
+      <>
+        {error && <div className="error-banner">{error}</div>}
+        {loading && !hasData ? (
+          <div className="empty-state">Загрузка...</div>
+        ) : (
+          <DeliveryReturnsMobile
+            activeReturns={activeUnfiltered}
+            archivedOrders={archivedOrders}
+            totalCount={orders.length}
+            thresholdDays={thresholdDays}
+            subtractedUnits={mobileSubtractedUnits}
+            subtractedInArchive={subtractedInArchive}
+            suspiciousCount={mobileSuspicious}
+            waitingCount={mobileWaiting}
+            search={filters.search}
+            onSearch={(v) => updateFilter('search', v)}
+            statusLabel={statusLabel}
+            reasonLabel={reasonLabel}
+            wonderLabel={wonderLabel}
+            isHighlighted={isHighlighted}
+            isDone={isDone}
+            showStockButton={showStockButton}
+            onToggleStock={handleToggleStock}
+            togglingId={togglingId}
+            onArchive={handleArchive}
+            archivingId={archivingId}
+            onSync={handleSync}
+            syncing={syncing}
+            loading={loading}
+            isOnline={isOnline}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <div>
