@@ -332,6 +332,132 @@ button,
   line-height: 1.1;
 }
 
+
+/* ===== Движение, часть вторая (2026-09-10) =====
+   Владелец прошлась по приложению и попросила добавить движение ВЕЗДЕ, где его ещё нет:
+   «я лучше удалю лишнее, чем ты не добавишь». Ниже — всё, что осталось статичным после
+   первого захода. Глобальный `prefers-reduced-motion` в начале файла гасит и это тоже. */
+
+/* Раздел меню раскрывается и сворачивается. 0fr → 1fr — единственный способ анимировать
+   высоту, которая заранее неизвестна; тем же приёмом раскрываются карточки на Складе. */
+.sidebar-group {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.26s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.2s ease;
+}
+
+.sidebar-group.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.sidebar-group-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* min-height: 0 обязателен: без него содержимое не даёт строке сжаться до нуля. */
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Полоски долей (категории расходов, товары, дни запаса, сегменты закупа) вырастают слева
+   направо. Рост — через scaleX, а не через width: ширина у каждой полоски своя и приходит
+   инлайн-стилем, а scaleX работает при любой. Последний кадр — `transform: none`, чтобы
+   после анимации на элементе не оставалось системы отсчёта (см. первую часть выше). */
+@keyframes bar-grow {
+  from { transform: scaleX(0); }
+  to { transform: none; }
+}
+
+.em-cat-bar > i,
+.rm-bar-track > i,
+.rm-line-bar > i,
+.svm-prod-bar > i,
+.geo-share-fill,
+.purchasing-days-bar-fill,
+.pm-seg-stock,
+.pm-seg-transit,
+.ue-bar-part {
+  transform-origin: left center;
+  animation: bar-grow 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+  /* Значение поменялось (сменили месяц, период, фильтр) — полоска доезжает, а не прыгает. */
+  transition: width 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* График на телефоне рисуется линией слева направо. pathLength="1" в разметке приводит
+   любую длину пути к единице — иначе пришлось бы угадывать длину в пикселях, и на длинном
+   периоде линия обрывалась бы на середине. */
+@keyframes line-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+
+.mlc-line {
+  stroke-dasharray: 1;
+  animation: line-draw 0.9s cubic-bezier(0.33, 1, 0.68, 1) backwards;
+}
+
+/* Картинки товаров не «щёлкают» на месте, а проявляются, когда догрузились. */
+@keyframes img-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.pm-thumb,
+.wm-thumb,
+.wm-photo-preview,
+.warehouse-thumb {
+  animation: img-in 0.35s ease backwards;
+}
+
+/* «Загрузка…», «данных нет», «пока ничего» — появляются мягко, а не возникают рывком. */
+.empty-state {
+  animation: page-in 0.3s ease backwards;
+}
+
+/* Строки таблиц и кликабельные карточки отзываются на наведение (компьютер) — раньше
+   подсветка включалась мгновенным щелчком. */
+.product-table tbody tr,
+.stat-card,
+.card {
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Экран входа появляется целиком, а не выскакивает после проверки сессии. */
+.login-box {
+  animation: rise-in 0.4s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+
+/* Свёрнутый раздел меню остаётся в разметке (иначе нечего было бы анимировать), поэтому
+   гасим у его пунктов нажатия — чтобы обрезанная кнопка не поймала случайный тап. */
+.sidebar-group:not(.open) .sidebar-item {
+  pointer-events: none;
+}
+
+/* Всё, что раскрывается ВНУТРИ страницы и раньше просто возникало: подробности строки
+   расхода, список партий под товаром на Складе, архив «Отмен при доставке», выпадающий
+   фильтр в шапке таблицы. Все эти блоки монтируются по условию, поэтому им хватает
+   анимации появления — она играет ровно в момент, когда React вставляет элемент. */
+.em-row-detail,
+.warehouse-batches-cell,
+.dm-archive-list,
+.analyst-report {
+  animation: rise-in 0.28s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Выпадающий фильтр в шапке таблицы: раскрывается из-под своей кнопки. */
+.th-filter-popover {
+  transform-origin: top center;
+  animation: pop-in 0.16s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
 /* ===== Layout ===== */
 .layout {
   display: flex;

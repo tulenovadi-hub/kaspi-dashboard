@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useClosing } from './useClosing.js';
+import { useBodyScrollLock } from './useBodyScrollLock.js';
 
 // Простые line-иконки без внешних зависимостей — 20x20, stroke=currentColor
 const icons = {
@@ -258,7 +259,14 @@ function NavList({ view, onSelect, collapsed, role, openGroups, onToggleGroup })
               <span className="sidebar-section-title">{item.title}</span>
               <span className="sidebar-section-chevron">{icons.chevron}</span>
             </button>
-            {open && visible.map((c) => renderItem(c, true))}
+            {/* Раздел раскрывается и сворачивается плавно. Обёртка нужна ради приёма
+                `grid-template-rows: 0fr → 1fr` — единственного способа анимировать высоту,
+                когда она заранее неизвестна (тем же приёмом раскрываются карточки Склада). */}
+            <div className={`sidebar-group${open ? ' open' : ''}`}>
+              <div className="sidebar-group-inner">
+                {visible.map((c) => renderItem(c, true))}
+              </div>
+            </div>
           </React.Fragment>
         );
       })}
@@ -296,6 +304,12 @@ export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, o
   // Меню уезжает влево, а не исчезает мгновенно (см. .mobile-menu-overlay.is-closing).
   // Выбор пункта закрывает его так же: страница успевает смениться, пока панель уходит.
   const { closing: menuClosing, close: closeMenu } = useClosing(() => setMobileOpen(false), 200);
+
+  // Под открытым меню страница не прокручивается — и, главное, не срабатывает «потяни вниз,
+  // чтобы обновить»: владелец 2026-09-10 показала скриншот, где поверх открытого меню висит
+  // стрелка обновления. Жест выключается сам, потому что usePullToRefresh считает признаком
+  // «открыто окно» именно `body { position: fixed }`, который ставит этот хук.
+  useBodyScrollLock(mobileOpen);
 
   function handleSelect(key) {
     onSelect(key);

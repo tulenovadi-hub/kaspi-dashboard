@@ -15,8 +15,12 @@ import { useEffect } from 'react';
 // и это значение, иначе стык вернётся.
 const MODAL_BACKDROP_BG = '#090d16';
 
-export function useBodyScrollLock() {
+// Аргумент `active` нужен там, где блокировать надо не всю жизнь компонента: выезжающее меню
+// на телефоне живёт внутри Sidebar, который смонтирован всегда. Без аргумента (как во всех
+// модалках) хук работает по-старому — блокирует, пока компонент жив.
+export function useBodyScrollLock(active = true) {
   useEffect(() => {
+    if (!active) return undefined;
     const { body } = document;
     const scrollY = window.scrollY;
     const saved = {
@@ -43,5 +47,5 @@ export function useBodyScrollLock() {
       // пока окно было открыто, а не как прыжок страницы после закрытия.
       window.scrollTo({ top: scrollY, behavior: 'instant' });
     };
-  }, []);
+  }, [active]);
 }

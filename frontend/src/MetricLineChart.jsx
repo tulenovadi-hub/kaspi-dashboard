@@ -220,7 +220,9 @@ export default function MetricLineChart({
             />
           )}
           <path d={area} fill={color} opacity="0.12" />
-          <path className="mlc-line" d={line} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+          {/* pathLength="1" приводит длину линии к единице — на этом держится её прорисовка
+              слева направо в styles.css (иначе длину пришлось бы угадывать в пикселях). */}
+          <path className="mlc-line" pathLength="1" d={line} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
           {points.map((share, i) => (
             <circle key={i} cx={x(i)} cy={y(share)} r="2.6" fill={color} />
           ))}

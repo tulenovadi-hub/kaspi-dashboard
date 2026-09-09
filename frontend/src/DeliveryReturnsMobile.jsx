@@ -190,7 +190,7 @@ export default function DeliveryReturnsMobile({
             </button>
 
             {showArchive && (
-              <>
+              <div className="dm-archive-list">
                 <input
                   className="dm-search"
                   type="search"
@@ -251,7 +251,7 @@ export default function DeliveryReturnsMobile({
                     {formatNumber(archivedOrders.length - shownArchive.length)}
                   </button>
                 )}
-              </>
+              </div>
             )}
           </>
         )}

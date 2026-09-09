@@ -179,7 +179,7 @@ export default function Analyst({ password }) {
       )}
 
       {report && (
-        <div className="card" style={{ padding: 24 }}>
+        <div className="card analyst-report" style={{ padding: 24 }}>
           <MarkdownReport text={report} />
         </div>
       )}
