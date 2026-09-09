@@ -61,7 +61,7 @@ export default function ExpensesMobile({
   months, categories, filtered, filteredTotal,
   search, categoryFilter, monthFilter,
   onSearch, onCategory, onMonth,
-  loading, isOnline, syncing, syncMessage, syncWarnings, onSync,
+  loading, isOnline, syncing, syncMessage, syncWarnings, syncError,
 }) {
   const [openId, setOpenId] = useState(null);
 
@@ -97,23 +97,19 @@ export default function ExpensesMobile({
         {current && <span className="em-count">{formatRecords(current.records_count)}</span>}
       </div>
 
-      <div className="em-sync">
-        <div className="em-sync-text">
-          <b>Гугл-таблица</b>
-          лист «Бизнес» — обновление перезапишет всю таблицу расходов
-        </div>
-        <button className="em-sync-btn" onClick={onSync} disabled={syncing}>
-          {syncing ? 'Обновляем…' : 'Обновить'}
-        </button>
-      </div>
+      {/* Кнопки "Обновить" здесь больше нет: гугл-таблица подтягивается сама при открытии
+          страницы и при свайпе вниз (см. Expenses.jsx). Пока идёт синхронизация — одна тихая
+          строка, чтобы было видно, что цифры сейчас могут доехать. */}
+      {syncing && <div className="em-sync-line">Обновляем из гугл-таблицы…</div>}
       {syncMessage && <div className="report-upload-success">{syncMessage}</div>}
       {syncWarnings.map((w) => (
         <div key={w} className="expenses-sync-warning">{w}</div>
       ))}
+      {syncError && <div className="error-banner">{syncError}</div>}
 
       <div style={{ opacity: loading || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {sorted.length === 0 ? (
-          <div className="empty-state">Пока нет данных — нажмите «Обновить» выше</div>
+          <div className="empty-state">Пока нет данных — расходы подтянутся из гугл-таблицы</div>
         ) : (
           <>
             <div className="em-months">

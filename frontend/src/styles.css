@@ -2179,6 +2179,11 @@ input[type="date"] {
 }
 .orders-unknown-point span { display: block; margin-top: 6px; }
 
+/* Сообщения синхронизации теперь лежат прямо в потоке страницы, а не в карточке с кнопкой
+   "Обновить" (её убрали 2026-09-09) — отступ снизу отделяет их от заголовка "По месяцам". */
+.expenses-sync-notes { margin-bottom: 20px; }
+.expenses-sync-notes .report-upload-success { margin-top: 0; }
+
 .expenses-sync-warning {
   margin-top: 10px;
   padding: 10px 12px;
@@ -4165,19 +4170,8 @@ input[type="date"] {
 .em-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .em-count { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
 
-.em-sync {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  margin: 12px 0 4px; padding: 10px 11px;
-  border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card);
-}
-.em-sync-text { font-size: 11.5px; color: var(--text-muted); }
-.em-sync-text b { display: block; color: var(--text-primary); font-size: 13px; font-weight: 600; margin-bottom: 2px; }
-.em-sync-btn {
-  flex: 0 0 auto; border: 1px solid var(--accent-brand); background: rgba(110, 139, 255, 0.13);
-  color: var(--text-primary); border-radius: 9px; padding: 9px 12px;
-  font-family: inherit; font-size: 12.5px; cursor: pointer;
-}
-.em-sync-btn:disabled { opacity: 0.6; cursor: default; }
+/* Строка "Обновляем из гугл-таблицы…" на месте бывшей карточки с кнопкой "Обновить" */
+.em-sync-line { margin-top: 10px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); }
 
 .em-months { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 14px 0 12px; padding-bottom: 2px; }
 .em-months::-webkit-scrollbar { display: none; }

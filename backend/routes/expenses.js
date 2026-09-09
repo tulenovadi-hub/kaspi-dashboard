@@ -80,6 +80,24 @@ function normalizeCategory(value) {
   return CATEGORY_ALIASES[raw.toLowerCase()] || raw;
 }
 
+// Сравниваем строку листа с тем, что уже лежит в базе. NUMERIC приходит из Postgres строкой
+// ("10000" или "10000.00"), поэтому сумму сравниваем числом, а не текстом; дату база отдаёт
+// уже в виде 'YYYY-MM-DD' (см. to_char в запросе), пустые текстовые поля — как '' или NULL.
+function sameRecord(dbRow, record) {
+  return (dbRow.date || null) === (record.date || null)
+    && (dbRow.name || '') === record.name
+    && (dbRow.category || '') === record.category
+    && (dbRow.source || '') === record.source
+    && Number(dbRow.amount) === Number(record.amount)
+    && (dbRow.comment || '') === record.comment;
+}
+
+function chunked(items, size) {
+  const out = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 function findCol(headers, ...candidates) {
   for (const candidate of candidates) {
     const idx = headers.findIndex((h) => h.trim().toLowerCase() === candidate.toLowerCase());
@@ -161,20 +179,101 @@ router.post('/sync', async (req, res) => {
     });
   }
 
+  // Раньше синхронизация делала TRUNCATE и вставляла ВСЕ строки листа заново по одной
+  // (330 записей = 330 запросов к базе, несколько секунд на каждое обновление, и id всех
+  // расходов менялись при каждом синке). Теперь сравниваем лист с тем, что уже лежит в базе,
+  // и трогаем только различия: обычно между двумя открытиями страницы добавилась одна-две
+  // строки, значит и записи будет одна-две. Ключ сопоставления — номер строки в листе
+  // (`row_index`): колонка "ID" есть только у записей, которые пишет мобильное приложение
+  // (53 из 330), у перенесённой истории её нет, поэтому как общий ключ она не годится.
+  // Если строку из середины листа удалят, номера ниже сдвинутся и обновится весь хвост —
+  // это правильно и по-прежнему одним запросом.
+  let inserted = 0;
+  let updated = 0;
+  let removed = 0;
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    await client.query('TRUNCATE expenses');
+    const existing = await client.query(
+      `SELECT id, row_index, to_char(expense_date, 'YYYY-MM-DD') AS date,
+              name, category, source, amount, comment
+       FROM expenses`
+    );
+
+    const byRow = new Map();
+    const staleIds = []; // строки без row_index и дубли — наследие старых синхронизаций
+    for (const row of existing.rows) {
+      if (row.row_index === null || byRow.has(row.row_index)) {
+        staleIds.push(row.id);
+        continue;
+      }
+      byRow.set(row.row_index, row);
+    }
+
+    const toInsert = [];
+    const toUpdate = [];
+    const seen = new Set();
     for (const r of records) {
+      seen.add(r.rowIndex);
+      const current = byRow.get(r.rowIndex);
+      if (!current) {
+        toInsert.push(r);
+      } else if (!sameRecord(current, r)) {
+        toUpdate.push({ ...r, id: current.id });
+      }
+    }
+    const toDelete = staleIds.concat(
+      Array.from(byRow.entries())
+        .filter(([rowIndex]) => !seen.has(rowIndex))
+        .map(([, row]) => row.id)
+    );
+
+    await client.query('BEGIN');
+
+    if (toDelete.length > 0) {
+      await client.query('DELETE FROM expenses WHERE id = ANY($1::int[])', [toDelete]);
+      removed = toDelete.length;
+    }
+
+    // Вставка и обновление — пачками по 200 строк одним запросом, а не строка за строкой.
+    for (const chunk of chunked(toInsert, 200)) {
+      const params = [];
+      const values = chunk.map((r, i) => {
+        params.push(r.date, r.name, r.category, r.source, r.amount, r.comment, r.rowIndex);
+        const n = i * 7;
+        return `($${n + 1}, $${n + 2}, $${n + 3}, $${n + 4}, $${n + 5}, $${n + 6}, $${n + 7})`;
+      });
       await client.query(
         `INSERT INTO expenses (expense_date, name, category, source, amount, comment, row_index)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [r.date, r.name, r.category, r.source, r.amount, r.comment, r.rowIndex]
+         VALUES ${values.join(', ')}`,
+        params
       );
+      inserted += chunk.length;
     }
+
+    for (const chunk of chunked(toUpdate, 200)) {
+      const params = [];
+      const values = chunk.map((r, i) => {
+        params.push(r.id, r.date, r.name, r.category, r.source, r.amount, r.comment);
+        const n = i * 7;
+        // Типы явно указываем только у первой строки VALUES — Postgres выведет остальные по ней.
+        return i === 0
+          ? `($${n + 1}::int, $${n + 2}::date, $${n + 3}::text, $${n + 4}::text, $${n + 5}::text, $${n + 6}::numeric, $${n + 7}::text)`
+          : `($${n + 1}, $${n + 2}, $${n + 3}, $${n + 4}, $${n + 5}, $${n + 6}, $${n + 7})`;
+      });
+      await client.query(
+        `UPDATE expenses e
+         SET expense_date = v.expense_date, name = v.name, category = v.category,
+             source = v.source, amount = v.amount, comment = v.comment, synced_at = now()
+         FROM (VALUES ${values.join(', ')}) AS v(id, expense_date, name, category, source, amount, comment)
+         WHERE e.id = v.id`,
+        params
+      );
+      updated += chunk.length;
+    }
+
     await client.query('COMMIT');
   } catch (err) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     console.error(err);
     return res.status(500).json({ error: 'Не удалось сохранить расходы в базу' });
   } finally {
@@ -184,6 +283,10 @@ router.post('/sync', async (req, res) => {
   res.json({
     ok: true,
     processed: records.length,
+    inserted,
+    updated,
+    removed,
+    changed: inserted + updated + removed,
     withoutDate,
     unknownCategories: Array.from(unknownCategories, ([name, count]) => ({ name, count })),
   });
