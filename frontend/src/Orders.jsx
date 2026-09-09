@@ -2,26 +2,21 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { fetchOrders, fetchDeliveryAnomalies } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, formatPercent } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
+import OrdersMobile from './OrdersMobile.jsx';
+import { getStatusLabel } from './orderStatus.js';
+import { useIsMobile } from './useIsMobile.js';
 
 // С какой даты проверяем доставку — раньше этой даты данных недостаточно для сравнения.
 const DELIVERY_CHECK_FROM = '2026-01-01';
-
-const STATUS_LABELS = {
-  COMPLETED: 'Выполнено',
-  ACCEPTED_BY_MERCHANT: 'В обработке',
-  APPROVED_BY_BANK: 'В обработке',
-  RETURNED: 'Возврат',
-  CANCELLED: 'Отменён',
-};
-
-function getStatusLabel(o) {
-  return o.operation_type === 'Возврат' ? 'Возврат' : (STATUS_LABELS[o.status] || o.status || '—');
-}
 
 function createEmptyFilters() {
   return {
     dateFrom: '',
     dateTo: '',
+    // Общий поиск по товару И номеру заказа — только для телефона: на компьютере это два
+    // отдельных фильтра в заголовках "№ заказа" и "Товар", а на маленьком экране держать две
+    // строки поиска не за что. На компьютере поле просто всегда пустое.
+    search: '',
     orderNumber: '',
     productName: '',
     warehouseExcluded: new Set(),
@@ -50,6 +45,7 @@ export default function Orders({ password, active = true, isOnline = true }) {
   const [hasData, setHasData] = useState(false);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState(createEmptyFilters);
+  const isMobile = useIsMobile();
 
   const [checkingDelivery, setCheckingDelivery] = useState(false);
   const [deliveryCheckError, setDeliveryCheckError] = useState('');
@@ -112,6 +108,12 @@ export default function Orders({ password, active = true, isOnline = true }) {
       const datePart = String(o.date || '').slice(0, 10);
       if (filters.dateFrom && datePart < filters.dateFrom) return false;
       if (filters.dateTo && datePart > filters.dateTo) return false;
+      if (filters.search) {
+        const q = filters.search.toLowerCase();
+        const inProduct = String(o.product_name || '').toLowerCase().includes(q);
+        const inNumber = String(o.order_number || '').includes(filters.search);
+        if (!inProduct && !inNumber) return false;
+      }
       if (filters.orderNumber && !String(o.order_number || '').includes(filters.orderNumber)) return false;
       if (filters.productName && !String(o.product_name || '').toLowerCase().includes(filters.productName.toLowerCase())) return false;
       if (filters.warehouseExcluded.has(o.warehouse)) return false;
@@ -147,6 +149,42 @@ export default function Orders({ password, active = true, isOnline = true }) {
   }, [orders, filters]);
 
   const hasActiveFilters = Object.entries(filters).some(([, v]) => (v instanceof Set ? v.size > 0 : v !== ''));
+
+  // Телефон — отдельный компонент (таблица на 11 колонок не помещается никаким CSS), но
+  // фильтры, загрузка и проверка доставки у него ОБЩИЕ с таблицей: сюда уходит уже
+  // отфильтрованный список и те же обработчики.
+  if (isMobile) {
+    return (
+      <>
+        {error && <div className="error-banner">{error}</div>}
+        {loading && !hasData ? (
+          <div className="empty-state">Загрузка...</div>
+        ) : (
+          <OrdersMobile
+            orders={orders}
+            filtered={filtered}
+            filters={filters}
+            warehouses={warehouses}
+            statusOptions={statusOptions}
+            hasActiveFilters={hasActiveFilters}
+            onChange={updateFilter}
+            onToggleSet={toggleSetValue}
+            onSelectAll={selectAll}
+            onSelectNone={selectNone}
+            onReset={resetFilters}
+            unknownPoints={unknownPoints}
+            loading={loading}
+            isOnline={isOnline}
+            checkingDelivery={checkingDelivery}
+            deliveryAnomalies={deliveryAnomalies}
+            deliveryCheckError={deliveryCheckError}
+            onCheckDelivery={handleCheckDelivery}
+            onCloseDelivery={() => setDeliveryAnomalies(null)}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <div>

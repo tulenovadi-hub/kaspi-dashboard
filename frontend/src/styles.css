@@ -3924,3 +3924,171 @@ input[type="date"] {
   font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px;
 }
 .mlc-hint { font-family: var(--font-display); opacity: 0.55; }
+
+/* ===== Заказы на телефоне (OrdersMobile.jsx) — лента по дням ===== */
+.om-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.om-count { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+
+.om-bar { display: flex; gap: 8px; align-items: center; margin: 12px 0 6px; }
+.om-search {
+  flex: 1; min-width: 0; background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-primary); border-radius: 10px; padding: 9px 11px;
+  font-family: inherit; font-size: 13px;
+}
+.om-search::placeholder { color: var(--text-muted); }
+.om-filter {
+  flex: 0 0 auto; border-radius: 10px; padding: 9px 13px; cursor: pointer;
+  font-family: inherit; font-size: 13px;
+  background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
+}
+.om-filter[aria-pressed="true"] {
+  border-color: var(--accent-brand); background: rgba(110, 139, 255, 0.13); color: var(--text-primary);
+}
+
+.om-tools { display: flex; gap: 14px; margin-bottom: 10px; }
+.om-link {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; color: var(--accent-brand);
+}
+.om-link:disabled { color: var(--text-muted); cursor: default; }
+
+.om-day { margin-top: 14px; }
+/* Шапка дня липнет к верху, чтобы при прокрутке было видно, какой день читаешь. */
+.om-day-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding: 4px 2px 6px; position: sticky; top: 0; background: var(--bg); z-index: 2;
+}
+.om-day-date { font-size: 13px; font-weight: 600; }
+.om-day-date span { color: var(--text-muted); font-weight: 400; margin-left: 5px; }
+.om-day-sum {
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.om-day-sum i { color: var(--text-muted); font-style: normal; }
+
+.om-card {
+  width: 100%; display: block; text-align: left; cursor: pointer; color: inherit;
+  font-family: inherit; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 10px 11px; margin-bottom: 6px;
+}
+.om-card:active { background: var(--bg-card-hover); }
+.om-card-return { border-color: rgba(255, 107, 107, 0.4); background: rgba(255, 107, 107, 0.06); }
+.om-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.om-card-name { font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+.om-card-sum {
+  font-family: var(--font-mono); font-size: 14px; font-weight: 600;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.om-card-meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  margin-top: 6px; font-size: 11.5px; color: var(--text-muted);
+}
+.om-dot { color: var(--border); }
+.om-return-tag { color: var(--accent-down); font-weight: 600; }
+.om-margin { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.om-positive { color: var(--accent-up); }
+.om-negative { color: var(--accent-down); }
+.om-warn { color: var(--accent-warn); }
+
+.om-card-detail {
+  margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border);
+  display: grid; gap: 5px;
+}
+.om-line { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; }
+.om-line span:first-child { color: var(--text-secondary); }
+.om-line span:last-child { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.om-more {
+  width: 100%; margin-top: 12px; padding: 11px; border-radius: 10px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
+  font-family: inherit; font-size: 13px;
+}
+.om-more:active { background: var(--bg-card-hover); }
+
+/* Подозрительная доставка: те же 7 колонок таблицы, разложенные в две строки. */
+.om-anomalies { padding: 12px 13px; margin-bottom: 12px; }
+.om-anom-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.om-anom-title { font-size: 14px; font-weight: 600; }
+.om-anom-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.om-anom-row {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--border);
+}
+.om-anom-row:last-child { border-bottom: none; }
+.om-anom-name { font-size: 13px; font-weight: 550; }
+.om-anom-ratio {
+  font-family: var(--font-mono); font-size: 13px; font-weight: 600;
+  white-space: nowrap;
+}
+.om-anom-cheap { color: var(--text-muted); }
+.om-anom-meta { font-size: 11px; color: var(--text-muted); }
+.om-right { text-align: right; }
+
+/* ===== Лист фильтров ===== */
+/* position: fixed + блокировка прокрутки страницы (useBodyScrollLock) — иначе на айфоне фон
+   продолжает ехать под открытой шторкой. Тот же приём, что у .rm-sheet на "Отчёте". */
+.om-sheet-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(6, 9, 16, 0.65); display: flex; align-items: flex-end;
+}
+.om-sheet {
+  width: 100%; max-height: 88vh; overflow-y: auto;
+  background: var(--bg-card); border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0; padding: 6px 16px 28px;
+  /* Вырез снизу на айфоне: без этого кнопки уезжают под системную полосу. */
+  padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+}
+.om-sheet-grip { width: 38px; height: 4px; border-radius: 3px; background: var(--border); margin: 6px auto 12px; }
+.om-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.om-sheet-title { font-size: 18px; font-weight: 650; }
+.om-sheet-close {
+  background: none; border: none; color: var(--text-muted); font-size: 26px; line-height: 1;
+  padding: 0 4px; cursor: pointer; font-family: inherit;
+}
+
+.om-group { margin-top: 16px; }
+.om-group-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--text-muted); margin-bottom: 7px;
+}
+.om-group-actions { display: flex; gap: 10px; }
+.om-group-actions button {
+  background: none; border: none; padding: 0; cursor: pointer; font-family: inherit;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--accent-brand);
+}
+.om-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.om-chip {
+  border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
+  border-radius: 999px; padding: 6px 12px; font-size: 12.5px; font-family: inherit; cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.om-chip[aria-pressed="true"] {
+  border-color: var(--accent-brand); background: rgba(110, 139, 255, 0.13); color: var(--text-primary);
+}
+
+.om-range { margin-top: 16px; }
+.om-range-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--text-muted); margin-bottom: 7px;
+}
+.om-range-clear {
+  background: none; border: none; padding: 0; cursor: pointer; font-family: inherit;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--accent-brand);
+}
+.om-range-row { display: flex; gap: 8px; }
+.om-range-row input {
+  flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border);
+  color: var(--text-primary); border-radius: 9px; padding: 9px 10px;
+  font-family: var(--font-mono); font-size: 12.5px;
+}
+
+.om-sheet-actions { display: flex; gap: 8px; margin-top: 22px; }
+.om-btn {
+  flex: 1; padding: 12px; border-radius: 10px; cursor: pointer; font-family: inherit; font-size: 13.5px;
+  border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
+}
+.om-btn-main {
+  background: var(--accent-brand); border-color: var(--accent-brand); color: #0b1020; font-weight: 600;
+}
