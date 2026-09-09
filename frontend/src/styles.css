@@ -2192,6 +2192,47 @@ input[type="date"] {
 .expenses-sync-notes { margin-bottom: 20px; }
 .expenses-sync-notes .report-upload-success { margin-top: 0; }
 
+/* Сообщение упавшей страницы (ErrorBoundary.jsx). Не error-banner: тот показывает временный
+   сбой запроса поверх работающей страницы, а здесь страницы нет вообще, и это должно читаться
+   как отдельное состояние, а не как строчка предупреждения. */
+.page-error {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.page-error-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.page-error-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Текст самой ошибки — моноширинным и с переносом: он длинный, английский и нужен только для
+   того, чтобы его прислали скриншотом (консоли в PWA на айфоне нет). */
+.page-error-message {
+  justify-self: stretch;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+}
+
+.page-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .expenses-sync-warning {
   margin-top: 10px;
   padding: 10px 12px;

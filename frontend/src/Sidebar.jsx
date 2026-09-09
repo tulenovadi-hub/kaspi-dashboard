@@ -150,7 +150,7 @@ const NAV_ITEMS = [
 // а как называется открытый раздел — приходилось выяснять по заголовку внутри страницы, который
 // повторял то же слово через сорок пикселей ниже. Теперь имя раздела живёт ровно в одном месте —
 // в баре, а со страниц заголовок убран (на телефоне; на компьютере он на месте, там бара нет).
-const PAGE_LABELS = {};
+export const PAGE_LABELS = {};
 for (const item of NAV_ITEMS) {
   if (item.children) {
     for (const child of item.children) PAGE_LABELS[child.key] = child.label;

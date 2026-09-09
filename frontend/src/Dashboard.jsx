@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import Sidebar, { ROLE_PAGES } from './Sidebar.jsx';
+import Sidebar, { ROLE_PAGES, PAGE_LABELS } from './Sidebar.jsx';
+import ErrorBoundary from './ErrorBoundary.jsx';
 import SalesView from './SalesView.jsx';
 import Batches from './Batches.jsx';
 import Report from './Report.jsx';
@@ -94,7 +95,19 @@ export default function Dashboard({ password, username, role, onLogout }) {
     });
   }
 
+  // Каждая страница — в своей границе ошибок. Раньше исключение при отрисовке любого раздела
+  // гасило белым всё приложение (разделы держатся смонтированными в одном дереве), и понять,
+  // что именно сломалось, с телефона было нельзя. Теперь падает только сам раздел, а на его
+  // месте появляется текст ошибки; соседние страницы с уже загруженными данными живут дальше.
   function renderPage(key) {
+    return (
+      <ErrorBoundary key={key} title={PAGE_LABELS[key] || key} hidden={key !== safeView}>
+        {renderPageContent(key)}
+      </ErrorBoundary>
+    );
+  }
+
+  function renderPageContent(key) {
     const active = key === safeView;
     const style = active ? undefined : { display: 'none' };
 
