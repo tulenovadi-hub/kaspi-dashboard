@@ -79,10 +79,6 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
 
   const costPrice = (Number(purchasePrice) || 0) + (Number(logisticsCost) || 0) + extraPerUnit;
 
-  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
-  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
-  const refreshTick = useAppRefresh(active);
-
   useEffect(() => {
     const amount = Number(purchaseAmountForeign);
     const qty = Number(quantity);
@@ -593,6 +589,13 @@ export default function Batches({ password, onClose, active = true, isOnline = t
         setHasData(true);
       });
   }
+
+  // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
+  // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
+  // ВАЖНО: хук должен стоять именно здесь, в компоненте страницы. Один раз (коммит f774cda)
+  // он оказался внутри BatchModal — в другой функции, где нет ни `active`, ни этого эффекта, —
+  // и страница целиком падала с `refreshTick is not defined`, показывая пустой экран.
+  const refreshTick = useAppRefresh(active);
 
   // active в зависимостях — перепроверяем данные каждый раз при возврате на этот раздел
   // (страницы не размонтируются при переключении, см. Dashboard.jsx).
