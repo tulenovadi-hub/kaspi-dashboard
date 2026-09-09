@@ -1955,9 +1955,17 @@ input[type="date"] {
     font-weight: 700;
   }
 
-  .mobile-topbar-title span {
-    color: var(--accent-brand);
-    font-weight: 500;
+  /* Название открытого раздела стоит в верхней панели (см. PAGE_LABELS в Sidebar.jsx),
+     поэтому заголовок на самой странице на телефоне лишний — он повторял то же слово
+     через сорок пикселей. Прячем сам заголовок, а если в шапке ничего, кроме него, не было —
+     и шапку целиком, вместе с её отступом. Страницы, у которых есть свой мобильный
+     компонент, заголовок вообще не рисуют — там он убран в разметке. */
+  .app-header > .app-title {
+    display: none;
+  }
+
+  .app-header:has(> .app-title:only-child) {
+    display: none;
   }
 
   .mobile-topbar-spacer {
@@ -3842,8 +3850,9 @@ input[type="date"] {
    На компьютере пять карточек показателей стоят в ряд; на телефоне они вставали в столбик и
    страница вырастала до 1873px (2,3 экрана), а график начинался только после ~900px прокрутки.
    Здесь один показатель крупно + его график, остальные — маленькими плитками. */
-.svm-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
-.svm-head .app-title { margin: 0; }
+/* Заголовок "Главная" уехал в верхнюю панель — в шапке осталась одна кнопка обновления,
+   поэтому прижимаем её вправо, а не растягиваем шапку. */
+.svm-head { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 12px; }
 
 .svm-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
 .svm-chips::-webkit-scrollbar { display: none; }
@@ -3999,7 +4008,8 @@ input[type="date"] {
 .mlc-hint { font-family: var(--font-display); opacity: 0.55; }
 
 /* ===== Заказы на телефоне (OrdersMobile.jsx) — лента по дням ===== */
-.om-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+/* Заголовок "Заказы" уехал в верхнюю панель, счётчик "N из M" остался — прижат вправо. */
+.om-head { display: flex; align-items: baseline; justify-content: flex-end; gap: 10px; }
 .om-count { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
 
 .om-bar { display: flex; gap: 8px; align-items: center; margin: 12px 0 6px; }
@@ -4167,9 +4177,6 @@ input[type="date"] {
 }
 
 /* ===== Расходы на телефоне (ExpensesMobile.jsx) — месяц целиком ===== */
-.em-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.em-count { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
-
 /* Строка "Обновляем из гугл-таблицы…" на месте бывшей карточки с кнопкой "Обновить" */
 .em-sync-line { margin-top: 10px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); }
 

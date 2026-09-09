@@ -146,6 +146,19 @@ const NAV_ITEMS = [
   { key: 'settings', label: 'Настройки', icon: 'settings' },
 ];
 
+// Название страницы для верхней панели на телефоне. Раньше там всегда стояло "Kaspi Dashboard",
+// а как называется открытый раздел — приходилось выяснять по заголовку внутри страницы, который
+// повторял то же слово через сорок пикселей ниже. Теперь имя раздела живёт ровно в одном месте —
+// в баре, а со страниц заголовок убран (на телефоне; на компьютере он на месте, там бара нет).
+const PAGE_LABELS = {};
+for (const item of NAV_ITEMS) {
+  if (item.children) {
+    for (const child of item.children) PAGE_LABELS[child.key] = child.label;
+  } else {
+    PAGE_LABELS[item.key] = item.label;
+  }
+}
+
 // Свёрнутые разделы запоминаются между заходами (localStorage, а не sessionStorage:
 // на телефоне приложение открывается заново каждый раз, и каждый раз перескладывать
 // меню руками — бессмысленно). В хранилище лежит только то, что явно свернули;
@@ -315,7 +328,7 @@ export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, o
         <button className="mobile-menu-btn" onClick={() => setMobileOpen(true)} aria-label="Открыть меню">
           {icons.burger}
         </button>
-        <div className="mobile-topbar-title">Kaspi <span>Dashboard</span></div>
+        <div className="mobile-topbar-title">{PAGE_LABELS[view] || 'Kaspi Dashboard'}</div>
         <div className="mobile-topbar-spacer" />
       </div>
 

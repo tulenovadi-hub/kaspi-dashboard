@@ -262,7 +262,6 @@ export default function SalesViewMobile({
   return (
     <div className="svm">
       <div className="svm-head">
-        <h1 className="app-title">Главная</h1>
         {showSync && (
           <button className="sync-button" onClick={onSync} disabled={syncing}>
             {syncing ? 'Обновляем...' : 'Обновить сейчас'}

@@ -92,11 +92,6 @@ export default function ExpensesMobile({
 
   return (
     <div className="em">
-      <div className="em-head">
-        <h1 className="app-title">Расходы</h1>
-        {current && <span className="em-count">{formatRecords(current.records_count)}</span>}
-      </div>
-
       {/* Кнопки "Обновить" здесь больше нет: гугл-таблица подтягивается сама при открытии
           страницы и при свайпе вниз (см. Expenses.jsx). Пока идёт синхронизация — одна тихая
           строка, чтобы было видно, что цифры сейчас могут доехать. */}

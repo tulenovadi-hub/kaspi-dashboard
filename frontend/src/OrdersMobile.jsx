@@ -237,7 +237,6 @@ export default function OrdersMobile({
   return (
     <div className="om">
       <div className="om-head">
-        <h1 className="app-title">Заказы</h1>
         <span className="om-count">
           {formatNumber(filtered.length)} из {formatNumber(orders.length)}
         </span>

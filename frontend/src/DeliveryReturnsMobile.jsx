@@ -57,10 +57,6 @@ export default function DeliveryReturnsMobile({
 
   return (
     <div className="dm">
-      <div className="app-header">
-        <h1 className="app-title">Отмены при доставке</h1>
-      </div>
-
       {/* Плитки вместо абзаца-сводки. Считаются ТОЛЬКО по активным заказам — архив сюда
           не входит. Ноль в плитках не прячем: "ждут в пункте выдачи: 0" — это ответ. */}
       <div className="dm-tally">
