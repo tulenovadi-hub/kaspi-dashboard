@@ -3896,13 +3896,19 @@ input[type="date"] {
   background: rgba(110, 139, 255, 0.14); color: var(--accent-brand);
   border-color: transparent; font-weight: 600;
 }
-.svm-sheet-dates { display: flex; gap: 10px; }
-.svm-sheet-dates label { flex: 1 1 0; min-width: 0; display: grid; gap: 4px; }
-.svm-sheet-dates span { font-size: 12px; color: var(--text-muted); }
-.svm-sheet-dates input {
-  width: 100%; border: 1px solid var(--border); background: var(--bg); color: var(--text-primary);
-  border-radius: 10px; padding: 11px 10px; font-family: var(--font-mono); font-size: 13px;
+/* Поля дат — в столбик. Рядом они не помещаются: нативное поле даты на айфоне рисует
+   "31 авг. 2026 г." собственной шириной, и в колонке по 160px текст налезал на рамку. */
+.svm-sheet-dates { display: grid; gap: 10px; }
+.svm-sheet-dates label {
+  display: grid; grid-template-columns: 28px 1fr; align-items: center; gap: 10px; min-width: 0;
 }
+.svm-sheet-dates span { font-size: 13px; color: var(--text-muted); }
+.svm-sheet-dates input {
+  width: 100%; min-width: 0; border: 1px solid var(--border); background: var(--bg);
+  color: var(--text-primary); border-radius: 10px; padding: 12px 12px;
+  font-family: var(--font-mono); font-size: 14px;
+}
+.svm-sheet-dates input:focus { border-color: var(--accent-brand); outline: none; }
 .svm-sheet-error { color: var(--accent-down); font-size: 12px; margin-top: 8px; }
 .svm-sheet-apply {
   width: 100%; margin-top: 18px; padding: 14px; border-radius: 12px; cursor: pointer;
@@ -4378,4 +4384,30 @@ input[type="date"] {
   width: 100%; margin-top: 10px; padding: 11px; border-radius: 10px; cursor: pointer;
   background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
   font-family: inherit; font-size: 13px;
+}
+
+/* ===== "Потяни вниз, чтобы обновить" (usePullToRefresh.jsx) =====
+   Индикатор едет за пальцем: сдвиг задаётся инлайном из хука, здесь только вид. */
+.ptr {
+  position: fixed; top: 8px; left: 50%; z-index: 70;
+  width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-secondary); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.ptr-arrow { transition: transform 0.18s ease, color 0.18s ease; }
+/* Дотянули до порога — стрелка разворачивается вверх и синеет: отпускай. */
+.ptr-arrow-ready { transform: rotate(180deg); color: var(--accent-brand); }
+.ptr-refreshing { color: var(--accent-brand); }
+.ptr-refreshing .ptr-arrow { animation: ptr-spin 0.8s linear infinite; }
+
+@keyframes ptr-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ptr-arrow { transition: none; }
+  .ptr-refreshing .ptr-arrow { animation: none; }
 }

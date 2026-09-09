@@ -18,6 +18,8 @@ import AbcXyz from './AbcXyz.jsx';
 import UnitEconomics from './UnitEconomics.jsx';
 import ComingSoon from './ComingSoon.jsx';
 import { useOnlineStatus } from './useOnlineStatus.js';
+import { useIsMobile } from './useIsMobile.js';
+import { usePullToRefresh, PullToRefreshIndicator } from './usePullToRefresh.jsx';
 
 const SECTION_TITLES = {};
 
@@ -40,6 +42,11 @@ export default function Dashboard({ password, username, role, onLogout }) {
   const allowedPages = ROLE_PAGES[role] || ROLE_PAGES.manager;
   const [view, setView] = useState(readSavedView); // 'sales' | 'report' | 'selfbuy' | 'expenses' | 'batches' | 'warehouse' | 'marketing_ads' | 'marketing_bonuses' | 'marketing_reviews' | 'settings'
   const [collapsed, setCollapsed] = useState(() => sessionStorage.getItem('sidebar_collapsed') === '1');
+
+  // Жест "потяни вниз, чтобы обновить" — только на телефоне: на компьютере touch-событий нет,
+  // и вешать слушатели незачем.
+  const isMobile = useIsMobile();
+  const { pull, refreshing, threshold } = usePullToRefresh(isMobile);
 
   // Защита на случай, если роль не даёт доступа к текущему разделу (например, роль сменили
   // прямо во время работы, или view остался от предыдущей роли) — просто откатываемся на Главную.
@@ -268,6 +275,10 @@ export default function Dashboard({ password, username, role, onLogout }) {
         role={role}
       />
       <div className="main-content">
+        {/* "Потяни вниз, чтобы обновить" — общий на все страницы. Живёт здесь, а не в каждой
+            странице отдельно: жест ловится на window, а перезагружает всё приложение целиком
+            (подробности и грабли — в usePullToRefresh.jsx). */}
+        <PullToRefreshIndicator pull={pull} refreshing={refreshing} threshold={threshold} />
         <div className={`app${(safeView === 'orders' || safeView === 'report' || safeView === 'geography' || safeView === 'abc') ? ' app-wide' : ''}`}>
           {Array.from(visited).map((key) => renderPage(key))}
         </div>

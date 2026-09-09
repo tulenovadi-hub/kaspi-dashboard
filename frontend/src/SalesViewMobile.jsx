@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import MetricLineChart from './MetricLineChart.jsx';
 import { formatMoney, formatNumber, percentChange, shiftDays, toISODate, daysAgo } from './dateUtils.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
@@ -76,6 +76,8 @@ function dayLabel(iso) {
 function PeriodSheet({ from, to, onApply, onClose }) {
   const [draftFrom, setDraftFrom] = useState(from);
   const [draftTo, setDraftTo] = useState(to);
+  const monthsRef = useRef(null);
+  const toRef = useRef(null);
   // Фон под модалкой не должен прокручиваться (см. useBodyScrollLock.js).
   useBodyScrollLock();
 
@@ -85,6 +87,42 @@ function PeriodSheet({ from, to, onApply, onClose }) {
     return r.from === draftFrom && r.to === draftTo;
   });
   const invalid = draftFrom > draftTo;
+
+  // Полоса месяцев идёт от старых к свежим, и при открытии она упиралась в левый край —
+  // владелец видела октябрь прошлого года, а нужен последний месяц. Порядок не меняем
+  // (так попросила), просто перематываем к правому краю: если выбран конкретный месяц —
+  // ставим его по центру, иначе показываем самый свежий.
+  useEffect(() => {
+    const strip = monthsRef.current;
+    if (!strip) return;
+    const active = activeMonth ? strip.querySelector('[aria-pressed="true"]') : null;
+    strip.scrollLeft = active
+      ? Math.max(0, active.offsetLeft - (strip.clientWidth - active.offsetWidth) / 2)
+      : strip.scrollWidth;
+    // Один раз при открытии: дальше полосу листает пользователь, и перематывать её
+    // на каждый выбор месяца — значит выдёргивать её у него из-под пальца.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Выбрали дату начала — сразу открываем второй календарь: раньше приходилось закрывать
+  // первый и отдельно нажимать на поле "По". showPicker есть в Safari 16+, но на всякий
+  // случай остаётся focus(). Пауза нужна, чтобы первый календарь успел закрыться, иначе
+  // айфон игнорирует открытие второго.
+  function handleFromChange(value) {
+    setDraftFrom(value);
+    // Начало уехало за конец — подтягиваем конец, чтобы период не был "вывернутым",
+    // пока пользователь не выбрал дату окончания.
+    if (value && value > draftTo) setDraftTo(value);
+    if (!value) return;
+    setTimeout(() => {
+      const el = toRef.current;
+      if (!el) return;
+      el.focus();
+      if (typeof el.showPicker === 'function') {
+        try { el.showPicker(); } catch { /* браузер не дал открыть — поле просто в фокусе */ }
+      }
+    }, 150);
+  }
 
   return (
     <div className="svm-sheet-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -96,7 +134,7 @@ function PeriodSheet({ from, to, onApply, onClose }) {
         </div>
 
         <div className="svm-sheet-label">Месяц целиком</div>
-        <div className="svm-sheet-months">
+        <div className="svm-sheet-months" ref={monthsRef}>
           {months.map((m) => (
             <button
               key={m.key}
@@ -114,14 +152,26 @@ function PeriodSheet({ from, to, onApply, onClose }) {
         </div>
 
         <div className="svm-sheet-label">Свой период</div>
+        {/* Поля в столбик, а не рядом: на айфоне нативное поле даты рисует "31 авг. 2026 г."
+            во всю свою ширину, и в двух колонках по 160px текст налезал на рамку. */}
         <div className="svm-sheet-dates">
           <label>
             <span>С</span>
-            <input type="date" value={draftFrom} onChange={(e) => setDraftFrom(e.target.value)} />
+            <input
+              type="date"
+              value={draftFrom}
+              onChange={(e) => handleFromChange(e.target.value)}
+            />
           </label>
           <label>
             <span>По</span>
-            <input type="date" value={draftTo} onChange={(e) => setDraftTo(e.target.value)} />
+            <input
+              ref={toRef}
+              type="date"
+              value={draftTo}
+              min={draftFrom || undefined}
+              onChange={(e) => setDraftTo(e.target.value)}
+            />
           </label>
         </div>
         {invalid && <div className="svm-sheet-error">Начало периода позже конца — поменяйте даты местами</div>}
