@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchExpenses, fetchExpensesMonthly, syncExpenses } from './api.js';
 import { formatMoney, formatMonthLabel, formatDateDMY } from './dateUtils.js';
+import ExpensesMobile from './ExpensesMobile.jsx';
+import { useIsMobile } from './useIsMobile.js';
 
 export default function Expenses({ password, active = true, isOnline = true }) {
   const [expenses, setExpenses] = useState([]);
@@ -16,6 +18,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [monthFilter, setMonthFilter] = useState('');
+  const isMobile = useIsMobile();
 
   function loadData() {
     setLoading(true);
@@ -37,6 +40,14 @@ export default function Expenses({ password, active = true, isOnline = true }) {
     if (active) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
+
+  // На телефоне страница показывает ОДИН месяц, пункта "все месяцы" там нет — поэтому, как
+  // только сводка загрузилась, встаём на самый свежий месяц. На компьютере фильтр по умолчанию
+  // пустой ("Все месяцы"), и трогать его не надо.
+  useEffect(() => {
+    if (!isMobile || monthFilter || months.length === 0) return;
+    setMonthFilter(months.reduce((a, b) => (a.month > b.month ? a : b)).month);
+  }, [isMobile, months, monthFilter]);
 
   function handleSync() {
     setSyncing(true);
@@ -87,6 +98,38 @@ export default function Expenses({ password, active = true, isOnline = true }) {
   }, [expenses, search, categoryFilter, monthFilter]);
 
   const totalFiltered = filtered.reduce((sum, e) => sum + Number(e.amount), 0);
+
+  // Телефон — отдельный компонент (сводка "месяц × 5 категорий" и таблица на 6 колонок в
+  // 313px не помещаются), но данные, фильтры и синхронизация у него общие с компьютером.
+  if (isMobile) {
+    return (
+      <>
+        {error && <div className="error-banner">{error}</div>}
+        {loading && !hasData ? (
+          <div className="empty-state">Загрузка...</div>
+        ) : (
+          <ExpensesMobile
+            months={months}
+            categories={categories}
+            filtered={filtered}
+            filteredTotal={totalFiltered}
+            search={search}
+            categoryFilter={categoryFilter}
+            monthFilter={monthFilter}
+            onSearch={setSearch}
+            onCategory={setCategoryFilter}
+            onMonth={setMonthFilter}
+            loading={loading}
+            isOnline={isOnline}
+            syncing={syncing}
+            syncMessage={syncMessage}
+            syncWarnings={syncWarnings}
+            onSync={handleSync}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <div>
