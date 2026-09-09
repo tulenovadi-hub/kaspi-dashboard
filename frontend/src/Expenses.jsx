@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchExpenses, fetchExpensesMonthly, syncExpenses } from './api.js';
-import { formatMoney, formatMonthLabel, formatDateDMY } from './dateUtils.js';
+import { formatMoney, formatMonthLabel, formatDateDMY, formatRecords } from './dateUtils.js';
 import ExpensesMobile from './ExpensesMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 
@@ -256,7 +256,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
               </table>
             </div>
             <div className="expenses-total">
-              Итого по отфильтрованному списку: <strong>{formatMoney(totalFiltered)}</strong> ({filtered.length} записей)
+              Итого по отфильтрованному списку: <strong>{formatMoney(totalFiltered)}</strong> ({formatRecords(filtered.length)})
             </div>
           </>
         )}

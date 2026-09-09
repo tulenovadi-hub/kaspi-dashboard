@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { formatMoney, formatMonthLabel } from './dateUtils.js';
+import { formatMoney, formatMonthLabel, formatRecords } from './dateUtils.js';
 
 // Мобильные "Расходы". На компьютере это две таблицы: сводка "месяц × 5 категорий" и список
 // всех расходов на 6 колонок (дата, название, категория, источник, сумма, кто). Владелец
@@ -45,16 +45,6 @@ function shortMoney(value) {
 const MONTH_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 function monthShort(key) {
   return `${MONTH_SHORT[Number(key.slice(5, 7)) - 1]} ${key.slice(2, 4)}`;
-}
-
-// "1 запись", "3 записи", "41 запись" — на телефоне эта строка стоит прямо под крупной цифрой,
-// и "41 записей" там сразу бросается в глаза.
-function records(n) {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return `${n} запись`;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${n} записи`;
-  return `${n} записей`;
 }
 
 function dayMonth(value) {
@@ -104,7 +94,7 @@ export default function ExpensesMobile({
     <div className="em">
       <div className="em-head">
         <h1 className="app-title">Расходы</h1>
-        {current && <span className="em-count">{records(current.records_count)}</span>}
+        {current && <span className="em-count">{formatRecords(current.records_count)}</span>}
       </div>
 
       <div className="em-sync">
@@ -143,7 +133,7 @@ export default function ExpensesMobile({
             {current && (
               <div className="em-total">
                 <div className="em-total-label">
-                  {formatMonthLabel(current.month)} · {records(current.records_count)}
+                  {formatMonthLabel(current.month)} · {formatRecords(current.records_count)}
                 </div>
                 <div className="em-total-row">
                   <div className="em-total-value">{shortMoney(current.total)}</div>
@@ -242,7 +232,7 @@ export default function ExpensesMobile({
 
             {filtered.length > 0 && (
               <div className="em-sum">
-                <span>Итого показано · {records(filtered.length)}</span>
+                <span>Итого показано · {formatRecords(filtered.length)}</span>
                 <b>{formatMoney(filteredTotal)}</b>
               </div>
             )}

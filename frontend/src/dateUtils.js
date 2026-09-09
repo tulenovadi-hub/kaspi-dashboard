@@ -53,6 +53,18 @@ export function formatMonthLabel(monthKey) {
   return `${MONTH_NAMES[month - 1]} ${year}`;
 }
 
+// "1 запись", "3 записи", "41 запись". Русское числительное само по себе мелочь, но строка
+// стоит под крупной цифрой и на телефоне, и в итоге таблицы на компьютере — "41 записей"
+// там сразу заметно.
+export function formatRecords(count) {
+  const n = Number(count) || 0;
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${n} запись`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${n} записи`;
+  return `${n} записей`;
+}
+
 export function formatPercent(value) {
   if (value === null || value === undefined) return '—';
   return `${value >= 0 ? '' : ''}${value.toFixed(1)}%`;
