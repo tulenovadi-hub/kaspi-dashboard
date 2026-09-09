@@ -3850,12 +3850,66 @@ input[type="date"] {
   background: rgba(110, 139, 255, 0.14); color: var(--accent-brand); border-color: transparent; font-weight: 600;
 }
 
-.svm-dates { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; color: var(--text-muted); }
-.svm-dates input {
-  flex: 1 1 0; min-width: 0; border: 1px solid var(--border); background: var(--bg-card);
-  color: var(--text-primary); border-radius: 9px; padding: 8px 9px;
-  font-family: var(--font-mono); font-size: 12.5px;
+/* Какой диапазон сейчас показан. Даты уехали в модалку "Выбрать период", и без этой строки
+   было бы непонятно, за что цифры на странице. */
+.svm-range {
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);
+  margin: -2px 2px 10px;
 }
+
+/* ----- Модалка "Выбрать период" (PeriodSheet в SalesViewMobile.jsx) -----
+   Прокрутку фона блокирует useBodyScrollLock; подложка fixed — иначе на айфоне страница
+   продолжает ехать под открытым окном. */
+.svm-sheet-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(6, 9, 16, 0.65); display: flex; align-items: flex-end;
+}
+.svm-sheet {
+  width: 100%; max-height: 88vh; overflow-y: auto;
+  background: var(--bg-card); border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0; padding: 12px 16px 20px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+}
+.svm-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+.svm-sheet-title { font-size: 16px; font-weight: 650; }
+.svm-sheet-close {
+  width: 32px; height: 32px; flex: 0 0 auto; border-radius: 50%; cursor: pointer;
+  border: none; background: var(--bg); color: var(--text-secondary);
+  font-family: inherit; font-size: 19px; line-height: 1;
+}
+.svm-sheet-spacer { width: 32px; flex: 0 0 auto; }
+.svm-sheet-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); margin-bottom: 8px;
+}
+.svm-sheet-months {
+  display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  margin-bottom: 18px; padding-bottom: 2px;
+}
+.svm-sheet-months::-webkit-scrollbar { display: none; }
+.svm-month {
+  flex: 0 0 auto; border: 1px solid var(--border); background: var(--bg); color: var(--text-secondary);
+  border-radius: 999px; padding: 8px 15px; font-family: inherit; font-size: 13px;
+  cursor: pointer; white-space: nowrap;
+}
+.svm-month[aria-pressed="true"] {
+  background: rgba(110, 139, 255, 0.14); color: var(--accent-brand);
+  border-color: transparent; font-weight: 600;
+}
+.svm-sheet-dates { display: flex; gap: 10px; }
+.svm-sheet-dates label { flex: 1 1 0; min-width: 0; display: grid; gap: 4px; }
+.svm-sheet-dates span { font-size: 12px; color: var(--text-muted); }
+.svm-sheet-dates input {
+  width: 100%; border: 1px solid var(--border); background: var(--bg); color: var(--text-primary);
+  border-radius: 10px; padding: 11px 10px; font-family: var(--font-mono); font-size: 13px;
+}
+.svm-sheet-error { color: var(--accent-down); font-size: 12px; margin-top: 8px; }
+.svm-sheet-apply {
+  width: 100%; margin-top: 18px; padding: 14px; border-radius: 12px; cursor: pointer;
+  font-family: inherit; font-size: 14px; font-weight: 600;
+  background: var(--accent-brand); border: 1px solid var(--accent-brand); color: #0b1020;
+}
+.svm-sheet-apply:disabled { opacity: 0.5; cursor: default; }
 
 .svm-big { border: 1px solid var(--border); border-radius: 14px; background: var(--bg-card); padding: 13px 13px 10px; }
 .svm-big-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }

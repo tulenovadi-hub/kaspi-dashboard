@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import MetricLineChart from './MetricLineChart.jsx';
-import { formatMoney, formatNumber, percentChange, shiftDays } from './dateUtils.js';
+import { formatMoney, formatNumber, percentChange, shiftDays, toISODate, daysAgo } from './dateUtils.js';
+import { useBodyScrollLock } from './useBodyScrollLock.js';
 
 // Мобильная "Главная". На компьютере это блок "вчера/сегодня", полоса периодов, пять карточек
 // показателей в ряд, график и таблица товаров. На телефоне карточки встают в столбик, и
@@ -9,18 +10,52 @@ import { formatMoney, formatNumber, percentChange, shiftDays } from './dateUtils
 //
 // Владелец выбрала вариант "один показатель крупно": сверху выбранный показатель большой цифрой
 // и его график, остальные — маленькими плитками; тап переключает и цифру, и линию графика.
-// Ничего из компьютерной версии не убрано: кнопка "Обновить сейчас", семь пресетов периода и
-// свои даты, все пять показателей, обе сноски (свёрнуты) и карточка товара — на месте.
+// Кнопка "Обновить сейчас", все пять показателей, обе сноски (свёрнуты) и карточка товара —
+// на месте. Единственное, что сознательно сокращено, — полоса периодов: вместо восьми чипсов
+// пять (2026-09-09, см. PRESETS ниже), а всё остальное живёт в модалке "Выбрать период".
 
+// Пять кнопок и ровно в этом порядке — так попросила владелец 2026-09-09: восемь чипсов
+// (7/14/30/90 дней и всё остальное) занимали две строки, а нажимала она из них три.
+// Всё, что убрали, доступно через "Свой период": там же выбор месяца целиком.
 const PRESETS = [
   { key: 'today', label: 'Сегодня' },
   { key: 'yesterday', label: 'Вчера' },
-  { key: '7days', label: '7 дней' },
-  { key: '14days', label: '14 дней' },
-  { key: '30days', label: '30 дней' },
-  { key: '90days', label: '90 дней' },
   { key: 'month', label: 'С начала месяца' },
+  { key: '30days', label: '30 дней' },
 ];
+
+const MONTH_NAMES = [
+  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+];
+
+// Последние 12 месяцев, свежий — справа (как в приложении банка со скриншота, который
+// показала владелец). Для прошлых лет к названию добавляется год, иначе "Сентябрь" 2025-го
+// и 2026-го выглядели бы одинаково.
+function lastMonths(count = 12) {
+  const today = toISODate(daysAgo(0));
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  const list = [];
+  for (let i = count - 1; i >= 0; i -= 1) {
+    const m = ((month - 1 - i) % 12 + 12) % 12;
+    const y = year + Math.floor((month - 1 - i) / 12);
+    const key = `${y}-${String(m + 1).padStart(2, '0')}`;
+    list.push({ key, label: y === year ? MONTH_NAMES[m] : `${MONTH_NAMES[m]} ${String(y).slice(2)}` });
+  }
+  return list;
+}
+
+// Границы месяца. Конец обрезаем сегодняшним днём: у текущего месяца "по 30 сентября" — это
+// период, которого ещё не было, и в графике он дал бы пустой хвост.
+function monthRange(key) {
+  const today = toISODate(daysAgo(0));
+  const [y, m] = key.split('-').map(Number);
+  const first = `${key}-01`;
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const last = `${key}-${String(lastDay).padStart(2, '0')}`;
+  return { from: first, to: last > today ? today : last };
+}
 
 function shortMoney(value) {
   const v = Number(value) || 0;
@@ -33,6 +68,76 @@ function dayLabel(iso) {
   return `${d.slice(8, 10)}.${d.slice(5, 7)}`;
 }
 
+// Модалка выбора периода — по образцу приложения, которое показала владелец: сверху месяцы
+// целиком, ниже свои даты, внизу одна кнопка "Применить". Отличие от прежней раскрывашки:
+// даты меняются в ЧЕРНОВИКЕ и применяются одной кнопкой, поэтому страница не перезагружает
+// данные на каждое касание календаря (раньше правка "с" уже уходила в запрос, и пока не
+// поправишь "по", грузился бессмысленный диапазон).
+function PeriodSheet({ from, to, onApply, onClose }) {
+  const [draftFrom, setDraftFrom] = useState(from);
+  const [draftTo, setDraftTo] = useState(to);
+  // Фон под модалкой не должен прокручиваться (см. useBodyScrollLock.js).
+  useBodyScrollLock();
+
+  const months = lastMonths();
+  const activeMonth = months.find((m) => {
+    const r = monthRange(m.key);
+    return r.from === draftFrom && r.to === draftTo;
+  });
+  const invalid = draftFrom > draftTo;
+
+  return (
+    <div className="svm-sheet-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="svm-sheet" role="dialog" aria-label="Выбрать период">
+        <div className="svm-sheet-head">
+          <button className="svm-sheet-close" onClick={onClose} aria-label="Закрыть">×</button>
+          <div className="svm-sheet-title">Выбрать период</div>
+          <span className="svm-sheet-spacer" />
+        </div>
+
+        <div className="svm-sheet-label">Месяц целиком</div>
+        <div className="svm-sheet-months">
+          {months.map((m) => (
+            <button
+              key={m.key}
+              className="svm-month"
+              aria-pressed={activeMonth ? activeMonth.key === m.key : false}
+              onClick={() => {
+                const r = monthRange(m.key);
+                setDraftFrom(r.from);
+                setDraftTo(r.to);
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="svm-sheet-label">Свой период</div>
+        <div className="svm-sheet-dates">
+          <label>
+            <span>С</span>
+            <input type="date" value={draftFrom} onChange={(e) => setDraftFrom(e.target.value)} />
+          </label>
+          <label>
+            <span>По</span>
+            <input type="date" value={draftTo} onChange={(e) => setDraftTo(e.target.value)} />
+          </label>
+        </div>
+        {invalid && <div className="svm-sheet-error">Начало периода позже конца — поменяйте даты местами</div>}
+
+        <button
+          className="svm-sheet-apply"
+          disabled={invalid}
+          onClick={() => { onApply(draftFrom, draftTo); onClose(); }}
+        >
+          Применить
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function SalesViewMobile({
   days, profitDays, products, todayRevenue, yesterdayRevenue, prevTotals,
   totalRevenue, totalOrders, avgOrder, avgOrdersPerDay, periodNetProfit,
@@ -41,7 +146,7 @@ export default function SalesViewMobile({
   showSync, syncing, onSync, onSelectProduct,
 }) {
   const [metric, setMetric] = useState('revenue');
-  const [showDates, setShowDates] = useState(presetKey === 'custom');
+  const [showPeriod, setShowPeriod] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
 
   const labels = days.map((d) => dayLabel(d.day));
@@ -101,7 +206,6 @@ export default function SalesViewMobile({
     : 'var(--accent-brand)';
 
   function applyPreset(key) {
-    setShowDates(false);
     onPeriodChange(key);
   }
 
@@ -129,22 +233,16 @@ export default function SalesViewMobile({
         ))}
         <button
           className="svm-chip"
-          aria-pressed={presetKey === 'custom' || showDates}
-          onClick={() => setShowDates((v) => !v)}
+          aria-pressed={presetKey === 'custom'}
+          onClick={() => setShowPeriod(true)}
         >
           Свой период
         </button>
       </div>
 
-      <div className={`wm-collapsible${showDates ? ' is-open' : ''}`}>
-        <div>
-          <div className="svm-dates">
-            <input type="date" value={from} max={to} onChange={(e) => onCustomDates(e.target.value, to)} />
-            <span>—</span>
-            <input type="date" value={to} min={from} onChange={(e) => onCustomDates(from, e.target.value)} />
-          </div>
-        </div>
-      </div>
+      {/* Под чипсами — какой диапазон сейчас показан. Раньше даты всегда висели в двух полях,
+          теперь они в модалке, и без этой строки было бы непонятно, за что цифры. */}
+      <div className="svm-range">{dayLabel(from)} — {dayLabel(to)}</div>
 
       <div className="svm-big">
         <div className="svm-big-row">
@@ -235,6 +333,15 @@ export default function SalesViewMobile({
             </div>
           </div>
         </>
+      )}
+
+      {showPeriod && (
+        <PeriodSheet
+          from={from}
+          to={to}
+          onApply={onCustomDates}
+          onClose={() => setShowPeriod(false)}
+        />
       )}
 
       <div className="svm-sec-title">Продажи по товарам</div>
