@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { formatMoney, formatMonthLabel, formatRecords } from './dateUtils.js';
+import Odometer from './Odometer.jsx';
 
 // Мобильные "Расходы". На компьютере это две таблицы: сводка "месяц × 5 категорий" и список
 // всех расходов на 6 колонок (дата, название, категория, источник, сумма, кто). Владелец
@@ -127,7 +128,7 @@ export default function ExpensesMobile({
                   {formatMonthLabel(current.month)} · {formatRecords(current.records_count)}
                 </div>
                 <div className="em-total-row">
-                  <div className="em-total-value">{shortMoney(current.total)}</div>
+                  <div className="em-total-value"><Odometer value={current.total} format={shortMoney} /></div>
                   {delta !== null && (
                     <div className={`em-delta ${delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat'}`}>
                       {delta > 0 ? '+' : ''}{delta.toFixed(1)}%

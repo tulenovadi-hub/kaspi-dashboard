@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { formatMoney, formatNumber, formatPercent } from './dateUtils.js';
 import { getStatusLabel } from './orderStatus.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
+import { useClosing } from './useClosing.js';
 
 // Мобильные "Заказы". На компьютере это таблица на 11 колонок с фильтром в каждом заголовке;
 // на айфоне от неё видно неполные три. Владелец выбрала из двух макетов (2026-09-09) вариант
@@ -108,17 +109,18 @@ function FilterSheet({
   filters, count, warehouses, statusOptions,
   onChange, onToggleSet, onSelectAll, onSelectNone, onReset, onClose,
 }) {
+  const { closing, close } = useClosing(onClose);
   // Фон под шторкой не должен прокручиваться: на айфоне без position: fixed страница едет
   // под открытым окном (подробности — в useBodyScrollLock.js).
   useBodyScrollLock();
 
   return (
-    <div className="om-sheet-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className={`om-sheet-overlay${closing ? ' is-closing' : ''}`} onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
       <div className="om-sheet" role="dialog" aria-label="Фильтры заказов">
         <div className="om-sheet-grip" />
         <div className="om-sheet-head">
           <div className="om-sheet-title">Фильтры</div>
-          <button className="om-sheet-close" onClick={onClose} aria-label="Закрыть">×</button>
+          <button className="om-sheet-close" onClick={close} aria-label="Закрыть">×</button>
         </div>
 
         <div className="om-group">
@@ -166,7 +168,7 @@ function FilterSheet({
 
         <div className="om-sheet-actions">
           <button className="om-btn" onClick={onReset}>Сбросить</button>
-          <button className="om-btn om-btn-main" onClick={onClose}>
+          <button className="om-btn om-btn-main" onClick={close}>
             Показать {formatNumber(count)}
           </button>
         </div>

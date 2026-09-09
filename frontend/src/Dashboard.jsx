@@ -113,7 +113,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'batches') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <Batches password={password} active={active} isOnline={isOnline} onClose={() => setView('sales')} />
         </div>
       );
@@ -121,7 +121,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'report') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <Report password={password} active={active} isOnline={isOnline} />
         </div>
       );
@@ -129,7 +129,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'warehouse') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <Warehouse password={password} active={active} isOnline={isOnline} />
         </div>
       );
@@ -137,7 +137,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'purchasing') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <Purchasing password={password} active={active} isOnline={isOnline} onGoToBatches={() => setView('batches')} />
         </div>
       );
@@ -145,7 +145,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'expenses') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <Expenses password={password} active={active} isOnline={isOnline} />
         </div>
       );
@@ -153,7 +153,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'orders') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <Orders password={password} active={active} isOnline={isOnline} />
         </div>
       );
@@ -161,7 +161,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'settings') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <Settings password={password} username={username} active={active} isOnline={isOnline} />
         </div>
       );
@@ -169,7 +169,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'marketing_ads') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <Marketing password={password} active={active} isOnline={isOnline} />
         </div>
       );
@@ -177,7 +177,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'marketing_bonuses') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <Bonuses password={password} active={active} isOnline={isOnline} />
         </div>
       );
@@ -185,7 +185,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'marketing_reviews') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <Bonuses
             password={password}
             fetchExpenses={fetchReviewBonusExpenses}
@@ -200,7 +200,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'analyst') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <Analyst password={password} />
         </div>
       );
@@ -208,7 +208,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'geography') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <Geography password={password} active={active} isOnline={isOnline} />
         </div>
       );
@@ -216,7 +216,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'abc') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <AbcXyz password={password} active={active} isOnline={isOnline} />
         </div>
       );
@@ -224,7 +224,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'unit_economics') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <UnitEconomics password={password} active={active} isOnline={isOnline} />
         </div>
       );
@@ -232,7 +232,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'delivery_returns') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <DeliveryReturns password={password} active={active} isOnline={isOnline} />
         </div>
       );
@@ -240,7 +240,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (key === 'selfbuy') {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <SalesView
             password={password}
             onLogout={onLogout}
@@ -256,7 +256,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     if (SECTION_TITLES[key]) {
       return (
-        <div key={key} style={style}>
+        <div key={key} className="page-pane" style={style}>
           <ComingSoon title={SECTION_TITLES[key]} />
         </div>
       );
@@ -264,7 +264,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
 
     // key === 'sales'
     return (
-      <div key={key} style={style}>
+      <div key={key} className="page-pane" style={style}>
         <SalesView
           password={password}
           onLogout={onLogout}

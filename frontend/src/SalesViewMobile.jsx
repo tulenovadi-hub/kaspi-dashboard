@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import MetricLineChart from './MetricLineChart.jsx';
 import { formatMoney, formatNumber, percentChange, shiftDays, toISODate, daysAgo } from './dateUtils.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
+import { useClosing } from './useClosing.js';
+import Odometer from './Odometer.jsx';
 
 // Мобильная "Главная". На компьютере это блок "вчера/сегодня", полоса периодов, пять карточек
 // показателей в ряд, график и таблица товаров. На телефоне карточки встают в столбик, и
@@ -74,6 +76,7 @@ function dayLabel(iso) {
 // данные на каждое касание календаря (раньше правка "с" уже уходила в запрос, и пока не
 // поправишь "по", грузился бессмысленный диапазон).
 function PeriodSheet({ from, to, onApply, onClose }) {
+  const { closing, close } = useClosing(onClose);
   const [draftFrom, setDraftFrom] = useState(from);
   const [draftTo, setDraftTo] = useState(to);
   const monthsRef = useRef(null);
@@ -125,10 +128,10 @@ function PeriodSheet({ from, to, onApply, onClose }) {
   }
 
   return (
-    <div className="svm-sheet-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className={`svm-sheet-overlay${closing ? ' is-closing' : ''}`} onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
       <div className="svm-sheet" role="dialog" aria-label="Выбрать период">
         <div className="svm-sheet-head">
-          <button className="svm-sheet-close" onClick={onClose} aria-label="Закрыть">×</button>
+          <button className="svm-sheet-close" onClick={close} aria-label="Закрыть">×</button>
           <div className="svm-sheet-title">Выбрать период</div>
           <span className="svm-sheet-spacer" />
         </div>
@@ -179,7 +182,7 @@ function PeriodSheet({ from, to, onApply, onClose }) {
         <button
           className="svm-sheet-apply"
           disabled={invalid}
-          onClick={() => { onApply(draftFrom, draftTo); onClose(); }}
+          onClick={() => { onApply(draftFrom, draftTo); close(); }}
         >
           Применить
         </button>
@@ -300,7 +303,7 @@ export default function SalesViewMobile({
               {current.label}{current.snapshot ? ' · на сейчас' : ' · за период'}
             </div>
             <div className={`svm-big-value${current.tone === 'up' ? ' svm-up' : current.tone === 'down' ? ' svm-down' : ''}`}>
-              {current.format(current.value)}
+              <Odometer value={current.value} format={current.format} />
             </div>
           </div>
           {/* Процент — по ВЫБРАННОМУ показателю и к предыдущему периоду такой же длины.

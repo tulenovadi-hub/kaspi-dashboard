@@ -5,6 +5,7 @@ import { useBodyScrollLock } from './useBodyScrollLock.js';
 import PurchasingMobile from './PurchasingMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import { useAppRefresh } from './useAppRefresh.js';
+import { useClosing } from './useClosing.js';
 
 const STATUS_LABELS = { critical: 'Критично', soon: 'Скоро', normal: 'В норме' };
 const TABS = [
@@ -36,12 +37,14 @@ function SettingsModal({ password, settings, onClose, onSaved }) {
       .finally(() => setSaving(false));
   }
 
+  const { closing, close } = useClosing(onClose);
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className={`modal-overlay${closing ? ' is-closing' : ''}`} onClick={close}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Настройка параметров закупа</h2>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <button className="modal-close" onClick={close}>✕</button>
         </div>
 
         {error && <div className="error-banner">{error}</div>}

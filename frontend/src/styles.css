@@ -104,6 +104,206 @@ select:focus-visible {
   }
 }
 
+
+/* ===================================================================
+   Движение: переходы между разделами, появление содержимого, отклик
+   на нажатие. Добавлено 2026-09-09 по просьбе владельца («анимация
+   везде, где её нет»).
+
+   Два правила, из-за которых всё сделано именно так:
+
+   1) ГЛОБАЛЬНЫЙ `prefers-reduced-motion` уже стоит в начале файла и
+      гасит всё, что здесь описано, — отдельных заглушек не нужно.
+   2) `animation-fill-mode` — ТОЛЬКО `backwards`, и последний кадр
+      обязан заканчиваться `transform: none`, а не `translateY(0)`.
+      Любой ненулевой transform у предка делает его «системой отсчёта»
+      для `position: fixed` внутри — а модалки и шторки как раз fixed.
+      С `forwards`/`both` transform остался бы на элементе НАВСЕГДА, и
+      окно, открытое с такой страницы, съехало бы. `backwards` красит
+      только время задержки и после конца анимации не оставляет ничего.
+   =================================================================== */
+
+@keyframes page-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes overlay-out { from { opacity: 1; } to { opacity: 0; } }
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes dialog-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(8px) scale(0.98); }
+}
+
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+
+@keyframes sheet-out {
+  from { transform: none; }
+  to { transform: translateY(100%); }
+}
+
+@keyframes banner-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Переключение раздела. Скрытые страницы остаются смонтированными и лежат под
+   `display: none` (см. Dashboard.jsx); по спецификации это отменяет анимации, поэтому
+   при возврате на страницу анимация запускается заново сама — без единой строчки JS.
+   Здесь только прозрачность: transform на самой панели сделал бы её системой отсчёта
+   для модалки, если та успеет открыться в первые 0,3 с. */
+.page-pane {
+  animation: page-in 0.22s ease;
+}
+
+/* Блоки страницы въезжают лесенкой. Задержка растёт только у первых восьми — иначе
+   на длинной странице последние карточки ждали бы секунду. */
+.page-pane > * > * {
+  animation: rise-in 0.34s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+/* :where() вокруг :nth-child — не украшательство. Без него у правил задержки вес выше,
+   чем у `.modal-overlay` ниже, и модальное окно, будучи таким же прямым потомком страницы,
+   получало бы чужую задержку и открывалось с запозданием до 0,22 с. `:where()` обнуляет вес
+   скобок, правила ниже перебивают эти по порядку, и окна открываются мгновенно. */
+.page-pane > * > *:where(:nth-child(1)) { animation-delay: 0.02s; }
+.page-pane > * > *:where(:nth-child(2)) { animation-delay: 0.05s; }
+.page-pane > * > *:where(:nth-child(3)) { animation-delay: 0.08s; }
+.page-pane > * > *:where(:nth-child(4)) { animation-delay: 0.11s; }
+.page-pane > * > *:where(:nth-child(5)) { animation-delay: 0.14s; }
+.page-pane > * > *:where(:nth-child(6)) { animation-delay: 0.17s; }
+.page-pane > * > *:where(:nth-child(7)) { animation-delay: 0.2s; }
+.page-pane > * > *:where(:nth-child(n + 8)) { animation-delay: 0.22s; }
+
+/* Сообщения (ошибка запроса, итог синхронизации, предупреждения) появляются сверху
+   вниз — иначе они возникают из ниоткуда и сдвигают страницу рывком. */
+.error-banner,
+.report-upload-success,
+.expenses-sync-warning,
+.em-sync-line,
+.orders-unknown-point,
+.geo-notice {
+  animation: banner-in 0.24s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+/* Модальные окна и шторки. Класс `is-closing` вешает useClosing.js: он держит окно
+   смонтированным ещё 190 мс после нажатия «закрыть», чтобы уход было видно. */
+.modal-overlay {
+  animation: overlay-in 0.18s ease;
+}
+
+.modal-overlay > * {
+  animation: dialog-in 0.24s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.modal-overlay.is-closing {
+  animation: overlay-out 0.19s ease forwards;
+}
+
+.modal-overlay.is-closing > * {
+  animation: dialog-out 0.19s ease forwards;
+}
+
+.svm-sheet-overlay,
+.rm-sheet-overlay,
+.om-sheet-overlay {
+  animation: overlay-in 0.18s ease;
+}
+
+.svm-sheet,
+.rm-sheet,
+.om-sheet {
+  animation: sheet-in 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.svm-sheet-overlay.is-closing,
+.rm-sheet-overlay.is-closing,
+.om-sheet-overlay.is-closing {
+  animation: overlay-out 0.19s ease forwards;
+}
+
+.svm-sheet-overlay.is-closing .svm-sheet,
+.rm-sheet-overlay.is-closing .rm-sheet,
+.om-sheet-overlay.is-closing .om-sheet {
+  animation: sheet-out 0.19s ease forwards;
+}
+
+/* Выезжающее меню на телефоне: открытие у него было с самого начала, закрытие —
+   не было, панель просто исчезала. */
+.mobile-menu-overlay.is-closing {
+  animation: overlay-out 0.2s ease forwards;
+}
+
+.mobile-menu-overlay.is-closing .mobile-menu-panel {
+  animation: menu-slide-out 0.2s ease forwards;
+}
+
+@keyframes menu-slide-out {
+  from { transform: none; }
+  to { transform: translateX(-100%); }
+}
+
+/* Отклик на нажатие. На телефоне это единственный способ понять, что палец попал:
+   :hover там не существует. Кнопки, у которых своя жизнь при нажатии (крестик
+   закрытия, стрелки), не трогаем. */
+button:not(:disabled):active,
+.period-chip:not(:disabled):active,
+.sidebar-item:active {
+  transform: scale(0.97);
+}
+
+button,
+.sidebar-item {
+  transition: transform 0.1s ease;
+}
+
+/* Табло: цифры перематываются лентой (Odometer.jsx). Строка обязана занимать ровно
+   столько же места, сколько занял бы обычный текст, иначе крупное число будет дёргать
+   вёрстку соседей при каждом обновлении. */
+.odometer {
+  display: inline-flex;
+  align-items: baseline;
+  /* Высота строки задаётся числом: колонка ровно в одну строку, лента — в десять. */
+  line-height: 1.1;
+}
+
+.odometer-static {
+  white-space: pre;
+}
+
+.odometer-col {
+  display: inline-block;
+  height: 1.1em;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+.odometer-strip {
+  display: block;
+  transition: transform 0.75s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+}
+
+.odometer-digit {
+  display: block;
+  height: 1.1em;
+  line-height: 1.1;
+}
+
 /* ===== Layout ===== */
 .layout {
   display: flex;

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useClosing } from './useClosing.js';
 
 // Простые line-иконки без внешних зависимостей — 20x20, stroke=currentColor
 const icons = {
@@ -292,9 +293,13 @@ export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, o
     });
   }
 
+  // Меню уезжает влево, а не исчезает мгновенно (см. .mobile-menu-overlay.is-closing).
+  // Выбор пункта закрывает его так же: страница успевает смениться, пока панель уходит.
+  const { closing: menuClosing, close: closeMenu } = useClosing(() => setMobileOpen(false), 200);
+
   function handleSelect(key) {
     onSelect(key);
-    setMobileOpen(false);
+    closeMenu();
   }
 
   return (
@@ -334,11 +339,11 @@ export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, o
 
       {/* ===== Мобильный: выезжающее меню поверх контента ===== */}
       {mobileOpen && (
-        <div className="mobile-menu-overlay" onClick={() => setMobileOpen(false)}>
+        <div className={`mobile-menu-overlay${menuClosing ? ' is-closing' : ''}`} onClick={closeMenu}>
           <div className="mobile-menu-panel" onClick={(e) => e.stopPropagation()}>
             <div className="mobile-menu-header">
               <div className="sidebar-brand">Kaspi <span>Dashboard</span></div>
-              <button className="modal-close" onClick={() => setMobileOpen(false)} aria-label="Закрыть меню">
+              <button className="modal-close" onClick={closeMenu} aria-label="Закрыть меню">
                 {icons.close}
               </button>
             </div>

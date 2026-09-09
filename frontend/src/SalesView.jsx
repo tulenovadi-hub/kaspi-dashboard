@@ -9,6 +9,7 @@ import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber, shiftDays,
 import SalesViewMobile from './SalesViewMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import { useAppRefresh } from './useAppRefresh.js';
+import Odometer from './Odometer.jsx';
 
 export default function SalesView({ password, onLogout, mode, title, showSync, active = true, isOnline = true }) {
   const [from, setFrom] = useState(toISODate(startOfMonth()));
@@ -269,11 +270,11 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
           <div className={inventoryTotal !== null ? 'stats-row-auto' : 'stats-row'}>
             <div className="stat-card">
               <div className="stat-label">Сумма продаж за период</div>
-              <div className="stat-value">{formatMoney(totalRevenue)}</div>
+              <div className="stat-value"><Odometer value={totalRevenue} format={formatMoney} /></div>
             </div>
             <div className="stat-card" style={{ position: 'relative' }}>
               <div className="stat-label">Количество заказов</div>
-              <div className="stat-value">{formatNumber(totalOrders)}</div>
+              <div className="stat-value"><Odometer value={totalOrders} format={formatNumber} /></div>
               <div style={{
                 position: 'absolute',
                 top: 12,
@@ -290,7 +291,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
             </div>
             <div className="stat-card">
               <div className="stat-label">Средний чек</div>
-              <div className="stat-value">{formatMoney(avgOrder)}</div>
+              <div className="stat-value"><Odometer value={avgOrder} format={formatMoney} /></div>
             </div>
             <div className="stat-card">
               <div className="stat-label">Чистая прибыль</div>
@@ -301,7 +302,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
             {inventoryTotal !== null && (
               <div className="stat-card">
                 <div className="stat-label">Деньги в товаре сейчас</div>
-                <div className="stat-value">{formatMoney(inventoryTotal)}</div>
+                <div className="stat-value"><Odometer value={inventoryTotal} format={formatMoney} /></div>
                 <div className="stat-card-hint">Остаток складов плюс оплаченное в пути — подробности на «Складе»</div>
               </div>
             )}

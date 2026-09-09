@@ -5,6 +5,7 @@ import { useBodyScrollLock } from './useBodyScrollLock.js';
 import BatchesMobile, { ReceiveConfirm } from './BatchesMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import { useAppRefresh } from './useAppRefresh.js';
+import { useClosing } from './useClosing.js';
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -29,6 +30,7 @@ function makeExpenseRow(saved) {
 // продукта не меняются, только цена/логистика/количество/дата/примечание/склад отгрузки).
 function BatchModal({ password, products, warehouses, editingBatch, onClose, onSaved, onDelete }) {
   const isEdit = Boolean(editingBatch);
+  const { closing, close } = useClosing(onClose);
 
   useBodyScrollLock();
 
@@ -185,11 +187,11 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className={`modal-overlay${closing ? ' is-closing' : ''}`} onClick={close}>
       <div className="modal-box modal-box-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{isEdit ? `Поставка #${editingBatch.id} — ${editingBatch.product_name}` : 'Новая поставка'}</h2>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <button className="modal-close" onClick={close}>✕</button>
         </div>
 
         {error && <div className="error-banner">{error}</div>}

@@ -5,6 +5,7 @@ import { useBodyScrollLock } from './useBodyScrollLock.js';
 // поэтому мобильная версия не может отстать от компьютерной — новая колонка появляется в обеих
 // сама. Всё, что относится к показателям (порядок ленты, знак, пояснения), правится там же.
 import { METRICS, MONTH_LINES, PRODUCT_LINES } from './reportColumns.js';
+import { useClosing } from './useClosing.js';
 
 // Мобильная версия "Отчёта". На компьютере страница — четыре таблицы, у главной 14 колонок;
 // на айфоне от неё видно две с половиной колонки из четырнадцати, а "Чистая прибыль" и "Маржа"
@@ -112,11 +113,12 @@ function ProductList({ products, loading, error, openProduct, onToggleProduct })
 }
 
 function MonthSheet({ month, scope, products, loading, error, onClose }) {
+  const { closing, close } = useClosing(onClose);
   const [openProduct, setOpenProduct] = useState(null);
   useBodyScrollLock();
 
   return (
-    <div className="rm-sheet-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className={`rm-sheet-overlay${closing ? ' is-closing' : ''}`} onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
       <div className="rm-sheet" role="dialog" aria-label={formatMonthLabel(month.month)}>
         <div className="rm-sheet-grip" />
         <div className="rm-sheet-head">
@@ -124,7 +126,7 @@ function MonthSheet({ month, scope, products, loading, error, onClose }) {
             <div className="rm-sheet-title">{formatMonthLabel(month.month)}</div>
             <div className="rm-sheet-scope">{SCOPES.find((s) => s.key === scope).label}</div>
           </div>
-          <button className="rm-sheet-close" onClick={onClose} aria-label="Закрыть">×</button>
+          <button className="rm-sheet-close" onClick={close} aria-label="Закрыть">×</button>
         </div>
         <Breakdown row={month} lines={MONTH_LINES} />
         <div className="rm-sheet-section">По товарам</div>
