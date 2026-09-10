@@ -258,34 +258,44 @@ async function fetchMarketingByDay(from, to) {
 // карго из Китая, она входит в себестоимость партии, а не в отдельный расход.
 const PROFIT_EXPENSE_CATEGORIES = ['Прочие затраты', 'Упаковка'];
 
-// Вычитаем по ДАТЕ расхода, попавшей в выбранный период, а не месяц целиком: строки в лист пишет
-// мобильное приложение по факту траты, каждая со своей датой (см. routes/expenses.js), поэтому за
-// полный месяц сумма совпадает с "Отчётом", а за неполный период вычитается только то, что в нём
-// действительно записано, без размазывания месячного итога по дням.
+// Раскладываем расходы РОВНО ПОРОВНУ по дням того месяца, к которому они относятся: берём
+// сумму двух категорий за ПОЛНЫЙ месяц (даже если период задевает только его часть), делим на
+// число дней в месяце и начисляем эту долю каждому дню периода.
+//
+// Почему не по дате самой траты: строки в лист пишет мобильное приложение по факту платежа, и
+// такие расходы стоят неровно — зарплата 10-го, упаковка одной закупкой 28-го. При сравнении
+// периодов ("с начала месяца" против предыдущих 10 дней) это давало дичь: в одном окне зарплата
+// уже прошла, в другом ещё нет, и −9% могли оказаться чистой случайностью календаря. Поровну по
+// дням — честное сравнение любых двух окон одинаковой длины.
+//
+// За полный месяц сумма всё равно равна месячному итогу, так что цифра на Главной по-прежнему
+// сходится с "Отчётом" (там эти же категории вычитаются месяцем целиком).
 async function fetchOpExpensesByDay(from, to) {
   const result = await pool.query(
-    `SELECT expense_date::text AS day, COALESCE(SUM(amount), 0) AS total
+    `SELECT to_char(expense_date, 'YYYY-MM') AS month, COALESCE(SUM(amount), 0) AS total
      FROM expenses
-     WHERE category = ANY($3::text[]) AND expense_date BETWEEN $1 AND $2
-     GROUP BY expense_date`,
+     WHERE category = ANY($3::text[])
+       AND expense_date >= date_trunc('month', $1::date)
+       AND expense_date < date_trunc('month', $2::date) + interval '1 month'
+     GROUP BY month`,
     [from, to, PROFIT_EXPENSE_CATEGORIES]
   );
-  const byDay = new Map();
+
+  // Доля одного дня по каждому месяцу, который задевает период.
+  const perDayByMonth = new Map();
   for (const r of result.rows) {
-    const day = String(r.day).slice(0, 10);
-    byDay.set(day, (byDay.get(day) || 0) + Number(r.total));
+    const [year, month] = String(r.month).split('-').map(Number);
+    // День 0 следующего месяца = последний день этого, то есть длина месяца (28/29/30/31).
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    perDayByMonth.set(r.month, Number(r.total) / daysInMonth);
+  }
+
+  const byDay = new Map();
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    const perDay = perDayByMonth.get(d.slice(0, 7));
+    if (perDay) byDay.set(d, perDay);
   }
   return byDay;
-}
-
-async function fetchOpExpensesTotalForRange(from, to) {
-  const result = await pool.query(
-    `SELECT COALESCE(SUM(amount), 0) AS total
-     FROM expenses
-     WHERE category = ANY($3::text[]) AND expense_date BETWEEN $1 AND $2`,
-    [from, to, PROFIT_EXPENSE_CATEGORIES]
-  );
-  return Number(result.rows[0].total);
 }
 
 async function fetchMarketingTotalForRange(from, to) {
@@ -309,7 +319,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   // Маркетинг не привязан к городу отгрузки, поэтому вычитаем его только на "Главной" (mode
   // !== 'selfbuy') — так же, как колонка "Маркетинг" в "Отчёте" есть только в "Основном отчёте"
   // (Алматы, Астана), а не в "Самовыкупах".
-  const [itemsResult, kptResult, costData, marketing, marketingByDay, opExpenses, opExpensesByDay] = await Promise.all([
+  const [itemsResult, kptResult, costData, marketing, marketingByDay, opExpensesByDay] = await Promise.all([
     pool.query(
       // day — та же "казахстанская" дата, что и в /summary (сдвиг +5 часов), иначе выручка и
       // прибыль одного заказа попадали бы на разные дни графика.
@@ -335,13 +345,16 @@ async function computeSummaryNetProfit(from, to, mode) {
     // Операционные расходы, как и маркетинг, не привязаны к городу отгрузки — поэтому только
     // на "Главной" (mode !== 'selfbuy'), ровно как колонки "Прочие затраты"/"Упаковка" в
     // "Отчёте" есть лишь в основном отчёте, а не в "Самовыкупах".
-    mode !== 'selfbuy' ? fetchOpExpensesTotalForRange(from, to) : Promise.resolve(0),
     mode !== 'selfbuy' ? fetchOpExpensesByDay(from, to) : Promise.resolve(new Map()),
   ]);
 
+  // Итог за период — сумма тех же дневных долей, что уходят в график, а не отдельный запрос:
+  // так число в карточке и сумма точек графика не могут разъехаться в принципе.
+  const opExpenses = [...opExpensesByDay.values()].reduce((sum, value) => sum + value, 0);
+
   // Прибыль по дням — для графика на телефоне. Собирается тем же проходом, что и итог, поэтому
-  // сумма дней сходится с числом в карточке: и маркетинг, и операционные расходы вычитаются по
-  // своим датам, а не размазываются поровну.
+  // сумма дней сходится с числом в карточке: маркетинг вычитается по своим датам (они у него
+  // честные, по дням), операционные расходы — равными долями месяца (см. fetchOpExpensesByDay).
   const profitByDay = new Map();
   const estimatedDays = new Set();
   const addDayProfit = (day, value) => profitByDay.set(day, (profitByDay.get(day) || 0) + value);
