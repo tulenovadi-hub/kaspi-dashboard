@@ -22,6 +22,18 @@ const SEARCH_WINDOW_DAYS = 20;
 // падает примерно в шесть раз, а нагрузка на Kaspi остаётся вежливой.
 const REQUEST_CONCURRENCY = 6;
 
+// Сколько дней от создания заказа отмену ещё имеет смысл перепроверять. Отсечка нужна, потому
+// что "перепроверить" раньше означало "обойти ВСЮ историю": условие `tracking_status <>
+// 'RETURNED'` навсегда оставляло в выборке каждую отмену, по которой возврата не было вовсе
+// (товар не отправляли). Их число только растёт, и с ним росло время кнопки "Проверить
+// сейчас". Через три месяца по отмене уже ничего не меняется: возврат либо принят, либо
+// потерян и разбирается руками.
+const RECHECK_WINDOW_DAYS = 90;
+
+// Строки, которые ещё имеет смысл перепроверять: свежие ИЛИ те, по которым возврат прямо
+// сейчас идёт (такие держим сколько угодно долго — это как раз "зависшие", их и надо видеть).
+const RECHECK_FILTER = `(dc.creation_date > now() - interval '${RECHECK_WINDOW_DAYS} days' OR dc.tracking_active = true)`;
+
 // Прогоняет items через fn не больше REQUEST_CONCURRENCY штук одновременно. Ошибка на одном
 // заказе не должна ронять весь проход — считаем только удачные.
 async function mapWithConcurrency(items, fn, limit = REQUEST_CONCURRENCY) {
@@ -117,7 +129,10 @@ async function syncDeliveryCancellations(dateFromMs, dateToMs) {
 // Kaspi наконец разрешает отмену и переходит в ARCHIVE/CANCELLED. Диапазон дат тут не при
 // чём — просто дёргаем каждый заказ по его номеру напрямую.
 async function refreshTrackedOrders() {
-  const result = await pool.query(`SELECT order_number FROM delivery_cancellations WHERE status IS DISTINCT FROM 'CANCELLED'`);
+  const result = await pool.query(
+    `SELECT order_number FROM delivery_cancellations dc
+     WHERE dc.status IS DISTINCT FROM 'CANCELLED' AND ${RECHECK_FILTER}`
+  );
 
   return mapWithConcurrency(result.rows, async (row) => {
     const order = await fetchOrderByCode(row.order_number);
@@ -137,7 +152,12 @@ async function refreshTrackedOrders() {
 // вернулся, и берём дату САМОГО ПОЗДНЕГО события из tracks как last_track_at (а не
 // lastActualTrack, который тоже может быть пустым при непустой истории).
 async function refreshTrackingStatuses() {
-  const result = await pool.query(`SELECT order_number FROM delivery_cancellations WHERE tracking_status IS DISTINCT FROM 'RETURNED'`);
+  const result = await pool.query(
+    `SELECT order_number FROM delivery_cancellations dc
+     WHERE dc.tracking_status IS DISTINCT FROM 'RETURNED'
+       AND dc.stock_returned_at IS NULL
+       AND ${RECHECK_FILTER}`
+  );
   return mapWithConcurrency(result.rows, (row) => refreshTrackingForOrder(row.order_number));
 }
 
@@ -240,19 +260,17 @@ async function refreshWonderReceived() {
   const codes = await fetchAllWonderOrderCodes();
   if (!codes) return 0;
 
+  // Один запрос на всё, а не UPDATE на каждую строку. База в другом дата-центре, и на паре
+  // сотен отмен эти круги складывались в десятки секунд — заметная часть тех самых пяти минут,
+  // которые ждала владелец (11.09.2026). Сам список у Wonder уже в памяти, сравнивать построчно
+  // на стороне сервера незачем.
   const result = await pool.query(
-    `SELECT order_number FROM delivery_cancellations WHERE tracking_status IS DISTINCT FROM 'CANCELLED'`
+    `UPDATE delivery_cancellations
+     SET wonder_received = (order_number = ANY($1::text[]))
+     WHERE tracking_status IS DISTINCT FROM 'CANCELLED'`,
+    [[...codes]]
   );
-
-  let count = 0;
-  for (const row of result.rows) {
-    await pool.query(
-      'UPDATE delivery_cancellations SET wonder_received = $2 WHERE order_number = $1',
-      [row.order_number, codes.has(row.order_number)]
-    );
-    count += 1;
-  }
-  return count;
+  return result.rowCount;
 }
 
 module.exports = { syncDeliveryCancellations, syncOrderByNumber, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS };

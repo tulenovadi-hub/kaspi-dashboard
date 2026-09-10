@@ -124,15 +124,27 @@ router.post('/sync', async (req, res) => {
       ? new Date(req.body.from).getTime()
       : dateToMs - SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
-    const foundNew = await syncDeliveryCancellations(dateFromMs, dateToMs);
-    const refreshed = await refreshTrackedOrders();
-    const trackingChecked = await refreshTrackingStatuses();
+    // Замеряем каждый шаг: когда проверка идёт долго, гадать, какой из четырёх виноват,
+    // бессмысленно — цифры уезжают в ответ и видны прямо на странице.
+    const timings = {};
+    async function step(name, fn) {
+      const started = Date.now();
+      try {
+        return await fn();
+      } finally {
+        timings[name] = Date.now() - started;
+      }
+    }
+
+    const foundNew = await step('search', () => syncDeliveryCancellations(dateFromMs, dateToMs));
+    const refreshed = await step('orders', () => refreshTrackedOrders());
+    const trackingChecked = await step('tracking', () => refreshTrackingStatuses());
 
     // Отдельный try/catch — если у Wonder не задан логин или он сам недоступен, это не должно
     // сбрасывать уже полученные результаты по остальным шагам синхронизации.
     let wonderChecked = 0;
     try {
-      wonderChecked = await refreshWonderReceived();
+      wonderChecked = await step('wonder', () => refreshWonderReceived());
     } catch (err) {
       console.error('Не удалось сверить заказы с Wonder:', err);
     }
@@ -140,7 +152,15 @@ router.post('/sync', async (req, res) => {
     // window_days отдаём наружу, чтобы по ответу было видно, за какой период реально искали
     // (у ручного бэкфилла с { "from": ... } он больше, чем обычные SEARCH_WINDOW_DAYS).
     const windowDays = Math.round((dateToMs - dateFromMs) / (24 * 60 * 60 * 1000));
-    res.json({ ok: true, window_days: windowDays, found_new: foundNew, refreshed, tracking_checked: trackingChecked, wonder_checked: wonderChecked });
+    res.json({
+      ok: true,
+      window_days: windowDays,
+      found_new: foundNew,
+      refreshed,
+      tracking_checked: trackingChecked,
+      wonder_checked: wonderChecked,
+      timings,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось проверить отменённые заказы' });

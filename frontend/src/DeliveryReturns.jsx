@@ -319,7 +319,18 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
     setLookupResult('');
     setLookupRaw(null);
     syncDeliveryReturns(password)
-      .then(() => loadData())
+      .then((res) => {
+        // Сколько заняли шаги — чтобы "долго грузится" было видно цифрами, а не на глаз.
+        const t = res && res.timings;
+        if (t) {
+          const sec = (ms) => `${(ms / 1000).toFixed(1)} с`;
+          setLookupResult(
+            `Поиск ${sec(t.search || 0)} · статусы ${sec(t.orders || 0)} · ` +
+            `трекинг ${sec(t.tracking || 0)} · Wonder ${sec(t.wonder || 0)}`
+          );
+        }
+        return loadData();
+      })
       .catch((err) => setError(err.message))
       .finally(() => setSyncing(false));
   }
