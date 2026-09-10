@@ -176,11 +176,12 @@ function addDays(dateStr, days) {
   return d.toISOString().slice(0, 10);
 }
 
-// Считает средний % чистой прибыли от выручки по уже известным (есть в Excel-отчёте) продажам
-// за произвольное окно дат — используется как запасной вариант, когда в самом запрошенном
-// периоде известных продаж нет вообще (см. computeSummaryNetProfit). kptByOrder и costData
-// переиспользуются из основного расчёта — они и так покрывают всю историю, а не только период,
-// так что дополнительно запрашивать их снова не нужно, только order_items за новое окно дат.
+// Считает % чистой прибыли от выручки по уже известным (есть в Excel-отчёте) продажам за
+// произвольное окно дат: и общий по магазину, и ОТДЕЛЬНО ПО КАЖДОМУ ТОВАРУ. Используется как
+// запасной вариант, когда в самом запрошенном периоде известных продаж по товару нет
+// (см. computeSummaryNetProfit). kptByOrder и costData переиспользуются из основного расчёта —
+// они и так покрывают всю историю, а не только период, так что дополнительно запрашивать их
+// снова не нужно, только order_items за новое окно дат.
 async function computeKnownProfitRatio(from, to, mode, kptByOrder, costData) {
   const itemsResult = await pool.query(
     `SELECT oi.product_id, oi.total_price, o.code AS order_number, o.id AS order_id
@@ -200,6 +201,7 @@ async function computeKnownProfitRatio(from, to, mode, kptByOrder, costData) {
 
   let knownNetProfit = 0;
   let knownNetRevenue = 0;
+  const byProduct = new Map(); // product_id -> { revenue, profit }
 
   for (const it of itemsResult.rows) {
     const kptRows = kptByOrder.get(it.order_number);
@@ -227,11 +229,25 @@ async function computeKnownProfitRatio(from, to, mode, kptByOrder, costData) {
     const netRevenueItem = purchases - returns;
     const cost = costData.costByOrderItem[`${it.order_number}::${it.product_id}`] || 0;
     const taxes = netRevenueItem > 0 ? netRevenueItem * TAX_RATE : 0;
-    knownNetProfit += netRevenueItem - cost - commission - delivery - taxes;
+    const profitItem = netRevenueItem - cost - commission - delivery - taxes;
+    knownNetProfit += profitItem;
     knownNetRevenue += netRevenueItem;
+
+    const stat = byProduct.get(it.product_id) || { revenue: 0, profit: 0 };
+    stat.revenue += netRevenueItem;
+    stat.profit += profitItem;
+    byProduct.set(it.product_id, stat);
   }
 
-  return knownNetRevenue > 0 ? knownNetProfit / knownNetRevenue : null;
+  const ratioByProduct = new Map();
+  for (const [productId, stat] of byProduct) {
+    if (stat.revenue > 0) ratioByProduct.set(productId, stat.profit / stat.revenue);
+  }
+
+  return {
+    ratio: knownNetRevenue > 0 ? knownNetProfit / knownNetRevenue : null,
+    ratioByProduct,
+  };
 }
 
 // Сумма расходов на маркетинг (реклама + бонусы от продавца + бонусы за отзыв) за произвольный
@@ -469,21 +485,34 @@ async function computeSummaryNetProfit(from, to, mode) {
     perProductKnown.set(it.product_id, stat);
   }
 
-  // Общий % прибыли по всем известным продажам за период — запасной вариант для товаров,
-  // у которых вообще нет ни одной известной продажи в этом периоде.
+  // Общий % прибыли по всем известным продажам за период — самый грубый запасной вариант.
   let overallRatio = knownNetRevenue > 0 ? knownNetProfit / knownNetRevenue : null;
 
-  // А если известных продаж нет вообще ЗА ВЕСЬ ПЕРИОД целиком (типичный случай — период
-  // "Сегодня"/"Вчера": Excel-отчёт по свежим дням физически ещё не может быть загружен) —
-  // посчитать overallRatio не от чего, и без этого блока вся оценка молча превратилась бы в 0,
-  // хотя реальная выручка есть. Вместо этого берём более широкое окно — последние 60 дней
-  // перед концом периода — и считаем средний % прибыли по нему.
-  if (overallRatio === null) {
-    const fallbackFrom = addDays(to, -60);
-    const fallbackStats = await computeKnownProfitRatio(fallbackFrom, to, mode, kptByOrder, costData);
-    overallRatio = fallbackStats; // если и там ничего не нашлось (null) — используем 0 дальше
-  }
+  // Окно пошире — последние 60 дней перед концом периода. Нужно в двух случаях:
+  //
+  // 1) Известных продаж нет вообще ЗА ВЕСЬ ПЕРИОД (типичный случай — "Сегодня"/"Вчера":
+  //    Excel-отчёт по свежим дням физически ещё не мог быть загружен). Без этого вся оценка
+  //    молча превратилась бы в 0, хотя реальная выручка есть.
+  // 2) У КОНКРЕТНОГО товара нет известных продаж в периоде — тогда его прибыль оценивается
+  //    по ЕГО ЖЕ проценту за это окно, а не по среднему по магазину. Иначе в начале месяца,
+  //    когда Excel-отчёта ещё нет ни по одному заказу, все товары получали один и тот же
+  //    средний процент — и в разбивке по товарам маржа у всех выходила одинаковой (владелец
+  //    заметила ровно это: "подозрительно, что маржа 28% у всех"). Тот же принцип уже
+  //    работает в /api/stats/product/:productId — там прогноз тоже по истории этого товара.
+  const fallbackFrom = addDays(to, -60);
+  const fallback = await computeKnownProfitRatio(fallbackFrom, to, mode, kptByOrder, costData);
+  if (overallRatio === null) overallRatio = fallback.ratio;
   if (overallRatio === null) overallRatio = 0;
+
+  // Цепочка запасных вариантов для одного товара: свои известные продажи в периоде →
+  // свой процент за 60 дней → средний по магазину.
+  function ratioForProduct(productId) {
+    const known = perProductKnown.get(productId);
+    if (known && known.revenue > 0) return known.profit / known.revenue;
+    const historical = fallback.ratioByProduct.get(productId);
+    if (historical !== undefined) return historical;
+    return overallRatio;
+  }
 
   let estimatedNetProfit = 0;
   // Прибыль по каждому товару — для разбивки под карточкой на Главной. Копит ровно те же
@@ -499,8 +528,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   }
   for (const it of unknownItems) {
     const revenue = Number(it.total_price);
-    const stat = perProductKnown.get(it.product_id);
-    const ratio = stat && stat.revenue > 0 ? stat.profit / stat.revenue : overallRatio;
+    const ratio = ratioForProduct(it.product_id);
     estimatedNetProfit += revenue * ratio;
     addDayProfit(it.day, revenue * ratio);
     estimatedDays.add(it.day); // в этом дне есть заказы без Excel-отчёта — прибыль дня оценочная

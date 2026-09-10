@@ -285,7 +285,14 @@ export default function SalesViewMobile({
         source: p,
       };
       if (metric === 'orders') {
-        return { ...base, value: orders, text: `${formatNumber(orders)} зак.`, meta: `${formatNumber(quantity)} шт` };
+        // Штуки показываем только когда их больше, чем заказов (в заказе взяли не одну штуку) —
+        // иначе строка дублировала бы саму себя: "48 зак." и "48 шт".
+        return {
+          ...base,
+          value: orders,
+          text: `${formatNumber(orders)} зак.`,
+          meta: quantity > orders ? `${formatNumber(quantity)} шт` : null,
+        };
       }
       if (metric === 'avg') {
         const avg = orders > 0 ? revenue / orders : 0;
@@ -298,11 +305,13 @@ export default function SalesViewMobile({
           ...base,
           value: profit,
           text: money(profit),
-          meta: margin === null ? `${formatNumber(quantity)} шт` : `маржа ${margin}%`,
+          meta: margin === null ? null : `маржа ${margin}%`,
           tone: profit < 0 ? 'down' : 'up',
         };
       }
-      return { ...base, value: revenue, text: money(revenue), meta: `${formatNumber(quantity)} шт` };
+      // Штук под названием нет намеренно: то же число видно в разбивке "Количество заказов",
+      // а здесь оно только шумело под суммой (владелец, 11.09.2026).
+      return { ...base, value: revenue, text: money(revenue), meta: null };
     });
 
     const labels = { orders: 'заказов', avg: 'от среднего', profit: 'прибыли', revenue: 'продаж' };
