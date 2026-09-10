@@ -275,6 +275,9 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   const [syncing, setSyncing] = useState(false);
   // Что ответил точечный поиск по номеру — "добавлен", "не отменён", "Kaspi не знает".
   const [lookupResult, setLookupResult] = useState('');
+  // Сырые данные Kaspi по найденному заказу — чтобы разбираться с непонятными случаями по
+  // исходнику, а не по нашим ярлыкам поверх него.
+  const [lookupRaw, setLookupRaw] = useState(null);
   const [lookupNumber, setLookupNumber] = useState('');
   const [error, setError] = useState('');
   const [archivingId, setArchivingId] = useState(null);
@@ -311,6 +314,7 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
     setSyncing(true);
     setError('');
     setLookupResult('');
+    setLookupRaw(null);
     syncDeliveryReturns(password)
       .then(() => loadData())
       .catch((err) => setError(err.message))
@@ -325,9 +329,11 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
     setSyncing(true);
     setError('');
     setLookupResult('');
+    setLookupRaw(null);
     syncDeliveryReturns(password, code)
       .then((res) => {
         setLookupResult(res.message || '');
+        setLookupRaw(res.diagnostics || null);
         if (res.added) loadData();
       })
       .catch((err) => setError(err.message))
@@ -463,6 +469,7 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
             onSync={handleSync}
             onLookup={handleLookup}
             lookupResult={lookupResult}
+            lookupRaw={lookupRaw}
             syncing={syncing}
             loading={loading}
             isOnline={isOnline}
@@ -509,6 +516,22 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
           <button className="orders-toolbar-reset" onClick={resetFilters}>Сбросить фильтры</button>
         )}
       </div>
+
+      {/* Сырой ответ Kaspi по найденному заказу — свёрнут, пока не понадобится. Нужен, когда
+          строка ведёт себя не так, как ожидаешь: спорить о причинах по нашим же ярлыкам
+          поверх данных бесполезно, надо смотреть исходник. */}
+      {lookupRaw && (
+        <details className="dr-raw">
+          <summary>Данные Kaspi по этому заказу</summary>
+          <button
+            className="dr-raw-copy"
+            onClick={() => navigator.clipboard && navigator.clipboard.writeText(JSON.stringify(lookupRaw, null, 2))}
+          >
+            Скопировать
+          </button>
+          <pre>{JSON.stringify(lookupRaw, null, 2)}</pre>
+        </details>
+      )}
 
       {error && <div className="error-banner">{error}</div>}
 

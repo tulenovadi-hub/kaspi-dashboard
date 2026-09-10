@@ -4861,3 +4861,48 @@ input[type="date"] {
   color: var(--text-muted);
   font-size: 13px;
 }
+
+/* Сырой ответ Kaspi под поиском по номеру — техническая справка, поэтому моноширинно,
+   с прокруткой и без попыток красиво уместить JSON в макет. */
+.dr-raw, .dm-raw {
+  margin: 0 0 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.dm-raw {
+  margin: 0 16px 16px;
+}
+
+.dr-raw summary, .dm-raw summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.dr-raw pre, .dm-raw pre {
+  max-height: 320px;
+  overflow: auto;
+  margin: 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dr-raw-copy, .dm-raw button {
+  margin-top: 8px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--accent-brand);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}

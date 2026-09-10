@@ -46,7 +46,7 @@ export default function DeliveryReturnsMobile({
   search, onSearch,
   statusLabel, reasonLabel, wonderLabel, isHighlighted, isDone, showStockButton,
   onToggleStock, togglingId, onArchive, archivingId,
-  onSync, onLookup, lookupResult, syncing, loading, isOnline,
+  onSync, onLookup, lookupResult, lookupRaw, syncing, loading, isOnline,
 }) {
   const [showNote, setShowNote] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
@@ -139,6 +139,15 @@ export default function DeliveryReturnsMobile({
         </button>
       </div>
       {lookupResult && <div className="dm-lookup-result">{lookupResult}</div>}
+      {lookupRaw && (
+        <details className="dm-raw">
+          <summary>Данные Kaspi по этому заказу</summary>
+          <button onClick={() => navigator.clipboard && navigator.clipboard.writeText(JSON.stringify(lookupRaw, null, 2))}>
+            Скопировать
+          </button>
+          <pre>{JSON.stringify(lookupRaw, null, 2)}</pre>
+        </details>
+      )}
 
       <div style={{ opacity: loading || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {totalCount === 0 ? (

@@ -190,6 +190,12 @@ async function syncOrderByNumber(code) {
   }
 
   const attrs = order.attributes;
+  // Сырые данные Kaspi по заказу — и карточка заказа, и трекинг. Отдаём наружу как есть:
+  // когда строка ведёт себя странно (заказ 1069743154 — "Ожидает отмены" в кабинете, а в
+  // трекинге последнее событие CANCELLED), спорить о причинах без исходных данных бесполезно.
+  const tracking = await fetchTrackingStatus(code).catch(() => null);
+  const diagnostics = { order: attrs, tracking };
+
   const isCancellation = attrs.status === 'CANCELLED' || attrs.status === 'CANCELLING';
   if (!isCancellation) {
     return {
@@ -197,18 +203,24 @@ async function syncOrderByNumber(code) {
       added: false,
       state: attrs.state,
       status: attrs.status,
+      diagnostics,
       message: `Заказ ${code} не отменён (${attrs.state} / ${attrs.status})`,
     };
   }
 
   await upsertFromAttrs(pool, attrs);
   await refreshTrackingForOrder(code);
+
+  const tracks = tracking && Array.isArray(tracking.tracks) ? tracking.tracks : [];
+  const lastCode = tracks.length ? tracks[tracks.length - 1].code : null;
   return {
     found: true,
     added: true,
     state: attrs.state,
     status: attrs.status,
-    message: `Заказ ${code} добавлен в список`,
+    diagnostics,
+    message: `Заказ ${code} добавлен: ${attrs.state} / ${attrs.status}` +
+      (tracks.length ? `, трек: ${lastCode}, событий ${tracks.length}` : ', трекинга нет'),
   };
 }
 
