@@ -324,8 +324,10 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
         const t = res && res.timings;
         if (t) {
           const sec = (ms) => `${(ms / 1000).toFixed(1)} с`;
+          const search = `Поиск ${sec(t.search || 0)}` +
+            (t.search_requests ? ` (${t.search_requests} зпр${t.search_fallback ? ', перебор состояний' : ''})` : '');
           setLookupResult(
-            `Поиск ${sec(t.search || 0)} · статусы ${sec(t.orders || 0)} · ` +
+            `${search} · статусы ${sec(t.orders || 0)} · ` +
             `трекинг ${sec(t.tracking || 0)} · Wonder ${sec(t.wonder || 0)}`
           );
         }

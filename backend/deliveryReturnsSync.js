@@ -91,22 +91,48 @@ const ORDER_STATES = ['NEW', 'SIGN_REQUIRED', 'PICKUP', 'DELIVERY', 'KASPI_DELIV
 // создан 10 сентября (то есть в окне поиска), "Ожидает отмены", уже передан курьеру, а в
 // список так и не попал. Состояние у такого заказа оказалось не тем, которое мы угадали.
 // Статус отмены — единственное, что про отмену известно точно, по нему и ищем.
+// Принимает ли Kaspi поиск без указания состояния. Проверяется один раз за жизнь процесса:
+// если не принимает, каждый следующий поиск сразу шёл бы через перебор шести состояний, но
+// сначала всё равно тратил бы запрос на заведомо неудачную попытку.
+let statelessSearchWorks = null;
+
+// Сколько запросов к Kaspi ушло на последний поиск и каким путём — уходит в timings ответа
+// /sync, чтобы "поиск идёт 52 секунды" разбиралось по цифрам, а не на ощупь.
+const lastSearchStats = { requests: 0, fallback: false };
+
 async function fetchCancellationsByStatus(status, dateFromMs, dateToMs) {
+  if (statelessSearchWorks === false) {
+    lastSearchStats.fallback = true;
+    return fetchByEachState(status, dateFromMs, dateToMs);
+  }
+
   try {
-    return await fetchOrdersByStatus(null, status, dateFromMs, dateToMs);
+    lastSearchStats.requests += 1;
+    const orders = await fetchOrdersByStatus(null, status, dateFromMs, dateToMs);
+    statelessSearchWorks = true;
+    return orders;
   } catch (err) {
     // Если Kaspi не принимает поиск без состояния — перебираем состояния сами. Дороже
     // (шесть запросов вместо одного на каждый кусок дат), зато не зависит от того, обязателен
     // фильтр по состоянию в их API или нет.
     console.error(`Поиск отмен по статусу ${status} без состояния не прошёл, перебираем состояния:`, err.message);
-    const perState = await Promise.all(
-      ORDER_STATES.map((state) => fetchOrdersByStatus(state, status, dateFromMs, dateToMs).catch(() => []))
-    );
-    return perState.flat();
+    statelessSearchWorks = false;
+    lastSearchStats.fallback = true;
+    return fetchByEachState(status, dateFromMs, dateToMs);
   }
 }
 
+async function fetchByEachState(status, dateFromMs, dateToMs) {
+  lastSearchStats.requests += ORDER_STATES.length;
+  const perState = await Promise.all(
+    ORDER_STATES.map((state) => fetchOrdersByStatus(state, status, dateFromMs, dateToMs).catch(() => []))
+  );
+  return perState.flat();
+}
+
 async function syncDeliveryCancellations(dateFromMs, dateToMs) {
+  lastSearchStats.requests = 0;
+  lastSearchStats.fallback = false;
   const found = await Promise.all(
     CANCELLATION_STATUSES.map((status) => fetchCancellationsByStatus(status, dateFromMs, dateToMs))
   );
@@ -273,4 +299,4 @@ async function refreshWonderReceived() {
   return result.rowCount;
 }
 
-module.exports = { syncDeliveryCancellations, syncOrderByNumber, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS };
+module.exports = { syncDeliveryCancellations, syncOrderByNumber, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS, lastSearchStats };

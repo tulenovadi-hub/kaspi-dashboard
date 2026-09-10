@@ -1,6 +1,6 @@
 const express = require('express');
 const { pool } = require('../db');
-const { syncDeliveryCancellations, syncOrderByNumber, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS } = require('../deliveryReturnsSync');
+const { syncDeliveryCancellations, syncOrderByNumber, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS, lastSearchStats } = require('../deliveryReturnsSync');
 
 const router = express.Router();
 
@@ -137,6 +137,9 @@ router.post('/sync', async (req, res) => {
     }
 
     const foundNew = await step('search', () => syncDeliveryCancellations(dateFromMs, dateToMs));
+    // Сколько запросов к Kaspi стоил поиск и не ушёл ли он в перебор состояний.
+    timings.search_requests = lastSearchStats.requests;
+    timings.search_fallback = lastSearchStats.fallback;
     const refreshed = await step('orders', () => refreshTrackedOrders());
     const trackingChecked = await step('tracking', () => refreshTrackingStatuses());
 
