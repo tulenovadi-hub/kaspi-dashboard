@@ -251,6 +251,43 @@ async function fetchMarketingByDay(from, to) {
   return byDay;
 }
 
+// Операционные расходы из гугл-таблицы (страница "Расходы"): ровно те же две категории, что
+// вычитаются из чистой прибыли в "Отчёте" (routes/reports.js) — иначе цифра на Главной и цифра
+// в отчёте за тот же месяц разъехались бы. "Товар" сюда не входит (уже учтён себестоимостью по
+// партиям FIFO), "Вывод" тоже (дивиденды собственника, а не расход бизнеса), "Логистика" — это
+// карго из Китая, она входит в себестоимость партии, а не в отдельный расход.
+const PROFIT_EXPENSE_CATEGORIES = ['Прочие затраты', 'Упаковка'];
+
+// Вычитаем по ДАТЕ расхода, попавшей в выбранный период, а не месяц целиком: строки в лист пишет
+// мобильное приложение по факту траты, каждая со своей датой (см. routes/expenses.js), поэтому за
+// полный месяц сумма совпадает с "Отчётом", а за неполный период вычитается только то, что в нём
+// действительно записано, без размазывания месячного итога по дням.
+async function fetchOpExpensesByDay(from, to) {
+  const result = await pool.query(
+    `SELECT expense_date::text AS day, COALESCE(SUM(amount), 0) AS total
+     FROM expenses
+     WHERE category = ANY($3::text[]) AND expense_date BETWEEN $1 AND $2
+     GROUP BY expense_date`,
+    [from, to, PROFIT_EXPENSE_CATEGORIES]
+  );
+  const byDay = new Map();
+  for (const r of result.rows) {
+    const day = String(r.day).slice(0, 10);
+    byDay.set(day, (byDay.get(day) || 0) + Number(r.total));
+  }
+  return byDay;
+}
+
+async function fetchOpExpensesTotalForRange(from, to) {
+  const result = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0) AS total
+     FROM expenses
+     WHERE category = ANY($3::text[]) AND expense_date BETWEEN $1 AND $2`,
+    [from, to, PROFIT_EXPENSE_CATEGORIES]
+  );
+  return Number(result.rows[0].total);
+}
+
 async function fetchMarketingTotalForRange(from, to) {
   const [adsResult, bonusResult, reviewResult] = await Promise.all([
     pool.query(`SELECT COALESCE(SUM(cost), 0) AS total FROM ad_expenses WHERE expense_date BETWEEN $1 AND $2`, [from, to]),
@@ -272,7 +309,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   // Маркетинг не привязан к городу отгрузки, поэтому вычитаем его только на "Главной" (mode
   // !== 'selfbuy') — так же, как колонка "Маркетинг" в "Отчёте" есть только в "Основном отчёте"
   // (Алматы, Астана), а не в "Самовыкупах".
-  const [itemsResult, kptResult, costData, marketing, marketingByDay] = await Promise.all([
+  const [itemsResult, kptResult, costData, marketing, marketingByDay, opExpenses, opExpensesByDay] = await Promise.all([
     pool.query(
       // day — та же "казахстанская" дата, что и в /summary (сдвиг +5 часов), иначе выручка и
       // прибыль одного заказа попадали бы на разные дни графика.
@@ -295,10 +332,16 @@ async function computeSummaryNetProfit(from, to, mode) {
     computeCostsByOrderItem(mode),
     mode !== 'selfbuy' ? fetchMarketingTotalForRange(from, to) : Promise.resolve(0),
     mode !== 'selfbuy' ? fetchMarketingByDay(from, to) : Promise.resolve(new Map()),
+    // Операционные расходы, как и маркетинг, не привязаны к городу отгрузки — поэтому только
+    // на "Главной" (mode !== 'selfbuy'), ровно как колонки "Прочие затраты"/"Упаковка" в
+    // "Отчёте" есть лишь в основном отчёте, а не в "Самовыкупах".
+    mode !== 'selfbuy' ? fetchOpExpensesTotalForRange(from, to) : Promise.resolve(0),
+    mode !== 'selfbuy' ? fetchOpExpensesByDay(from, to) : Promise.resolve(new Map()),
   ]);
 
   // Прибыль по дням — для графика на телефоне. Собирается тем же проходом, что и итог, поэтому
-  // сумма дней сходится с числом в карточке (маркетинг тоже вычитается по дням, а не поровну).
+  // сумма дней сходится с числом в карточке: и маркетинг, и операционные расходы вычитаются по
+  // своим датам, а не размазываются поровну.
   const profitByDay = new Map();
   const estimatedDays = new Set();
   const addDayProfit = (day, value) => profitByDay.set(day, (profitByDay.get(day) || 0) + value);
@@ -307,7 +350,10 @@ async function computeSummaryNetProfit(from, to, mode) {
     for (let d = from; d <= to; d = addDays(d, 1)) {
       days.push({
         day: d,
-        net_profit: Math.round(((profitByDay.get(d) || 0) - (marketingByDay.get(d) || 0)) * 100) / 100,
+        net_profit:
+          Math.round(
+            ((profitByDay.get(d) || 0) - (marketingByDay.get(d) || 0) - (opExpensesByDay.get(d) || 0)) * 100
+          ) / 100,
         is_estimated: estimatedDays.has(d),
       });
     }
@@ -315,7 +361,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   }
 
   if (itemsResult.rows.length === 0) {
-    return { netProfit: -marketing, usedEstimate: false, days: buildDays() };
+    return { netProfit: -marketing - opExpenses, usedEstimate: false, days: buildDays() };
   }
 
   // order_id -> сумма всех позиций в этом заказе (для деления комиссии/доставки по товарам)
@@ -405,7 +451,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   }
 
   return {
-    netProfit: knownNetProfit + estimatedNetProfit - marketing,
+    netProfit: knownNetProfit + estimatedNetProfit - marketing - opExpenses,
     usedEstimate: unknownItems.length > 0,
     days: buildDays(),
   };
