@@ -26,6 +26,10 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   // Чистая прибыль по дням — только для графика на телефоне (на компьютере график всегда
   // по выручке). Приходит из того же /summary-profit, что и итоговая цифра.
   const [profitDays, setProfitDays] = useState([]);
+  // Чистая прибыль по товарам — для разбивки под карточкой на телефоне. Приходит тем же
+  // запросом; в ней нет маркетинга и операционных расходов (они по магазину целиком), см.
+  // computeSummaryNetProfit на бэкенде.
+  const [profitProducts, setProfitProducts] = useState([]);
 
   // Итоги ПРЕДЫДУЩЕГО периода такой же длины — для процента изменения у каждого показателя
   // на телефоне. На компьютере не грузятся: там дельта только "сегодня к вчера" в блоке
@@ -43,6 +47,9 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   // и не перезапрашивается при смене дат. На самовыкупах не показывается: цифра общая по
   // магазину, среди самовыкупных продаж она читалась бы как их собственная.
   const [inventoryTotal, setInventoryTotal] = useState(null);
+  // Те же деньги в разбивке по товарам (сумма равна total) — набор товаров тут свой: не те,
+  // что продавались в периоде, а те, в которых сейчас лежат деньги.
+  const [inventoryProducts, setInventoryProducts] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -98,6 +105,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
         setPeriodNetProfit(Number(profitRes.net_profit) || 0);
         setUsedEstimate(!!profitRes.used_estimate);
         setProfitDays(Array.isArray(profitRes.days) ? profitRes.days : []);
+        setProfitProducts(Array.isArray(profitRes.products) ? profitRes.products : []);
 
         // Если сейчас открыт конкретный товар — не выкидываем на список при смене периода,
         // а просто подтягиваем его актуальные "Продано за период" под новый диапазон дат
@@ -129,7 +137,10 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   useEffect(() => {
     if (!active || mode === 'selfbuy') return;
     fetchInventoryValue(password)
-      .then((res) => setInventoryTotal(res.total))
+      .then((res) => {
+        setInventoryTotal(res.total);
+        setInventoryProducts(Array.isArray(res.by_product) ? res.by_product : []);
+      })
       .catch(() => {}); // плитка необязательная — молча прячем, если не посчиталось
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, mode, password, refreshTick]);
@@ -231,7 +242,9 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
                 avgOrder={avgOrder}
                 avgOrdersPerDay={avgOrdersPerDay}
                 periodNetProfit={periodNetProfit}
+                profitProducts={profitProducts}
                 inventoryTotal={inventoryTotal}
+                inventoryProducts={inventoryProducts}
                 usedEstimate={usedEstimate}
                 showMarketingNote={mode !== 'selfbuy'}
                 from={from}

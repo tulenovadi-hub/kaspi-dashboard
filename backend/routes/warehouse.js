@@ -202,9 +202,25 @@ async function computeInventoryValue() {
 
   const stockByWarehouse = new Map();
   let stockValue = 0;
+  // Деньги в товаре по КАЖДОМУ товару — для разбивки под плиткой "Деньги в товаре сейчас" на
+  // Главной. Копится теми же слагаемыми и в том же порядке, что и total ниже (остаток по
+  // себестоимости + всё вложенное в партии в пути), поэтому сумма по товарам равна итогу
+  // до копейки — иначе проценты в разбивке врали бы.
+  const byProduct = new Map();
+  const addToProduct = (productId, name, value, quantity) => {
+    const key = productId || `name:${name}`;
+    const row = byProduct.get(key) || { product_id: productId || null, product_name: name, value: 0, quantity: 0 };
+    row.value += value;
+    row.quantity += quantity;
+    if (!row.product_name && name) row.product_name = name;
+    byProduct.set(key, row);
+  };
+
   for (const p of products) {
     stockValue += p.remaining_value;
     stockByWarehouse.set(p.warehouse, (stockByWarehouse.get(p.warehouse) || 0) + p.remaining_value);
+    // Один товар лежит на нескольких складах — строки складов складываются в одну товарную.
+    addToProduct(p.product_id, p.product_name, p.remaining_value, p.remaining);
   }
 
   // Считаем по ПОЛНОЙ себестоимости партии (cost_price = закупка + логистика + прочие расходы за
@@ -214,7 +230,7 @@ async function computeInventoryValue() {
   // на 570 637 ₸. Всё, что вложено в товар, вложено в товар, когда бы оно ни было оплачено.
   // COALESCE — у партий, заведённых до появления отдельной колонки, purchase_price = cost_price.
   const transitResult = await pool.query(`
-    SELECT id, product_name, warehouse, quantity, note,
+    SELECT id, product_id, product_name, warehouse, quantity, note,
            COALESCE(purchase_price, cost_price) AS purchase_price,
            cost_price
     FROM product_batches
@@ -238,6 +254,10 @@ async function computeInventoryValue() {
     transitPurchase += purchase;
     transitExtra += extra;
     transitQuantity += quantity;
+    // Депозиты и авансы поставщику тоже заводятся партией в пути (см. DEPOSIT_NOTE_RE выше) —
+    // они остаются в разбивке под своим названием партии, потому что деньги в них реально
+    // вложены и в итоге они учтены.
+    addToProduct(b.product_id, b.product_name, purchase + extra, quantity);
 
     if (b.note && DEPOSIT_NOTE_RE.test(b.note)) {
       depositsValue += purchase;
@@ -261,6 +281,11 @@ async function computeInventoryValue() {
     // "Всего в товаре" = остаток по себестоимости + всё вложенное в партии, которые ещё едут.
     // Обе части считаются одинаково — по полной себестоимости, вместе с логистикой.
     total: stockValue + transitPurchase + transitExtra,
+    // Те же деньги, разложенные по товарам (сумма by_product === total). Нули не отдаём: товар
+    // с нулевым остатком в разбивке "сколько денег лежит" — просто шум.
+    by_product: [...byProduct.values()]
+      .filter((row) => row.value !== 0)
+      .sort((a, b) => b.value - a.value),
   };
 }
 

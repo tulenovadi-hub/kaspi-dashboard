@@ -56,11 +56,15 @@ router.get('/products', async (req, res) => {
 
   try {
     const result = await pool.query(
+      // orders_count — число ЗАКАЗОВ с этим товаром, а не штук: карточка "Количество заказов"
+      // на Главной считает именно заказы, и разбивка под ней обязана мерить то же самое.
+      // COUNT(DISTINCT o.id), потому что в одном заказе может быть несколько позиций.
       `SELECT
          oi.product_id,
          oi.product_name,
          SUM(oi.quantity) AS total_quantity,
-         SUM(oi.total_price) AS total_revenue
+         SUM(oi.total_price) AS total_revenue,
+         COUNT(DISTINCT o.id) AS orders_count
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        WHERE oi.creation_date >= $1::timestamp - interval '5 hours'
@@ -374,7 +378,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   }
 
   if (itemsResult.rows.length === 0) {
-    return { netProfit: -marketing - opExpenses, usedEstimate: false, days: buildDays() };
+    return { netProfit: -marketing - opExpenses, usedEstimate: false, days: buildDays(), products: [] };
   }
 
   // order_id -> сумма всех позиций в этом заказе (для деления комиссии/доставки по товарам)
@@ -454,6 +458,17 @@ async function computeSummaryNetProfit(from, to, mode) {
   if (overallRatio === null) overallRatio = 0;
 
   let estimatedNetProfit = 0;
+  // Прибыль по каждому товару — для разбивки под карточкой на Главной. Копит ровно те же
+  // слагаемые, что и итог (включая оценку по заказам без Excel-отчёта), поэтому сумма по
+  // товарам отличается от карточки строго на маркетинг и операционные расходы: они по
+  // магазину целиком и на товары не раскладываются — та же договорённость, что в разбивке
+  // по товарам в "Отчёте" (там в строке товара тоже нет прочих затрат и упаковки).
+  // Только id и сумма: название фронт берёт из /api/stats/products — там тот же набор
+  // товаров (оба считают позиции заказов за один период), так что join по id полный.
+  const profitByProduct = new Map();
+  for (const [productId, stat] of perProductKnown) {
+    profitByProduct.set(productId, stat.profit);
+  }
   for (const it of unknownItems) {
     const revenue = Number(it.total_price);
     const stat = perProductKnown.get(it.product_id);
@@ -461,12 +476,16 @@ async function computeSummaryNetProfit(from, to, mode) {
     estimatedNetProfit += revenue * ratio;
     addDayProfit(it.day, revenue * ratio);
     estimatedDays.add(it.day); // в этом дне есть заказы без Excel-отчёта — прибыль дня оценочная
+    profitByProduct.set(it.product_id, (profitByProduct.get(it.product_id) || 0) + revenue * ratio);
   }
 
   return {
     netProfit: knownNetProfit + estimatedNetProfit - marketing - opExpenses,
     usedEstimate: unknownItems.length > 0,
     days: buildDays(),
+    products: [...profitByProduct.entries()]
+      .map(([productId, profit]) => ({ product_id: productId, net_profit: profit }))
+      .sort((a, b) => b.net_profit - a.net_profit),
   };
 }
 
@@ -477,8 +496,8 @@ router.get('/summary-profit', async (req, res) => {
   }
 
   try {
-    const { netProfit, usedEstimate, days } = await computeSummaryNetProfit(from, to, mode);
-    res.json({ net_profit: netProfit, used_estimate: usedEstimate, days });
+    const { netProfit, usedEstimate, days, products } = await computeSummaryNetProfit(from, to, mode);
+    res.json({ net_profit: netProfit, used_estimate: usedEstimate, days, products });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить чистую прибыль' });

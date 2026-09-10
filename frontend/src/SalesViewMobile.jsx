@@ -193,8 +193,8 @@ function PeriodSheet({ from, to, onApply, onClose }) {
 
 export default function SalesViewMobile({
   days, profitDays, products, todayRevenue, yesterdayRevenue, prevTotals,
-  totalRevenue, totalOrders, avgOrder, avgOrdersPerDay, periodNetProfit,
-  inventoryTotal, usedEstimate, showMarketingNote,
+  totalRevenue, totalOrders, avgOrder, avgOrdersPerDay, periodNetProfit, profitProducts,
+  inventoryTotal, inventoryProducts, usedEstimate, showMarketingNote,
   from, to, presetKey, onPeriodChange, onCustomDates,
   showSync, syncing, onSync, syncResult, onSelectProduct,
 }) {
@@ -209,25 +209,28 @@ export default function SalesViewMobile({
   const METRICS = [
     {
       key: 'revenue', label: 'Сумма продаж', value: totalRevenue, format: formatMoney,
+      // listLabel — имя показателя в заголовке разбивки по товарам, где полное название
+      // плитки читалось бы коряво ("Деньги в товаре сейчас по товарам").
+      listLabel: 'Сумма продаж',
       prev: prevTotals ? prevTotals.revenue : null,
       series: days.map((d) => Number(d.total_revenue) || 0),
       seriesLabels: labels,
     },
     {
-      key: 'orders', label: 'Количество заказов', value: totalOrders, format: formatNumber,
+      key: 'orders', label: 'Количество заказов', value: totalOrders, format: formatNumber, listLabel: 'Заказы',
       hint: `⌀ ${avgOrdersPerDay}/день`,
       prev: prevTotals ? prevTotals.orders : null,
       series: days.map((d) => Number(d.orders_count) || 0),
       seriesLabels: labels,
     },
     {
-      key: 'avg', label: 'Средний чек', value: avgOrder, format: formatMoney,
+      key: 'avg', label: 'Средний чек', value: avgOrder, format: formatMoney, listLabel: 'Средний чек',
       prev: prevTotals ? prevTotals.avg : null,
       series: days.map((d) => (Number(d.orders_count) ? Number(d.total_revenue) / Number(d.orders_count) : 0)),
       seriesLabels: labels,
     },
     {
-      key: 'profit', label: 'Чистая прибыль', value: periodNetProfit, format: formatMoney,
+      key: 'profit', label: 'Чистая прибыль', value: periodNetProfit, format: formatMoney, listLabel: 'Чистая прибыль',
       tone: periodNetProfit < 0 ? 'down' : 'up',
       prev: prevTotals ? prevTotals.profit : null,
       // Прибыль приходит отдельным запросом (/summary-profit) и может покрывать не те же дни,
@@ -237,12 +240,84 @@ export default function SalesViewMobile({
     },
     ...(inventoryTotal !== null ? [{
       key: 'inventory', label: 'Деньги в товаре сейчас', value: inventoryTotal, format: formatMoney,
+      listLabel: 'Деньги в товаре',
       short: shortMoney(inventoryTotal), snapshot: true,
       note: 'Остаток складов плюс оплаченное в пути — подробности на «Складе»',
     }] : []),
   ];
 
   const current = METRICS.find((m) => m.key === metric) || METRICS[0];
+
+  // Разбивка по товарам следует за выбранной плиткой: тапнула "Количество заказов" — список
+  // ниже показывает заказы по каждому товару, а не выручку. Раньше он всегда показывал выручку
+  // со штуками, и по остальным показателям товарной картины не было вообще.
+  //
+  // Каждая строка: value — само число, meta — вторая строка помельче, percent — доля справа.
+  // Доля считается от СУММЫ ПО ТОВАРАМ, а не от цифры в карточке: у прибыли карточка ещё
+  // вычитает маркетинг и операционные расходы (они по магазину целиком и на товары не делятся),
+  // и от неё проценты в сумме давали бы не 100%.
+  const productRows = (() => {
+    const profitById = new Map(profitProducts.map((p) => [p.product_id, Number(p.net_profit) || 0]));
+    const money = (v) => formatMoney(v);
+
+    if (metric === 'inventory') {
+      // Свой набор товаров: не проданные за период, а те, в которых сейчас лежат деньги.
+      const rows = inventoryProducts.map((p) => ({
+        key: p.product_id || p.product_name,
+        product_id: p.product_id,
+        product_name: p.product_name,
+        value: Number(p.value) || 0,
+        text: money(Number(p.value) || 0),
+        meta: `${formatNumber(Number(p.quantity) || 0)} шт`,
+      }));
+      return { rows, shareLabel: 'денег в товаре', empty: 'Ни в одном товаре сейчас нет денег' };
+    }
+
+    const rows = products.map((p) => {
+      const revenue = Number(p.total_revenue) || 0;
+      const quantity = Number(p.total_quantity) || 0;
+      const orders = Number(p.orders_count) || 0;
+      const profit = profitById.get(p.product_id) || 0;
+      const base = {
+        key: p.product_id || p.product_name,
+        product_id: p.product_id,
+        product_name: p.product_name,
+        source: p,
+      };
+      if (metric === 'orders') {
+        return { ...base, value: orders, text: `${formatNumber(orders)} зак.`, meta: `${formatNumber(quantity)} шт` };
+      }
+      if (metric === 'avg') {
+        const avg = orders > 0 ? revenue / orders : 0;
+        return { ...base, value: avg, text: money(avg), meta: `${formatNumber(orders)} зак.` };
+      }
+      if (metric === 'profit') {
+        // Маржа рядом с суммой — иначе непонятно, много это или мало для такой выручки.
+        const margin = revenue > 0 ? Math.round((profit / revenue) * 100) : null;
+        return {
+          ...base,
+          value: profit,
+          text: money(profit),
+          meta: margin === null ? `${formatNumber(quantity)} шт` : `маржа ${margin}%`,
+          tone: profit < 0 ? 'down' : 'up',
+        };
+      }
+      return { ...base, value: revenue, text: money(revenue), meta: `${formatNumber(quantity)} шт` };
+    });
+
+    const labels = { orders: 'заказов', avg: 'от среднего', profit: 'прибыли', revenue: 'продаж' };
+    return { rows, shareLabel: labels[metric] || 'продаж', empty: 'За выбранный период продаж по товарам не было' };
+  })();
+
+  // Сортировка — по показываемому числу: убывающие полоски читаются сразу, а у прибыли убытки
+  // честно оказываются внизу списка.
+  const sortedRows = [...productRows.rows].sort((a, b) => b.value - a.value);
+  // Масштаб полоски — по самому большому ПО МОДУЛЮ значению: у прибыли бывает минус, и без
+  // модуля убыток нарисовал бы полоску наоборот, шире всех.
+  const barScale = Math.max(...sortedRows.map((r) => Math.abs(r.value)), 1);
+  // Средний чек не складывается, поэтому его "доля" — это отношение к среднему по магазину
+  // (91% = чек по этому товару ниже среднего), а не часть от суммы.
+  const shareBase = metric === 'avg' ? avgOrder : sortedRows.reduce((sum, r) => sum + r.value, 0);
   // Сравниваем то же самое с тем же самым: показатель за выбранный период против него же за
   // предыдущий период такой же длины (см. previousRange в SalesView.jsx).
   //
@@ -361,7 +436,7 @@ export default function SalesViewMobile({
       </div>
 
       {/* Обе сноски с компьютера — текста на треть экрана, поэтому свёрнуты. */}
-      {(usedEstimate || showMarketingNote) && (
+      {(usedEstimate || showMarketingNote || metric === 'profit') && (
         <>
           <button className="svm-notes-toggle" onClick={() => setShowNotes((v) => !v)} aria-expanded={showNotes}>
             {showNotes ? 'Скрыть примечания' : 'Как считается прибыль'}
@@ -385,6 +460,13 @@ export default function SalesViewMobile({
                     недостающие дни.
                   </p>
                 )}
+                {metric === 'profit' && (
+                  <p>
+                    В разбивке по товарам ниже — прибыль до маркетинга и операционных расходов:
+                    они считаются по магазину целиком и на товары не делятся. Поэтому сумма по
+                    товарам больше цифры в карточке, а проценты в ней — доли друг от друга.
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -400,26 +482,36 @@ export default function SalesViewMobile({
         />
       )}
 
-      <div className="svm-sec-title">Продажи по товарам</div>
+      {/* Заголовок называет показатель — иначе после переключения плитки непонятно, что
+          за числа в списке. */}
+      <div className="svm-sec-title">{current.listLabel || current.label} по товарам</div>
       <div className="card svm-products">
-        {products.length === 0 ? (
-          <div className="empty-state">За выбранный период продаж по товарам не было</div>
-        ) : products.map((p) => {
-          const maxRevenue = Math.max(...products.map((x) => Number(x.total_revenue) || 0), 1);
-          const revenue = Number(p.total_revenue) || 0;
+        {sortedRows.length === 0 ? (
+          <div className="empty-state">{productRows.empty}</div>
+        ) : sortedRows.map((row) => {
+          const share = shareBase ? Math.round((row.value / shareBase) * 100) : null;
           return (
             <button
-              key={p.product_id || p.product_name}
+              key={row.key}
               className="svm-prod"
-              onClick={() => onSelectProduct(p)}
+              onClick={() => onSelectProduct(row.source || {
+                // Строка из остатков склада: в периоде этот товар мог не продаваться, а карточке
+                // товара нужны эти поля — отдаём нули, а не undefined ("NaN шт" на экране).
+                product_id: row.product_id,
+                product_name: row.product_name,
+                total_quantity: 0,
+                total_revenue: 0,
+              })}
             >
-              <div className="svm-prod-name">{p.product_name}</div>
-              <div className="svm-prod-sum">{formatMoney(revenue)}</div>
-              <div className="svm-prod-meta">{formatNumber(p.total_quantity)} шт</div>
+              <div className="svm-prod-name">{row.product_name}</div>
+              <div className={`svm-prod-sum${row.tone === 'down' ? ' svm-down' : ''}`}>{row.text}</div>
+              <div className="svm-prod-meta">{row.meta}</div>
               <div className="svm-prod-meta svm-right">
-                {totalRevenue > 0 ? `${Math.round((revenue / totalRevenue) * 100)}% выручки` : ''}
+                {share === null ? '' : `${share}% ${productRows.shareLabel}`}
               </div>
-              <div className="svm-prod-bar"><i style={{ width: `${(revenue / maxRevenue) * 100}%` }} /></div>
+              <div className="svm-prod-bar">
+                <i style={{ width: `${(Math.abs(row.value) / barScale) * 100}%` }} />
+              </div>
             </button>
           );
         })}
