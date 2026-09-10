@@ -130,10 +130,10 @@ async function refreshTrackedOrders() {
 // которым мы ещё не видели подтверждённый возврат — как только видим, статус уже не
 // изменится, дальше можно не перепроверять.
 //
-// ВАЖНО: верхнеуровневые поля ответа (orderStatus/active/lastActualTrack) оказались
-// ненадёжными — на заказе 773482186 они показывали "ещё едет" (active: true, lastActualTrack:
+// ВАЖНО: верхнеуровневым полям (orderStatus/active/lastActualTrack) нельзя верить ВМЕСТО
+// tracks — на заказе 773482186 они показывали "ещё едет" (active: true, lastActualTrack:
 // null), хотя в массиве tracks того же ответа явно есть событие "RETURNED" с датой. Поэтому
-// ориентируемся только на сам массив tracks: если там есть код RETURNED — заказ точно
+// факт возврата ищем в самом массиве tracks: если там есть код RETURNED — заказ точно
 // вернулся, и берём дату САМОГО ПОЗДНЕГО события из tracks как last_track_at (а не
 // lastActualTrack, который тоже может быть пустым при непустой истории).
 async function refreshTrackingStatuses() {
@@ -150,6 +150,12 @@ async function refreshTrackingForOrder(orderNumber) {
 
   const tracks = Array.isArray(data.tracks) ? data.tracks : [];
   const hasReturned = tracks.some((t) => t.code === 'RETURNED');
+  // ...но и игнорировать их целиком нельзя. Заказ 1069743154 (11.09.2026): покупатель отказался
+  // ночью, когда посылка уже лежала на складе курьерской службы, и в tracks последними стоят
+  // RECIPIENT_DECLINED + CANCELLED — по ним выходило "отменён без доставки, товар не уезжал".
+  // А верхнеуровневое orderStatus у того же ответа — "RETURNING": посылка на складе Zammler в
+  // Астане и едет обратно. Событий RETURN_* Kaspi при этом не выдаёт вовсе.
+  const isReturningByStatus = data.orderStatus === 'RETURNING';
   const lastTrack = tracks.reduce((latest, t) => {
     if (!t.actualDateTime) return latest;
     if (!latest || new Date(t.actualDateTime) > new Date(latest.actualDateTime)) return t;
@@ -162,9 +168,11 @@ async function refreshTrackingForOrder(orderNumber) {
   // подтверждения RETURNED — это не повод считать заказ зависшим, просто у него не было
   // отдельного этапа возврата (например, отменили ещё до отправки).
   const lastCode = lastTrack ? lastTrack.code : null;
-  const isActivelyReturning = !!(lastCode && lastCode.startsWith('RETURN_'));
+  const isActivelyReturning = isReturningByStatus || !!(lastCode && lastCode.startsWith('RETURN_'));
 
-  const trackingStatus = hasReturned ? 'RETURNED' : lastCode;
+  // RETURNING ставим в статус вместо последнего кода: иначе строка называлась бы "Отменён без
+  // доставки" при том, что заказ активно возвращается.
+  const trackingStatus = hasReturned ? 'RETURNED' : isReturningByStatus ? 'RETURNING' : lastCode;
   const trackingActive = hasReturned ? false : isActivelyReturning;
   const lastTrackAt = lastTrack ? lastTrack.actualDateTime : null;
 
