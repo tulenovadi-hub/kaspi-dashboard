@@ -51,45 +51,73 @@ async function fetchOrders(dateFromMs, dateToMs) {
 // CANCELLING) за широкое окно дат. В отличие от fetchOrders, Kaspi ограничивает диапазон
 // creationDate максимум 14 днями за один запрос, поэтому идём чанками (по умолчанию 10 дней,
 // как и обычная синхронизация заказов в syncJob.js).
+// Сколько запросов к Kaspi держим одновременно внутри одного поиска. Замер 11.09.2026:
+// поиск отмен за 20 дней занимал 48 секунд, потому что и куски дат, и страницы внутри куска
+// шли строго по очереди — а Kaspi отвечает медленно, и всё время уходило в ожидание.
+const SEARCH_CONCURRENCY = 4;
+
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+// Один кусок дат целиком. Первую страницу берём отдельно: только из её meta.totalCount
+// известно, сколько всего страниц, — зато остальные после этого качаются параллельно, а не
+// по одной, как было.
+async function fetchOrdersChunk(http, params, pageSize) {
+  const firstResponse = await http.get('/orders', { params: { ...params, 'page[number]': 0, 'page[size]': pageSize } });
+  const first = firstResponse.data.data || [];
+  const totalCount = firstResponse.data.meta ? firstResponse.data.meta.totalCount : first.length;
+
+  const totalPages = Math.ceil((totalCount || first.length) / pageSize);
+  if (totalPages <= 1) return first;
+
+  const restPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 1);
+  const rest = await mapLimit(restPages, SEARCH_CONCURRENCY, async (page) => {
+    const response = await http.get('/orders', { params: { ...params, 'page[number]': page, 'page[size]': pageSize } });
+    return response.data.data || [];
+  });
+
+  return [first, ...rest].flat();
+}
+
+// Заказы с конкретными state/status (например "отменяется при доставке" — KASPI_DELIVERY/
+// CANCELLING) за широкое окно дат. В отличие от fetchOrders, Kaspi ограничивает диапазон
+// creationDate максимум 14 днями за один запрос, поэтому идём чанками (по умолчанию 10 дней,
+// как и обычная синхронизация заказов в syncJob.js). Чанки тоже идут параллельно.
 async function fetchOrdersByStatus(state, status, dateFromMs, dateToMs, chunkDays = 10) {
   const http = client();
-  let cursor = dateFromMs;
-  const allOrders = [];
+  const pageSize = 100;
+  const chunkMs = chunkDays * 24 * 60 * 60 * 1000;
 
-  while (cursor < dateToMs) {
-    const chunkEnd = Math.min(cursor + chunkDays * 24 * 60 * 60 * 1000, dateToMs);
-    let page = 0;
-    const pageSize = 100;
-
-    while (true) {
-      // state = null — спрашиваем по статусу во ВСЕХ состояниях сразу. Нужно поиску отмен:
-      // "Ожидает отмены" бывает и у заказа в доставке, и у ещё не отгруженного, и угадывать
-      // состояние по статусу нельзя (см. syncDeliveryCancellations).
-      const params = {
-        'page[number]': page,
-        'page[size]': pageSize,
-        'filter[orders][creationDate][$ge]': cursor,
-        'filter[orders][creationDate][$le]': chunkEnd,
-        'filter[orders][status]': status,
-      };
-      if (state) params['filter[orders][state]'] = state;
-
-      const response = await http.get('/orders', { params });
-
-      const orders = response.data.data || [];
-      allOrders.push(...orders);
-
-      const totalCount = response.data.meta ? response.data.meta.totalCount : orders.length;
-      const fetchedSoFar = (page + 1) * pageSize;
-
-      if (orders.length === 0 || fetchedSoFar >= totalCount) break;
-      page += 1;
-    }
-
-    cursor = chunkEnd;
+  const chunks = [];
+  for (let cursor = dateFromMs; cursor < dateToMs; cursor += chunkMs) {
+    chunks.push([cursor, Math.min(cursor + chunkMs, dateToMs)]);
   }
 
-  return allOrders;
+  const perChunk = await mapLimit(chunks, SEARCH_CONCURRENCY, ([from, to]) => {
+    // state = null — спрашиваем по статусу во ВСЕХ состояниях сразу. Нужно поиску отмен:
+    // "Ожидает отмены" бывает и у заказа в доставке, и у ещё не отгруженного, и угадывать
+    // состояние по статусу нельзя (см. syncDeliveryCancellations).
+    const params = {
+      'filter[orders][creationDate][$ge]': from,
+      'filter[orders][creationDate][$le]': to,
+      'filter[orders][status]': status,
+    };
+    if (state) params['filter[orders][state]'] = state;
+    return fetchOrdersChunk(http, params, pageSize);
+  });
+
+  return perChunk.flat();
 }
 
 // Внутренний id заказа у Kaspi — это просто base64 от номера заказа (code), который видит

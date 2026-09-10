@@ -117,8 +117,17 @@ app.use('/api/debug', requireRole('admin'), debugRoutes);
 // сработать: на бесплатном тарифе инстанс к ночи спит, а спящий процесс своих таймеров не
 // выполняет. Внешний крон дёргает /api/sync, но там были только обычные заказы. Теперь новые
 // отмены приезжают тем же путём, что и заказы.
+// Поиск за 20 дней стоит Kaspi десятки секунд (замер 11.09.2026), а внешний крон дёргает
+// /api/sync часто — поэтому автоматический путь ищет отмены не чаще раза в полчаса. Кнопка
+// "Проверить сейчас" на странице отмен этим ограничением не связана: там человек ждёт
+// результат сознательно.
+const AUTO_SEARCH_MIN_INTERVAL_MS = 30 * 60 * 1000;
+let lastAutoCancellationSearchAt = 0;
+
 function syncRecentDeliveryCancellations() {
   const now = Date.now();
+  if (now - lastAutoCancellationSearchAt < AUTO_SEARCH_MIN_INTERVAL_MS) return Promise.resolve(null);
+  lastAutoCancellationSearchAt = now;
   return syncDeliveryCancellations(now - SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000, now);
 }
 
