@@ -63,21 +63,54 @@ function upsertFromAttrs(client, attrs) {
   );
 }
 
-// Ищет НОВЫЕ отмены за диапазон дат — и ещё идущие (KASPI_DELIVERY/CANCELLING), и уже
-// в архиве (ARCHIVE/CANCELLED), чтобы не терять заказы, которые успели разрешиться ещё
-// до того, как мы их впервые увидели (см. историю переписки — заказ 915440447).
-async function syncDeliveryCancellations(dateFromMs, dateToMs) {
-  const [cancelling, archived] = await Promise.all([
-    fetchOrdersByStatus('KASPI_DELIVERY', 'CANCELLING', dateFromMs, dateToMs),
-    fetchOrdersByStatus('ARCHIVE', 'CANCELLED', dateFromMs, dateToMs),
-  ]);
+// Статусы отмены: "Ожидает отмены" (CANCELLING) и уже отменённый (CANCELLED). Второй нужен,
+// чтобы не терять заказы, которые успели разрешиться ещё до того, как мы их впервые увидели
+// (заказ 915440447).
+const CANCELLATION_STATUSES = ['CANCELLING', 'CANCELLED'];
 
-  let count = 0;
-  for (const order of [...cancelling, ...archived]) {
-    await upsertFromAttrs(pool, order.attributes || {});
-    count += 1;
+// Все состояния заказа у Kaspi — запасной перебор, если поиск без указания состояния не
+// сработает (см. fetchCancellationsByStatus).
+const ORDER_STATES = ['NEW', 'SIGN_REQUIRED', 'PICKUP', 'DELIVERY', 'KASPI_DELIVERY', 'ARCHIVE'];
+
+// Ищем по СТАТУСУ, не привязываясь к состоянию заказа.
+//
+// Так это работает с 11.09.2026. До этого спрашивались ровно два сочетания —
+// KASPI_DELIVERY/CANCELLING и ARCHIVE/CANCELLED, — и заказ 1069743154 не находился ничем:
+// создан 10 сентября (то есть в окне поиска), "Ожидает отмены", уже передан курьеру, а в
+// список так и не попал. Состояние у такого заказа оказалось не тем, которое мы угадали.
+// Статус отмены — единственное, что про отмену известно точно, по нему и ищем.
+async function fetchCancellationsByStatus(status, dateFromMs, dateToMs) {
+  try {
+    return await fetchOrdersByStatus(null, status, dateFromMs, dateToMs);
+  } catch (err) {
+    // Если Kaspi не принимает поиск без состояния — перебираем состояния сами. Дороже
+    // (шесть запросов вместо одного на каждый кусок дат), зато не зависит от того, обязателен
+    // фильтр по состоянию в их API или нет.
+    console.error(`Поиск отмен по статусу ${status} без состояния не прошёл, перебираем состояния:`, err.message);
+    const perState = await Promise.all(
+      ORDER_STATES.map((state) => fetchOrdersByStatus(state, status, dateFromMs, dateToMs).catch(() => []))
+    );
+    return perState.flat();
   }
-  return count;
+}
+
+async function syncDeliveryCancellations(dateFromMs, dateToMs) {
+  const found = await Promise.all(
+    CANCELLATION_STATUSES.map((status) => fetchCancellationsByStatus(status, dateFromMs, dateToMs))
+  );
+
+  // По номеру заказа: при переборе состояний один и тот же заказ может прийти дважды, да и
+  // считать "найдено" надо заказы, а не строки ответа.
+  const byCode = new Map();
+  for (const order of found.flat()) {
+    const attrs = order.attributes || {};
+    if (attrs.code) byCode.set(attrs.code, attrs);
+  }
+
+  for (const attrs of byCode.values()) {
+    await upsertFromAttrs(pool, attrs);
+  }
+  return byCode.size;
 }
 
 // Перепроверяет уже отслеживаемые заказы, которые ещё не в архиве — ловит момент, когда

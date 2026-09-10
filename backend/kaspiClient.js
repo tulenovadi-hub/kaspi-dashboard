@@ -62,16 +62,19 @@ async function fetchOrdersByStatus(state, status, dateFromMs, dateToMs, chunkDay
     const pageSize = 100;
 
     while (true) {
-      const response = await http.get('/orders', {
-        params: {
-          'page[number]': page,
-          'page[size]': pageSize,
-          'filter[orders][creationDate][$ge]': cursor,
-          'filter[orders][creationDate][$le]': chunkEnd,
-          'filter[orders][state]': state,
-          'filter[orders][status]': status,
-        },
-      });
+      // state = null — спрашиваем по статусу во ВСЕХ состояниях сразу. Нужно поиску отмен:
+      // "Ожидает отмены" бывает и у заказа в доставке, и у ещё не отгруженного, и угадывать
+      // состояние по статусу нельзя (см. syncDeliveryCancellations).
+      const params = {
+        'page[number]': page,
+        'page[size]': pageSize,
+        'filter[orders][creationDate][$ge]': cursor,
+        'filter[orders][creationDate][$le]': chunkEnd,
+        'filter[orders][status]': status,
+      };
+      if (state) params['filter[orders][state]'] = state;
+
+      const response = await http.get('/orders', { params });
 
       const orders = response.data.data || [];
       allOrders.push(...orders);
