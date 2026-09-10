@@ -16,6 +16,33 @@ const { fetchAllWonderOrderCodes } = require('./wonderClient');
 // известных заказов, которая от этого окна не зависит вовсе).
 const SEARCH_WINDOW_DAYS = 20;
 
+// Сколько запросов к Kaspi держим одновременно. Проверка ходит в API по одному заказу за раз,
+// и на нескольких сотнях отслеживаемых заказов последовательный обход растягивался на минуты
+// (владелец, 11.09.2026: "Проверить сейчас" грузилась минут пять). Шесть — компромисс: время
+// падает примерно в шесть раз, а нагрузка на Kaspi остаётся вежливой.
+const REQUEST_CONCURRENCY = 6;
+
+// Прогоняет items через fn не больше REQUEST_CONCURRENCY штук одновременно. Ошибка на одном
+// заказе не должна ронять весь проход — считаем только удачные.
+async function mapWithConcurrency(items, fn, limit = REQUEST_CONCURRENCY) {
+  let cursor = 0;
+  let done = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const item = items[cursor];
+      cursor += 1;
+      try {
+        const handled = await fn(item);
+        if (handled !== false) done += 1;
+      } catch (err) {
+        console.error('Ошибка при обработке заказа', item, err.message);
+      }
+    }
+  });
+  await Promise.all(workers);
+  return done;
+}
+
 function upsertFromAttrs(client, attrs) {
   const originCity = attrs.originAddress && attrs.originAddress.city ? attrs.originAddress.city.name : null;
   const returnedToWarehouse = attrs.kaspiDelivery ? attrs.kaspiDelivery.returnedToWarehouse : null;
@@ -59,15 +86,11 @@ async function syncDeliveryCancellations(dateFromMs, dateToMs) {
 async function refreshTrackedOrders() {
   const result = await pool.query(`SELECT order_number FROM delivery_cancellations WHERE status IS DISTINCT FROM 'CANCELLED'`);
 
-  let count = 0;
-  for (const row of result.rows) {
+  return mapWithConcurrency(result.rows, async (row) => {
     const order = await fetchOrderByCode(row.order_number);
-    if (order && order.attributes) {
-      await upsertFromAttrs(pool, order.attributes);
-      count += 1;
-    }
-  }
-  return count;
+    if (!order || !order.attributes) return false;
+    await upsertFromAttrs(pool, order.attributes);
+  });
 }
 
 // Подтягивает настоящий статус трекинга (публичный logistics.kaspi.kz) для всех заказов, по
@@ -82,41 +105,78 @@ async function refreshTrackedOrders() {
 // lastActualTrack, который тоже может быть пустым при непустой истории).
 async function refreshTrackingStatuses() {
   const result = await pool.query(`SELECT order_number FROM delivery_cancellations WHERE tracking_status IS DISTINCT FROM 'RETURNED'`);
+  return mapWithConcurrency(result.rows, (row) => refreshTrackingForOrder(row.order_number));
+}
 
-  let count = 0;
-  for (const row of result.rows) {
-    const data = await fetchTrackingStatus(row.order_number);
-    if (!data) continue;
+// Трекинг одного заказа. Возвращает false, если Kaspi ничего не отдал (тогда заказ не
+// считается обработанным). Вынесено из цикла выше, чтобы тем же кодом можно было обновить
+// один заказ, найденный по номеру вручную.
+async function refreshTrackingForOrder(orderNumber) {
+  const data = await fetchTrackingStatus(orderNumber);
+  if (!data) return false;
 
-    const tracks = Array.isArray(data.tracks) ? data.tracks : [];
-    const hasReturned = tracks.some((t) => t.code === 'RETURNED');
-    const lastTrack = tracks.reduce((latest, t) => {
-      if (!t.actualDateTime) return latest;
-      if (!latest || new Date(t.actualDateTime) > new Date(latest.actualDateTime)) return t;
-      return latest;
-    }, null);
+  const tracks = Array.isArray(data.tracks) ? data.tracks : [];
+  const hasReturned = tracks.some((t) => t.code === 'RETURNED');
+  const lastTrack = tracks.reduce((latest, t) => {
+    if (!t.actualDateTime) return latest;
+    if (!latest || new Date(t.actualDateTime) > new Date(latest.actualDateTime)) return t;
+    return latest;
+  }, null);
 
-    // "Активно возвращается" — только если ПОСЛЕДНЕЕ по времени событие начинается с RETURN_
-    // (реально в процессе обратной перевозки). Любой другой код последним (CANCELLED, ожидание
-    // в пункте выдачи и т.п.) означает, что процесс так или иначе завершился без явного
-    // подтверждения RETURNED — это не повод считать заказ зависшим, просто у него не было
-    // отдельного этапа возврата (например, отменили ещё до отправки).
-    const lastCode = lastTrack ? lastTrack.code : null;
-    const isActivelyReturning = !!(lastCode && lastCode.startsWith('RETURN_'));
+  // "Активно возвращается" — только если ПОСЛЕДНЕЕ по времени событие начинается с RETURN_
+  // (реально в процессе обратной перевозки). Любой другой код последним (CANCELLED, ожидание
+  // в пункте выдачи и т.п.) означает, что процесс так или иначе завершился без явного
+  // подтверждения RETURNED — это не повод считать заказ зависшим, просто у него не было
+  // отдельного этапа возврата (например, отменили ещё до отправки).
+  const lastCode = lastTrack ? lastTrack.code : null;
+  const isActivelyReturning = !!(lastCode && lastCode.startsWith('RETURN_'));
 
-    const trackingStatus = hasReturned ? 'RETURNED' : lastCode;
-    const trackingActive = hasReturned ? false : isActivelyReturning;
-    const lastTrackAt = lastTrack ? lastTrack.actualDateTime : null;
+  const trackingStatus = hasReturned ? 'RETURNED' : lastCode;
+  const trackingActive = hasReturned ? false : isActivelyReturning;
+  const lastTrackAt = lastTrack ? lastTrack.actualDateTime : null;
 
-    await pool.query(
-      `UPDATE delivery_cancellations
-       SET tracking_status = $2, tracking_active = $3, last_track_at = $4
-       WHERE order_number = $1`,
-      [row.order_number, trackingStatus, trackingActive, lastTrackAt]
-    );
-    count += 1;
+  await pool.query(
+    `UPDATE delivery_cancellations
+     SET tracking_status = $2, tracking_active = $3, last_track_at = $4
+     WHERE order_number = $1`,
+    [orderNumber, trackingStatus, trackingActive, lastTrackAt]
+  );
+}
+
+// Проверка ОДНОГО заказа по номеру — минуя обход по датам. Нужна, когда отмена есть в
+// кабинете Kaspi, но в списке её нет: обычный поиск фильтрует по дате СОЗДАНИЯ заказа за
+// последние SEARCH_WINDOW_DAYS дней, и заказ, оформленный давно и отменённый вчера, в это
+// окно не попадает (заказ 1069743154, 11.09.2026).
+//
+// Отвечает подробно, а не просто "не найдено": если заказ есть, но не отменён, так и
+// говорим — иначе с виду это неотличимо от "Kaspi его не отдал".
+async function syncOrderByNumber(code) {
+  const order = await fetchOrderByCode(code).catch(() => null);
+  if (!order || !order.attributes) {
+    return { found: false, added: false, message: `Kaspi не знает заказ ${code}` };
   }
-  return count;
+
+  const attrs = order.attributes;
+  const isCancellation = attrs.status === 'CANCELLED' || attrs.status === 'CANCELLING';
+  if (!isCancellation) {
+    return {
+      found: true,
+      added: false,
+      state: attrs.state,
+      status: attrs.status,
+      message: `Заказ ${code} не отменён (${attrs.state} / ${attrs.status})`,
+    };
+  }
+
+  await upsertFromAttrs(pool, attrs);
+  await refreshTrackingForOrder(code);
+  return {
+    found: true,
+    added: true,
+    state: attrs.state,
+    status: attrs.status,
+    message: `Заказ ${code} добавлен в список`,
+  };
 }
 
 // Сверяет заказы, реально уехавшие в доставку (tracking_status != 'CANCELLED' — тем, что
@@ -142,4 +202,4 @@ async function refreshWonderReceived() {
   return count;
 }
 
-module.exports = { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS };
+module.exports = { syncDeliveryCancellations, syncOrderByNumber, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS };

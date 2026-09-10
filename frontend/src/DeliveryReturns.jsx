@@ -273,6 +273,9 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // Что ответил точечный поиск по номеру — "добавлен", "не отменён", "Kaspi не знает".
+  const [lookupResult, setLookupResult] = useState('');
+  const [lookupNumber, setLookupNumber] = useState('');
   const [error, setError] = useState('');
   const [archivingId, setArchivingId] = useState(null);
   const [filters, setFilters] = useState(createEmptyFilters);
@@ -307,8 +310,26 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   function handleSync() {
     setSyncing(true);
     setError('');
+    setLookupResult('');
     syncDeliveryReturns(password)
       .then(() => loadData())
+      .catch((err) => setError(err.message))
+      .finally(() => setSyncing(false));
+  }
+
+  // Точечный поиск по номеру заказа: полная проверка ищет только по заказам, СОЗДАННЫМ за
+  // последние три недели (так фильтрует Kaspi), и отмену давнего заказа не находит вовсе.
+  function handleLookup(orderNumber) {
+    const code = String(orderNumber || '').trim();
+    if (!code) return;
+    setSyncing(true);
+    setError('');
+    setLookupResult('');
+    syncDeliveryReturns(password, code)
+      .then((res) => {
+        setLookupResult(res.message || '');
+        if (res.added) loadData();
+      })
       .catch((err) => setError(err.message))
       .finally(() => setSyncing(false));
   }
@@ -440,6 +461,8 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
             onArchive={handleArchive}
             archivingId={archivingId}
             onSync={handleSync}
+            onLookup={handleLookup}
+            lookupResult={lookupResult}
             syncing={syncing}
             loading={loading}
             isOnline={isOnline}
@@ -469,6 +492,19 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
         <button className="sync-button" onClick={handleSync} disabled={syncing}>
           {syncing ? 'Проверяю...' : 'Проверить сейчас'}
         </button>
+        <input
+          className="dr-lookup-input"
+          type="text"
+          inputMode="numeric"
+          placeholder="Номер заказа"
+          value={lookupNumber}
+          onChange={(event) => setLookupNumber(event.target.value.replace(/\D/g, ''))}
+          onKeyDown={(event) => event.key === 'Enter' && handleLookup(lookupNumber)}
+        />
+        <button className="sync-button" onClick={() => handleLookup(lookupNumber)} disabled={syncing || !lookupNumber}>
+          Найти
+        </button>
+        {lookupResult && <span className="dr-lookup-result">{lookupResult}</span>}
         {hasActiveFilters && (
           <button className="orders-toolbar-reset" onClick={resetFilters}>Сбросить фильтры</button>
         )}

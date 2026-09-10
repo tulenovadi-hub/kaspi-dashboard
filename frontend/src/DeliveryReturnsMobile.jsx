@@ -46,7 +46,7 @@ export default function DeliveryReturnsMobile({
   search, onSearch,
   statusLabel, reasonLabel, wonderLabel, isHighlighted, isDone, showStockButton,
   onToggleStock, togglingId, onArchive, archivingId,
-  onSync, syncing, loading, isOnline,
+  onSync, onLookup, lookupResult, syncing, loading, isOnline,
 }) {
   const [showNote, setShowNote] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
@@ -54,6 +54,7 @@ export default function DeliveryReturnsMobile({
   const [openOrder, setOpenOrder] = useState(null);
 
   const shownArchive = archivedOrders.slice(0, archiveLimit);
+  const [lookupNumber, setLookupNumber] = useState('');
 
   return (
     <div className="dm">
@@ -122,6 +123,22 @@ export default function DeliveryReturnsMobile({
           {syncing ? 'Проверяю…' : 'Проверить сейчас'}
         </button>
       </div>
+
+      {/* Точечный поиск по номеру: полная проверка ищет только заказы, СОЗДАННЫЕ за последние
+          три недели (так фильтрует Kaspi), и отмену давнего заказа не находит совсем. */}
+      <div className="dm-lookup">
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="Номер заказа из кабинета"
+          value={lookupNumber}
+          onChange={(event) => setLookupNumber(event.target.value.replace(/\D/g, ''))}
+        />
+        <button className="dm-link" onClick={() => onLookup(lookupNumber)} disabled={syncing || !lookupNumber}>
+          Найти
+        </button>
+      </div>
+      {lookupResult && <div className="dm-lookup-result">{lookupResult}</div>}
 
       <div style={{ opacity: loading || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {totalCount === 0 ? (

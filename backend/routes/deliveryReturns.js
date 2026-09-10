@@ -1,6 +1,6 @@
 const express = require('express');
 const { pool } = require('../db');
-const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS } = require('../deliveryReturnsSync');
+const { syncDeliveryCancellations, syncOrderByNumber, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS } = require('../deliveryReturnsSync');
 
 const router = express.Router();
 
@@ -91,6 +91,18 @@ router.get('/', async (req, res) => {
 // незавершённых заказов.
 router.post('/sync', async (req, res) => {
   try {
+    // Точечная проверка по номеру заказа — отдельная короткая ветка (два запроса к Kaspi
+    // вместо полного прохода на несколько минут). Ею добирают отмены, которые не попали в
+    // окно поиска по дате создания.
+    const orderNumber = req.body && req.body.order ? String(req.body.order).trim() : null;
+    if (orderNumber) {
+      if (!/^\d+$/.test(orderNumber)) {
+        return res.status(400).json({ error: 'Номер заказа — это только цифры' });
+      }
+      const result = await syncOrderByNumber(orderNumber);
+      return res.json({ ok: true, order: orderNumber, ...result });
+    }
+
     const dateToMs = Date.now();
     const dateFromMs = req.body && req.body.from
       ? new Date(req.body.from).getTime()

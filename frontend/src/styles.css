@@ -4817,3 +4817,47 @@ input[type="date"] {
   .ptr-arrow { transition: none; }
   .ptr-refreshing .ptr-arrow { animation: none; }
 }
+
+/* Точечный поиск отмены по номеру заказа (страница "Отмены при доставке"). Полная проверка
+   ищет только по заказам, созданным за последние три недели, — давнюю отмену достают отсюда. */
+.dr-lookup-input {
+  width: 150px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.dr-lookup-result {
+  color: var(--text-muted);
+  font-size: 13px;
+  align-self: center;
+}
+
+.dm-lookup {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 16px 10px;
+}
+
+.dm-lookup input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+}
+
+.dm-lookup-result {
+  margin: -4px 16px 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+}

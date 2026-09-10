@@ -271,8 +271,15 @@ export function fetchDeliveryReturns(password) {
   return apiRequest('/api/delivery-returns', password);
 }
 
-export function syncDeliveryReturns(password) {
-  return apiRequest('/api/delivery-returns/sync', password, { method: 'POST', timeoutMs: LONG_TIMEOUT_MS });
+// Без номера — полная проверка (минуты). С номером — точечная: заказ достаётся из Kaspi
+// напрямую, минуя окно поиска по дате создания.
+export function syncDeliveryReturns(password, orderNumber) {
+  return apiRequest('/api/delivery-returns/sync', password, {
+    method: 'POST',
+    timeoutMs: LONG_TIMEOUT_MS,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(orderNumber ? { order: orderNumber } : {}),
+  });
 }
 
 // "+ в остаток" — подтверждение руками, что вернувшийся товар доехал до склада.
