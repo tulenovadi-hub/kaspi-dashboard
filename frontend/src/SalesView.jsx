@@ -23,6 +23,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [periodNetProfit, setPeriodNetProfit] = useState(0);
   const [usedEstimate, setUsedEstimate] = useState(false);
+  const [usedMarketingEstimate, setUsedMarketingEstimate] = useState(false);
   // Чистая прибыль по дням — только для графика на телефоне (на компьютере график всегда
   // по выручке). Приходит из того же /summary-profit, что и итоговая цифра.
   const [profitDays, setProfitDays] = useState([]);
@@ -104,6 +105,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
         setProducts(productsRes.products);
         setPeriodNetProfit(Number(profitRes.net_profit) || 0);
         setUsedEstimate(!!profitRes.used_estimate);
+        setUsedMarketingEstimate(!!profitRes.used_marketing_estimate);
         setProfitDays(Array.isArray(profitRes.days) ? profitRes.days : []);
         setProfitProducts(Array.isArray(profitRes.products) ? profitRes.products : []);
 
@@ -246,6 +248,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
                 inventoryTotal={inventoryTotal}
                 inventoryProducts={inventoryProducts}
                 usedEstimate={usedEstimate}
+                usedMarketingEstimate={usedMarketingEstimate}
                 showMarketingNote={mode !== 'selfbuy'}
                 from={from}
                 to={to}
@@ -344,14 +347,22 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
             </div>
           )}
 
-          {mode !== 'selfbuy' && (
+          {usedMarketingEstimate && (
             <div style={{ color: '#6b7690', fontSize: 12, marginTop: usedEstimate ? -4 : -12, marginBottom: 16 }}>
+              По дням после последней маркетинговой выгрузки расходы оценены по исторической доле
+              рекламы и бонусов в выручке за последние 60 дней. После загрузки свежих данных прогноз
+              автоматически заменится фактическими расходами.
+            </div>
+          )}
+
+          {mode !== 'selfbuy' && (
+            <div style={{ color: '#6b7690', fontSize: 12, marginTop: usedEstimate || usedMarketingEstimate ? -4 : -12, marginBottom: 16 }}>
               Из чистой прибыли также вычтены расходы на маркетинг (реклама, бонусы от продавца, бонусы за отзыв)
               и операционные расходы со страницы «Расходы» — категории «Прочие затраты» и «Упаковка».
               Расходы месяца раскладываются равными долями на каждый его день, чтобы периоды сравнивались
               честно, независимо от того, какого числа прошёл платёж. В незаконченном месяце делятся на
-              прошедшие дни, а не на весь месяц. Маркетинг — только то, что фактически
-              загружено, без прогноза за недостающие дни.
+              прошедшие дни, а не на весь месяц. Для маркетинга используются фактические данные и прогноз
+              за ещё не загруженные свежие дни.
             </div>
           )}
 

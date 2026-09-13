@@ -194,7 +194,7 @@ function PeriodSheet({ from, to, onApply, onClose }) {
 export default function SalesViewMobile({
   days, profitDays, products, todayRevenue, yesterdayRevenue, prevTotals,
   totalRevenue, totalOrders, avgOrder, avgOrdersPerDay, periodNetProfit, profitProducts,
-  inventoryTotal, inventoryProducts, usedEstimate, showMarketingNote,
+  inventoryTotal, inventoryProducts, usedEstimate, usedMarketingEstimate, showMarketingNote,
   from, to, presetKey, onPeriodChange, onCustomDates,
   showSync, syncing, onSync, syncResult, onSelectProduct,
 }) {
@@ -445,7 +445,7 @@ export default function SalesViewMobile({
       </div>
 
       {/* Обе сноски с компьютера — текста на треть экрана, поэтому свёрнуты. */}
-      {(usedEstimate || showMarketingNote || metric === 'profit') && (
+      {(usedEstimate || usedMarketingEstimate || showMarketingNote || metric === 'profit') && (
         <>
           <button className="svm-notes-toggle" onClick={() => setShowNotes((v) => !v)} aria-expanded={showNotes}>
             {showNotes ? 'Скрыть примечания' : 'Как считается прибыль'}
@@ -459,14 +459,21 @@ export default function SalesViewMobile({
                     оценена примерно, по среднему проценту прибыли уже посчитанных заказов с тем же товаром.
                   </p>
                 )}
+                {usedMarketingEstimate && (
+                  <p>
+                    По дням после последней маркетинговой выгрузки расходы оценены по исторической
+                    доле рекламы и бонусов в выручке за последние 60 дней. После загрузки свежих данных
+                    прогноз автоматически заменится фактическими расходами.
+                  </p>
+                )}
                 {showMarketingNote && (
                   <p>
                     Из чистой прибыли также вычтены расходы на маркетинг (реклама, бонусы от продавца,
                     бонусы за отзыв) и операционные расходы со страницы «Расходы» — категории «Прочие
                     затраты» и «Упаковка». Расходы месяца раскладываются равными долями на каждый его
                     день, чтобы периоды сравнивались честно, независимо от того, какого числа прошёл
-                    платёж. В незаконченном месяце делятся на прошедшие дни, а не на весь месяц. Маркетинг — только то, что фактически загружено, без прогноза за
-                    недостающие дни.
+                    платёж. В незаконченном месяце делятся на прошедшие дни, а не на весь месяц. Для
+                    маркетинга используются фактические данные и прогноз за ещё не загруженные свежие дни.
                   </p>
                 )}
                 {metric === 'profit' && (

@@ -250,25 +250,108 @@ async function computeKnownProfitRatio(from, to, mode, kptByOrder, costData) {
   };
 }
 
-// Сумма расходов на маркетинг (реклама + бонусы от продавца + бонусы за отзыв) за произвольный
-// диапазон дат — просто SUM того, что реально загружено, без каких-либо прогнозов на
-// недостающие дни (в отличие от оценки чистой прибыли по свежим заказам ниже).
-// Маркетинг по дням — нужен дневному графику чистой прибыли на телефоне. Все три источника
-// хранят дату расхода, поэтому разложить по дням можно честно, а не размазывать итог поровну.
-async function fetchMarketingByDay(from, to) {
-  const [adsResult, bonusResult, reviewResult] = await Promise.all([
-    pool.query(`SELECT expense_date::text AS day, COALESCE(SUM(cost), 0) AS total FROM ad_expenses WHERE expense_date BETWEEN $1 AND $2 GROUP BY expense_date`, [from, to]),
-    pool.query(`SELECT expense_date::text AS day, COALESCE(SUM(bonus_amount), 0) AS total FROM bonus_expenses WHERE expense_date BETWEEN $1 AND $2 GROUP BY expense_date`, [from, to]),
-    pool.query(`SELECT expense_date::text AS day, COALESCE(SUM(bonus_amount), 0) AS total FROM review_bonus_expenses WHERE expense_date BETWEEN $1 AND $2 GROUP BY expense_date`, [from, to]),
+// Фактический маркетинг по дням и историческая доля каждого из трёх источников в выручке.
+// Источники считаются отдельно: реклама может быть загружена по вчера, а бонусы — только по
+// позавчера. После последней фактической даты каждого источника недостающий расход оценивается
+// как его доля в выручке за последние 60 дней с данными × выручка нового дня.
+//
+// Важная деталь: нулевые строки тоже сохраняются Tampermonkey-скриптом, поэтому MAX(expense_date)
+// означает именно конец выгруженного периода, а не последний день, когда реально были траты.
+async function fetchMarketingData(from, to) {
+  const [actualResult, historyResult] = await Promise.all([
+    pool.query(
+      `SELECT source, to_char(expense_date, 'YYYY-MM-DD') AS day, SUM(total) AS total
+       FROM (
+         SELECT 'ads' AS source, expense_date, cost AS total FROM ad_expenses
+         UNION ALL
+         SELECT 'bonuses' AS source, expense_date, bonus_amount AS total FROM bonus_expenses
+         UNION ALL
+         SELECT 'reviews' AS source, expense_date, bonus_amount AS total FROM review_bonus_expenses
+       ) marketing
+       WHERE expense_date BETWEEN $1 AND $2
+       GROUP BY source, expense_date
+       ORDER BY expense_date`,
+      [from, to]
+    ),
+    pool.query(
+      `WITH source_daily AS (
+         SELECT 'ads' AS source, expense_date::date AS day, SUM(cost) AS total
+         FROM ad_expenses GROUP BY expense_date
+         UNION ALL
+         SELECT 'bonuses' AS source, expense_date::date AS day, SUM(bonus_amount) AS total
+         FROM bonus_expenses GROUP BY expense_date
+         UNION ALL
+         SELECT 'reviews' AS source, expense_date::date AS day, SUM(bonus_amount) AS total
+         FROM review_bonus_expenses GROUP BY expense_date
+       ), with_latest AS (
+         SELECT source, day, total, MAX(day) OVER (PARTITION BY source) AS latest_day
+         FROM source_daily
+       ), source_history AS (
+         SELECT source, latest_day,
+                MIN(day) FILTER (WHERE day >= latest_day - 59) AS history_start,
+                COALESCE(SUM(total) FILTER (WHERE day >= latest_day - 59), 0) AS historical_cost
+         FROM with_latest
+         GROUP BY source, latest_day
+       )
+       SELECT h.source, to_char(h.latest_day, 'YYYY-MM-DD') AS latest_day,
+              h.historical_cost,
+              COALESCE((
+                SELECT SUM(o.total_price)
+                FROM orders o
+                WHERE (o.creation_date + interval '5 hours')::date
+                        BETWEEN h.history_start AND h.latest_day
+                  AND o.status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
+                  AND o.origin_city = ANY($1::text[])
+              ), 0) AS historical_revenue
+       FROM source_history h`,
+      [MAIN_CITIES]
+    ),
   ]);
+
   const byDay = new Map();
-  for (const rows of [adsResult.rows, bonusResult.rows, reviewResult.rows]) {
-    for (const r of rows) {
-      const day = String(r.day).slice(0, 10);
-      byDay.set(day, (byDay.get(day) || 0) + Number(r.total));
+  for (const r of actualResult.rows) {
+    const day = String(r.day).slice(0, 10);
+    byDay.set(day, (byDay.get(day) || 0) + Number(r.total));
+  }
+
+  const sources = historyResult.rows.map((r) => {
+    const revenue = Number(r.historical_revenue);
+    return {
+      source: r.source,
+      latestDay: String(r.latest_day).slice(0, 10),
+      ratio: revenue > 0 ? Number(r.historical_cost) / revenue : null,
+    };
+  });
+
+  return { byDay, sources };
+}
+
+// Добавляет к факту прогноз только в хвосте ПОСЛЕ последней выгруженной даты каждого источника.
+// Пропуски внутри уже выгруженного диапазона не заполняем: это могут быть настоящие нулевые дни.
+// Будущие дни тоже не прогнозируем, даже если пользователь выбрал период до конца месяца.
+function addMarketingForecast(marketingData, revenueByDay, from, to) {
+  const byDay = new Map(marketingData.byDay);
+  const estimatedDays = new Set();
+  const today = todayAlmaty();
+  const lastDay = to < today ? to : today;
+  let estimatedTotal = 0;
+
+  for (const source of marketingData.sources) {
+    if (!source.latestDay || source.ratio === null || source.latestDay >= lastDay) continue;
+    const firstMissingDay = addDays(source.latestDay, 1);
+    const startDay = firstMissingDay > from ? firstMissingDay : from;
+
+    for (let d = startDay; d <= lastDay; d = addDays(d, 1)) {
+      const revenue = revenueByDay.get(d) || 0;
+      if (revenue <= 0) continue;
+      const estimate = revenue * source.ratio;
+      byDay.set(d, (byDay.get(d) || 0) + estimate);
+      estimatedTotal += estimate;
+      estimatedDays.add(d);
     }
   }
-  return byDay;
+
+  return { byDay, estimatedDays, estimatedTotal };
 }
 
 // Операционные расходы из гугл-таблицы (страница "Расходы"): ровно те же две категории, что
@@ -346,15 +429,6 @@ async function fetchOpExpensesByDay(from, to) {
   return byDay;
 }
 
-async function fetchMarketingTotalForRange(from, to) {
-  const [adsResult, bonusResult, reviewResult] = await Promise.all([
-    pool.query(`SELECT COALESCE(SUM(cost), 0) AS total FROM ad_expenses WHERE expense_date BETWEEN $1 AND $2`, [from, to]),
-    pool.query(`SELECT COALESCE(SUM(bonus_amount), 0) AS total FROM bonus_expenses WHERE expense_date BETWEEN $1 AND $2`, [from, to]),
-    pool.query(`SELECT COALESCE(SUM(bonus_amount), 0) AS total FROM review_bonus_expenses WHERE expense_date BETWEEN $1 AND $2`, [from, to]),
-  ]);
-  return Number(adsResult.rows[0].total) + Number(bonusResult.rows[0].total) + Number(reviewResult.rows[0].total);
-}
-
 // Считает суммарную чистую прибыль по ВСЕМ товарам за период (для карточки на Главной).
 //
 // Ключевое отличие от расчёта по одному товару: если по какому-то заказу ещё не загружен
@@ -367,7 +441,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   // Маркетинг не привязан к городу отгрузки, поэтому вычитаем его только на "Главной" (mode
   // !== 'selfbuy') — так же, как колонка "Маркетинг" в "Отчёте" есть только в "Основном отчёте"
   // (Алматы, Астана), а не в "Самовыкупах".
-  const [itemsResult, kptResult, costData, marketing, marketingByDay, opExpensesByDay] = await Promise.all([
+  const [itemsResult, kptResult, costData, marketingData, opExpensesByDay] = await Promise.all([
     pool.query(
       // day — та же "казахстанская" дата, что и в /summary (сдвиг +5 часов), иначе выручка и
       // прибыль одного заказа попадали бы на разные дни графика.
@@ -388,13 +462,22 @@ async function computeSummaryNetProfit(from, to, mode) {
        GROUP BY order_number, operation_type`
     ),
     computeCostsByOrderItem(mode),
-    mode !== 'selfbuy' ? fetchMarketingTotalForRange(from, to) : Promise.resolve(0),
-    mode !== 'selfbuy' ? fetchMarketingByDay(from, to) : Promise.resolve(new Map()),
+    mode !== 'selfbuy' ? fetchMarketingData(from, to) : Promise.resolve({ byDay: new Map(), sources: [] }),
     // Операционные расходы, как и маркетинг, не привязаны к городу отгрузки — поэтому только
     // на "Главной" (mode !== 'selfbuy'), ровно как колонки "Прочие затраты"/"Упаковка" в
     // "Отчёте" есть лишь в основном отчёте, а не в "Самовыкупах".
     mode !== 'selfbuy' ? fetchOpExpensesByDay(from, to) : Promise.resolve(new Map()),
   ]);
+
+  // Выручка выбранного периода по дням нужна для прогноза маркетинга. Берём те же позиции,
+  // из которых ниже считается прибыль, поэтому прогноз относится ровно к заказам на Главной.
+  const revenueByDay = new Map();
+  for (const it of itemsResult.rows) {
+    revenueByDay.set(it.day, (revenueByDay.get(it.day) || 0) + Number(it.total_price));
+  }
+  const marketingForecast = addMarketingForecast(marketingData, revenueByDay, from, to);
+  const marketingByDay = marketingForecast.byDay;
+  const marketing = [...marketingByDay.values()].reduce((sum, value) => sum + value, 0);
 
   // Итог за период — сумма тех же дневных долей, что уходят в график, а не отдельный запрос:
   // так число в карточке и сумма точек графика не могут разъехаться в принципе.
@@ -404,7 +487,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   // сумма дней сходится с числом в карточке: маркетинг вычитается по своим датам (они у него
   // честные, по дням), операционные расходы — равными долями месяца (см. fetchOpExpensesByDay).
   const profitByDay = new Map();
-  const estimatedDays = new Set();
+  const estimatedDays = new Set(marketingForecast.estimatedDays);
   const addDayProfit = (day, value) => profitByDay.set(day, (profitByDay.get(day) || 0) + value);
   function buildDays() {
     const days = [];
@@ -422,7 +505,13 @@ async function computeSummaryNetProfit(from, to, mode) {
   }
 
   if (itemsResult.rows.length === 0) {
-    return { netProfit: -marketing - opExpenses, usedEstimate: false, days: buildDays(), products: [] };
+    return {
+      netProfit: -marketing - opExpenses,
+      usedEstimate: false,
+      usedMarketingEstimate: false,
+      days: buildDays(),
+      products: [],
+    };
   }
 
   // order_id -> сумма всех позиций в этом заказе (для деления комиссии/доставки по товарам)
@@ -538,6 +627,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   return {
     netProfit: knownNetProfit + estimatedNetProfit - marketing - opExpenses,
     usedEstimate: unknownItems.length > 0,
+    usedMarketingEstimate: marketingForecast.estimatedTotal > 0,
     days: buildDays(),
     products: [...profitByProduct.entries()]
       .map(([productId, profit]) => ({ product_id: productId, net_profit: profit }))
@@ -552,8 +642,14 @@ router.get('/summary-profit', async (req, res) => {
   }
 
   try {
-    const { netProfit, usedEstimate, days, products } = await computeSummaryNetProfit(from, to, mode);
-    res.json({ net_profit: netProfit, used_estimate: usedEstimate, days, products });
+    const { netProfit, usedEstimate, usedMarketingEstimate, days, products } = await computeSummaryNetProfit(from, to, mode);
+    res.json({
+      net_profit: netProfit,
+      used_estimate: usedEstimate,
+      used_marketing_estimate: usedMarketingEstimate,
+      days,
+      products,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить чистую прибыль' });
