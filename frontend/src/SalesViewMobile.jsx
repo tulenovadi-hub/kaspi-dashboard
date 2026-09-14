@@ -5,10 +5,10 @@ import { useBodyScrollLock } from './useBodyScrollLock.js';
 import { useClosing } from './useClosing.js';
 import Odometer from './Odometer.jsx';
 
-// Мобильная "Главная". На компьютере это блок "вчера/сегодня", полоса периодов, пять карточек
-// показателей в ряд, график и таблица товаров. На телефоне карточки встают в столбик, и
-// страница вырастает до 1873px — 2,3 экрана, из которых первый почти целиком шапка, а график
-// начинается только после ~900px прокрутки (замер 2026-09-07).
+// Мобильная "Главная". Изначально она получила компактный переключаемый график вместо длинной
+// колонки карточек; с 2026-09-14 тот же график и тот же выбор периода используются на компьютере.
+// Различается только раскладка: на телефоне один показатель крупно и остальные мини-плитками,
+// на компьютере все карточки остаются в ряду.
 //
 // Владелец выбрала вариант "один показатель крупно": сверху выбранный показатель большой цифрой
 // и его график, остальные — маленькими плитками; тап переключает и цифру, и линию графика.
@@ -191,6 +191,48 @@ function PeriodSheet({ from, to, onApply, onClose }) {
   );
 }
 
+// Один и тот же выбор периода используется на телефоне и на компьютере. Раньше десктоп
+// показывал семь отдельных пресетов и два постоянно видимых календаря, а мобильная версия —
+// короткую ленту и аккуратное окно «Свой период». Общий компонент не даст им снова разойтись.
+export function SalesPeriodControls({ from, to, presetKey, onPeriodChange, onCustomDates }) {
+  const [showPeriod, setShowPeriod] = useState(false);
+
+  return (
+    <>
+      <div className="svm-chips sales-period-chips">
+        {PRESETS.map((p) => (
+          <button
+            key={p.key}
+            className="svm-chip"
+            aria-pressed={presetKey === p.key}
+            onClick={() => onPeriodChange(p.key)}
+          >
+            {p.label}
+          </button>
+        ))}
+        <button
+          className="svm-chip"
+          aria-pressed={presetKey === 'custom'}
+          onClick={() => setShowPeriod(true)}
+        >
+          Свой период
+        </button>
+      </div>
+
+      <div className="svm-range">{dayLabel(from)} — {dayLabel(to)}</div>
+
+      {showPeriod && (
+        <PeriodSheet
+          from={from}
+          to={to}
+          onApply={onCustomDates}
+          onClose={() => setShowPeriod(false)}
+        />
+      )}
+    </>
+  );
+}
+
 export default function SalesViewMobile({
   days, profitDays, products, todayRevenue, yesterdayRevenue, prevTotals,
   totalRevenue, totalOrders, avgOrder, avgOrdersPerDay, periodNetProfit, profitProducts,
@@ -199,7 +241,6 @@ export default function SalesViewMobile({
   showSync, syncing, onSync, syncResult, onSelectProduct,
 }) {
   const [metric, setMetric] = useState('revenue');
-  const [showPeriod, setShowPeriod] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
 
   const labels = days.map((d) => dayLabel(d.day));
@@ -343,10 +384,6 @@ export default function SalesViewMobile({
     ? (periodNetProfit < 0 ? 'var(--accent-down)' : 'var(--accent-up)')
     : 'var(--accent-brand)';
 
-  function applyPreset(key) {
-    onPeriodChange(key);
-  }
-
   return (
     <div className="svm">
       <div className="svm-head">
@@ -358,29 +395,13 @@ export default function SalesViewMobile({
         )}
       </div>
 
-      <div className="svm-chips">
-        {PRESETS.map((p) => (
-          <button
-            key={p.key}
-            className="svm-chip"
-            aria-pressed={presetKey === p.key}
-            onClick={() => applyPreset(p.key)}
-          >
-            {p.label}
-          </button>
-        ))}
-        <button
-          className="svm-chip"
-          aria-pressed={presetKey === 'custom'}
-          onClick={() => setShowPeriod(true)}
-        >
-          Свой период
-        </button>
-      </div>
-
-      {/* Под чипсами — какой диапазон сейчас показан. Раньше даты всегда висели в двух полях,
-          теперь они в модалке, и без этой строки было бы непонятно, за что цифры. */}
-      <div className="svm-range">{dayLabel(from)} — {dayLabel(to)}</div>
+      <SalesPeriodControls
+        from={from}
+        to={to}
+        presetKey={presetKey}
+        onPeriodChange={onPeriodChange}
+        onCustomDates={onCustomDates}
+      />
 
       <div className="svm-big">
         <div className="svm-big-row">
@@ -497,15 +518,6 @@ export default function SalesViewMobile({
             </div>
           </div>
         </>
-      )}
-
-      {showPeriod && (
-        <PeriodSheet
-          from={from}
-          to={to}
-          onApply={onCustomDates}
-          onClose={() => setShowPeriod(false)}
-        />
       )}
 
       {/* Заголовок называет показатель — иначе после переключения плитки непонятно, что

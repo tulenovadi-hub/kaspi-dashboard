@@ -1,12 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import PeriodSelector from './PeriodSelector.jsx';
 import TodayVsYesterday from './TodayVsYesterday.jsx';
-import SalesChart from './SalesChart.jsx';
+import MetricLineChart from './MetricLineChart.jsx';
 import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
 import { fetchSummary, fetchProducts, fetchSummaryProfit, fetchInventoryValue, fetchOrdersRevision, triggerSync } from './api.js';
 import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber, formatPercent, shiftDays, daysInRange, formatOrders } from './dateUtils.js';
-import SalesViewMobile from './SalesViewMobile.jsx';
+import SalesViewMobile, { SalesPeriodControls } from './SalesViewMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import { useAppRefresh } from './useAppRefresh.js';
 import Odometer from './Odometer.jsx';
@@ -25,8 +24,8 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   const [usedEstimate, setUsedEstimate] = useState(false);
   const [usedMarketingEstimate, setUsedMarketingEstimate] = useState(false);
   const [confirmedReturns, setConfirmedReturns] = useState(0);
-  // Чистая прибыль по дням — только для графика на телефоне (на компьютере график всегда
-  // по выручке). Приходит из того же /summary-profit, что и итоговая цифра.
+  // Чистая прибыль по дням — для переключаемого графика на телефоне и компьютере.
+  // Приходит из того же /summary-profit, что и итоговая цифра.
   const [profitDays, setProfitDays] = useState([]);
   // Чистая прибыль по товарам — для разбивки под карточкой на телефоне. Приходит тем же
   // запросом; в ней нет маркетинга, операционных расходов и общего вычета возвратов
@@ -38,6 +37,10 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   // на телефоне. На компьютере не грузятся: там дельта только "сегодня к вчера" в блоке
   // TodayVsYesterday, и лишние два запроса на каждую смену периода ни к чему.
   const [prevTotals, setPrevTotals] = useState(null);
+  // На компьютере карточки показателей теперь управляют тем же анимированным графиком, что
+  // используется на телефоне. Выбранный показатель храним отдельно: мобильный компонент
+  // управляет своей плиткой сам.
+  const [desktopMetric, setDesktopMetric] = useState('revenue');
 
   const isMobile = useIsMobile();
 
@@ -221,8 +224,8 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, isOnline, password, from, to, mode, syncing, refreshTick]);
 
-  // Мобильная версия присылает только ключ пресета — даты считаем тут, теми же правилами,
-  // что и PeriodSelector на компьютере.
+  // Общий для телефона и компьютера выбор периода присылает ключ пресета; даты считаем здесь,
+  // чтобы обе версии всегда запрашивали одинаковый диапазон.
   function handleMobilePreset(key) {
     const map = {
       today: [daysAgo(0), daysAgo(0)],
@@ -273,6 +276,63 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   // Среднее количество заказов в день за период
   const daysCount = summaryDays.length || 1;
   const avgOrdersPerDay = totalOrders > 0 ? (totalOrders / daysCount).toFixed(1) : 0;
+  const dayLabel = (value) => {
+    const day = String(value).slice(0, 10);
+    return `${day.slice(8, 10)}.${day.slice(5, 7)}`;
+  };
+  const summaryLabels = summaryDays.map((d) => dayLabel(d.day));
+  const desktopMetrics = [
+    {
+      key: 'revenue',
+      label: 'Сумма продаж за период',
+      value: totalRevenue,
+      format: formatMoney,
+      series: summaryDays.map((d) => Number(d.total_revenue) || 0),
+      labels: summaryLabels,
+    },
+    {
+      key: 'orders',
+      label: 'Количество заказов',
+      value: totalOrders,
+      format: formatNumber,
+      series: summaryDays.map((d) => Number(d.orders_count) || 0),
+      labels: summaryLabels,
+      badge: `⌀ ${avgOrdersPerDay}/день`,
+    },
+    {
+      key: 'avg',
+      label: 'Средний чек',
+      value: avgOrder,
+      format: formatMoney,
+      series: summaryDays.map((d) => (
+        Number(d.orders_count) ? Number(d.total_revenue) / Number(d.orders_count) : 0
+      )),
+      labels: summaryLabels,
+    },
+    {
+      key: 'profit',
+      label: 'Чистая прибыль',
+      value: periodNetProfit,
+      format: formatMoney,
+      series: profitDays.length ? profitDays.map((d) => Number(d.net_profit) || 0) : null,
+      labels: profitDays.map((d) => dayLabel(d.day)),
+      tone: periodNetProfit < 0 ? 'down' : 'up',
+      margin: periodMargin,
+    },
+    ...(inventoryTotal !== null ? [{
+      key: 'inventory',
+      label: 'Деньги в товаре сейчас',
+      value: inventoryTotal,
+      format: formatMoney,
+      snapshot: true,
+      note: 'Остаток складов плюс оплаченное в пути — подробности на «Складе»',
+    }] : []),
+  ];
+  const activeDesktopMetric = desktopMetrics.find((metric) => metric.key === desktopMetric)
+    || desktopMetrics[0];
+  const desktopChartColor = activeDesktopMetric.key === 'profit'
+    ? (periodNetProfit < 0 ? 'var(--accent-down)' : 'var(--accent-up)')
+    : 'var(--accent-brand)';
 
   if (isMobile) {
     return (
@@ -350,7 +410,13 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
 
       <TodayVsYesterday todayRevenue={todayRevenue} yesterdayRevenue={yesterdayRevenue} />
 
-      <PeriodSelector from={from} to={to} activePreset={presetKey} onChange={handlePeriodChange} />
+      <SalesPeriodControls
+        from={from}
+        to={to}
+        presetKey={presetKey}
+        onPeriodChange={handleMobilePreset}
+        onCustomDates={(f, t) => handlePeriodChange({ from: f, to: t, presetKey: 'custom' })}
+      />
 
       {error && <div className="error-banner">{error}</div>}
 
@@ -366,43 +432,42 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
           }}
         >
           <div className={inventoryTotal !== null ? 'stats-row-auto' : 'stats-row'}>
-            <div className="stat-card">
-              <div className="stat-label">Сумма продаж за период</div>
-              <div className="stat-value"><Odometer value={totalRevenue} format={formatMoney} /></div>
-            </div>
-            <div className="stat-card" style={{ position: 'relative' }}>
-              <div className="stat-label">Количество заказов</div>
-              <div className="stat-value"><Odometer value={totalOrders} format={formatNumber} /></div>
-              <div style={{
-                position: 'absolute',
-                top: 12,
-                right: 14,
-                background: 'rgba(110, 139, 255, 0.15)',
-                color: '#6e8bff',
-                borderRadius: 8,
-                padding: '2px 8px',
-                fontSize: 11,
-                fontFamily: 'JetBrains Mono, monospace',
-              }}>
-                ⌀ {avgOrdersPerDay}/день
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Средний чек</div>
-              <div className="stat-value"><Odometer value={avgOrder} format={formatMoney} /></div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Чистая прибыль</div>
-              <div className="stat-value profit-value-line" style={{ color: periodNetProfit < 0 ? '#ff6b6b' : '#3ddc97' }}>
-                <span>{formatMoney(periodNetProfit)}</span>
-                <span className="profit-margin">маржа {formatPercent(periodMargin)}</span>
-              </div>
-            </div>
-            {inventoryTotal !== null && (
-              <div className="stat-card">
-                <div className="stat-label">Деньги в товаре сейчас</div>
-                <div className="stat-value"><Odometer value={inventoryTotal} format={formatMoney} /></div>
-                <div className="stat-card-hint">Остаток складов плюс оплаченное в пути — подробности на «Складе»</div>
+            {desktopMetrics.map((metric) => (
+              <button
+                type="button"
+                key={metric.key}
+                className="stat-card sales-metric-card"
+                aria-pressed={metric.key === activeDesktopMetric.key}
+                onClick={() => setDesktopMetric(metric.key)}
+              >
+                <div className="stat-label">{metric.label}</div>
+                <div className={`stat-value${metric.key === 'profit' ? ' profit-value-line' : ''}${metric.tone === 'up' ? ' profit-positive' : metric.tone === 'down' ? ' profit-negative' : ''}`}>
+                  <Odometer value={metric.value} format={metric.format} />
+                  {metric.key === 'profit' && (
+                    <span className="profit-margin">маржа {formatPercent(metric.margin)}</span>
+                  )}
+                </div>
+                {metric.badge && <div className="sales-metric-badge">{metric.badge}</div>}
+                {metric.note && <div className="stat-card-hint">{metric.note}</div>}
+              </button>
+            ))}
+          </div>
+
+          <div className="section-title">{activeDesktopMetric.label} по дням</div>
+          <div className="card sales-metric-chart-card">
+            {activeDesktopMetric.series && activeDesktopMetric.series.length ? (
+              <MetricLineChart
+                values={activeDesktopMetric.series}
+                labels={activeDesktopMetric.labels}
+                color={desktopChartColor}
+                height={230}
+                format={activeDesktopMetric.format}
+              />
+            ) : (
+              <div className="sales-metric-no-chart">
+                {activeDesktopMetric.snapshot
+                  ? 'Снимок на сейчас — по дням периода не разбивается'
+                  : 'За этот период дневных данных нет'}
               </div>
             )}
           </div>
@@ -441,11 +506,6 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
               за ещё не загруженные свежие дни.
             </div>
           )}
-
-          <div className="section-title">Динамика продаж</div>
-          <div className="card">
-            <SalesChart data={summaryDays} dataKey="total_revenue" />
-          </div>
 
           {selectedProduct ? (
             <ProductDetail

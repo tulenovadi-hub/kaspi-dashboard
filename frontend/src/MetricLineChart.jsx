@@ -203,6 +203,7 @@ export default function MetricLineChart({
       >
         <svg
           className="mlc-svg"
+          style={{ height }}
           viewBox={`0 0 ${W} ${height}`}
           preserveAspectRatio="none"
           role="img"

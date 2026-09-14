@@ -819,6 +819,56 @@ button,
   padding: 18px 20px;
 }
 
+/* Карточки Главной на компьютере теперь выбирают показатель графика. */
+.sales-metric-card {
+  position: relative;
+  width: 100%;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.sales-metric-card:hover {
+  border-color: rgba(110, 139, 255, 0.65);
+  transform: translateY(-1px);
+}
+
+.sales-metric-card[aria-pressed="true"] {
+  border-color: var(--accent-brand);
+  background: rgba(110, 139, 255, 0.1);
+  box-shadow: 0 0 0 1px rgba(110, 139, 255, 0.15) inset;
+}
+
+.sales-metric-badge {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(110, 139, 255, 0.15);
+  color: var(--accent-brand);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.sales-metric-chart-card {
+  padding: 18px 20px 12px;
+}
+
+.sales-metric-chart-card .mlc {
+  margin-top: 0;
+}
+
+.sales-metric-no-chart {
+  display: grid;
+  min-height: 230px;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .stat-label {
   font-size: 12px;
   color: var(--text-muted);
@@ -4376,6 +4426,28 @@ input[type="date"] {
   background: var(--accent-brand); border: 1px solid var(--accent-brand); color: #0b1020;
 }
 .svm-sheet-apply:disabled { opacity: 0.5; cursor: default; }
+
+/* На компьютере тот же выбор периода открывается компактным окном по центру, а не широкой
+   мобильной шторкой от края до края. */
+@media (min-width: 641px) {
+  .sales-period-chips {
+    overflow: visible;
+    flex-wrap: wrap;
+  }
+
+  .svm-sheet-overlay {
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .svm-sheet {
+    width: min(560px, 100%);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 18px 20px 20px;
+  }
+}
 
 .svm-big { border: 1px solid var(--border); border-radius: 14px; background: var(--bg-card); padding: 13px 13px 10px; }
 .svm-big-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
