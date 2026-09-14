@@ -33,9 +33,9 @@ function shortMonth(monthKey) {
   return `${short} ${year.slice(2)}`;
 }
 
-// Одна строка разбора: статья, сумма, её доля от выручки и та же доля полоской.
-// Доля считается от выручки той строки, к которой относится: у месяца — от выручки месяца,
-// у товара — от выручки товара (ровно как в таблице на компьютере).
+// Одна строка разбора: статья, сумма, её доля от чистой выручки и та же доля полоской.
+// Справочная себестоимость возвратов выделяется жёлтым и не получает процент: она не участвует
+// в расчёте чистой прибыли.
 function Line({ line, row }) {
   const value = row[line.key];
 
@@ -51,17 +51,30 @@ function Line({ line, row }) {
     );
   }
 
-  const share = row.revenue ? (value / row.revenue) * 100 : 0;
+  const marginBase = row.net_revenue !== undefined
+    ? Number(row.net_revenue)
+    : Number(row.revenue || 0) - Number(row.returns || 0);
+  const share = marginBase ? (value / marginBase) * 100 : 0;
+  const valueClass = line.informational
+    ? 'report-cell-yellow'
+    : (line.credit ? 'report-cell-green' : 'report-cell-red');
+  const prefix = line.informational ? '' : (line.credit ? '+' : '−');
   return (
     <div className="rm-line">
       <div className="rm-line-label">{line.label}</div>
-      <div className={`rm-line-value ${line.credit ? 'report-cell-green' : 'report-cell-red'}`}>
-        {line.credit ? '+' : '−'}{formatMoney(value)}
+      <div className={`rm-line-value ${valueClass}`}>
+        {prefix}{formatMoney(value)}
       </div>
-      <div className="rm-line-share">{share.toFixed(1)}% от выручки</div>
-      <div className="rm-line-bar">
-        <i style={{ width: `${Math.min(100, Math.abs(share))}%`, background: line.credit ? 'var(--accent-up)' : 'var(--accent-down)' }} />
-      </div>
+      {line.informational ? (
+        <div className="rm-line-share">{line.note}</div>
+      ) : (
+        <>
+          <div className="rm-line-share">{share.toFixed(1)}% от чистой выручки</div>
+          <div className="rm-line-bar">
+            <i style={{ width: `${Math.min(100, Math.abs(share))}%`, background: line.credit ? 'var(--accent-up)' : 'var(--accent-down)' }} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -214,13 +227,18 @@ export default function ReportMobile({
           const value = Number(m[metric.key]) || 0;
           const width = maxValue === 0 ? 0 : (Math.abs(value) / maxValue) * 100;
           const negative = value < 0;
-          const color = negative || metric.tone === 'down' ? 'var(--accent-down)' : 'var(--accent-up)';
+          const color = negative || metric.tone === 'down'
+            ? 'var(--accent-down)'
+            : (metric.tone === 'warn' ? 'var(--accent-warn)' : 'var(--accent-up)');
+          const valueToneClass = negative
+            ? ' report-cell-red'
+            : (metric.tone === 'warn' ? ' report-cell-yellow' : '');
           return (
             <button key={m.month} className="rm-bar-row" onClick={() => openMonth(m.month)}>
               <div className="rm-bar-month">{shortMonth(m.month)}</div>
               <div className="rm-bar-line">
                 <div className="rm-bar-track"><i style={{ width: `${width}%`, background: color }} /></div>
-                <div className={`rm-bar-value${negative ? ' report-cell-red' : ''}`}>
+                <div className={`rm-bar-value${valueToneClass}`}>
                   {metric.percent ? formatPercent(value) : formatMoney(value)}
                 </div>
               </div>

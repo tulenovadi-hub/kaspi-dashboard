@@ -5,7 +5,7 @@ import ReportMobile from './ReportMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import {
   GENERAL_COLUMNS, MAIN_COLUMNS, PRODUCT_COLUMNS, SELF_BUY_COLUMNS,
-  GREEN_KEYS, RED_KEYS, PERCENT_OF_REVENUE_KEYS, PERCENT_VALUE_KEYS,
+  GREEN_KEYS, RED_KEYS, YELLOW_KEYS, PERCENT_OF_NET_REVENUE_KEYS, PERCENT_VALUE_KEYS,
 } from './reportColumns.js';
 import { useAppRefresh } from './useAppRefresh.js';
 
@@ -34,9 +34,9 @@ function gradientColor(value, max) {
 // месяца/товара), остальные — через formatMoney, кроме margin/roi (через formatPercent).
 // Значение undefined (например, "Прочие расходы" в разбивке по товарам, где эта колонка
 // принципиально не считается) всегда рисуется прочерком, а не "0 ₸".
-// showPercentOfRevenue — только для строк месяца в "Основном отчёте": под суммой показываем
-// её долю от выручки за этот же месяц (row.revenue), чтобы видеть "сколько из 100% выручки куда уходит".
-function renderRowCells(columns, row, colorize, showPercentOfRevenue) {
+// showExpensePercentages — под расходом показывает его долю от чистой выручки после возвратов:
+// это та же база, от которой считается маржа. Справочная себестоимость возвратов сюда не входит.
+function renderRowCells(columns, row, colorize, showExpensePercentages) {
   return columns.map((col) => {
     if (col.key === 'month') return <td key={col.key}>{formatMonthLabel(row.month)}</td>;
     if (col.key === 'product_name') return <td key={col.key}>{row.product_name}</td>;
@@ -51,13 +51,20 @@ function renderRowCells(columns, row, colorize, showPercentOfRevenue) {
     let cellClassName = 'num';
     if (colorize && GREEN_KEYS.has(col.key)) cellClassName += ' report-cell-green';
     else if (colorize && RED_KEYS.has(col.key)) cellClassName += ' report-cell-red';
+    else if (colorize && YELLOW_KEYS.has(col.key)) cellClassName += ' report-cell-yellow';
 
-    const showPct = showPercentOfRevenue && PERCENT_OF_REVENUE_KEYS.has(col.key) && value !== undefined && row.revenue;
+    const marginBase = row.net_revenue !== undefined
+      ? Number(row.net_revenue)
+      : Number(row.revenue || 0) - Number(row.returns || 0);
+    const showPct = showExpensePercentages
+      && PERCENT_OF_NET_REVENUE_KEYS.has(col.key)
+      && value !== undefined
+      && marginBase;
     if (showPct) {
       return (
         <td key={col.key} className={cellClassName}>
           {formatMoney(value)}
-          <div className="report-percent-sub">{(value / row.revenue * 100).toFixed(1)}%</div>
+          <div className="report-percent-sub">{(value / marginBase * 100).toFixed(1)}%</div>
         </td>
       );
     }
@@ -75,6 +82,7 @@ function sumProductRows(products) {
     total[key] = products.reduce((sum, product) => sum + Number(product[key] || 0), 0);
   }
   const netRevenue = total.revenue - total.returns;
+  total.net_revenue = netRevenue;
   const investments = total.cost_of_goods
     + total.marketing_ads
     + total.marketing_bonuses
@@ -87,9 +95,8 @@ function sumProductRows(products) {
 }
 
 // colorize — включает раскраску выручки/расходов и градиент маржи/ROI (только для "Основного отчёта").
-// showPercentOfRevenue — под суммой показывает её долю от выручки: в строке месяца от выручки
-// месяца, в разбивке по товарам — от выручки самого товара (renderRowCells берёт row.revenue,
-// а у строки товара это его собственная выручка).
+// showExpensePercentages — под суммой показывает долю от чистой выручки после возвратов:
+// в строке месяца от чистой выручки месяца, в разбивке — от чистой выручки товара.
 // expandable — если true, клик по строке месяца разворачивает под ней разбивку по товарам
 // (данные подгружаются лениво через onToggleMonth и кэшируются в productBreakdowns на уровне Report).
 // scope — какая из двух разворачиваемых таблиц ('all' — все склады, 'main' — Алматы + Астана).
@@ -98,7 +105,7 @@ function sumProductRows(products) {
 // subtitle — пояснение под заголовком: у двух похожих таблиц должно быть сразу видно, чем они
 // отличаются, иначе одинаковые колонки с разными числами читаются как ошибка.
 function MonthlyTable({
-  title, subtitle, months, columns, className, colorize, showPercentOfRevenue,
+  title, subtitle, months, columns, className, colorize, showExpensePercentages,
   expandable, scope, expandedMonth, onToggleMonth, productBreakdowns, productLoading, productError,
 }) {
   return (
@@ -124,7 +131,7 @@ function MonthlyTable({
                   return (
                   <React.Fragment key={m.month}>
                     <tr onClick={expandable ? () => onToggleMonth(scope, m.month) : undefined}>
-                      {renderRowCells(columns, m, colorize, showPercentOfRevenue)}
+                      {renderRowCells(columns, m, colorize, showExpensePercentages)}
                     </tr>
                     {expandable && expandedMonth === m.month && (
                       <tr>
@@ -147,7 +154,7 @@ function MonthlyTable({
                               <tbody>
                                 {productBreakdowns[cacheKey].map((p) => (
                                   <tr key={p.product_id}>
-                                    {renderRowCells(PRODUCT_COLUMNS, p, colorize, showPercentOfRevenue)}
+                                    {renderRowCells(PRODUCT_COLUMNS, p, colorize, showExpensePercentages)}
                                   </tr>
                                 ))}
                               </tbody>
@@ -157,7 +164,7 @@ function MonthlyTable({
                                     PRODUCT_COLUMNS,
                                     sumProductRows(productBreakdowns[cacheKey]),
                                     colorize,
-                                    showPercentOfRevenue
+                                    showExpensePercentages
                                   )}
                                 </tr>
                               </tfoot>
@@ -322,7 +329,7 @@ export default function Report({ password, active = true, isOnline = true }) {
                 months={monthsAll}
                 columns={MAIN_COLUMNS}
                 colorize
-                showPercentOfRevenue
+                showExpensePercentages
                 expandable
                 scope="all"
                 expandedMonth={expandedMonth.all || null}
@@ -337,7 +344,7 @@ export default function Report({ password, active = true, isOnline = true }) {
                 months={monthsMainCities}
                 columns={MAIN_COLUMNS}
                 colorize
-                showPercentOfRevenue
+                showExpensePercentages
                 expandable
                 scope="main"
                 expandedMonth={expandedMonth.main || null}

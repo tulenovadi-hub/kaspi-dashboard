@@ -8,8 +8,8 @@
 //
 // Что делать, если добавляете колонку: дописать её в MAIN_COLUMNS (и, если она считается по
 // товарам, в PRODUCT_COLUMNS) — этого достаточно. Дополнительно стоит решить три вещи:
-//   • красить её как расход или как доход — GREEN_KEYS / RED_KEYS;
-//   • показывать ли под суммой долю от выручки — PERCENT_OF_REVENUE_KEYS;
+//   • красить её как расход, доход или справочную величину — RED_KEYS / GREEN_KEYS / YELLOW_KEYS;
+//   • показывать ли под суммой долю от базы маржи — PERCENT_OF_NET_REVENUE_KEYS;
 //   • где она должна стоять в мобильной ленте — METRIC_ORDER (если не указать, встанет в конец).
 
 export const GENERAL_COLUMNS = [
@@ -69,19 +69,21 @@ export const SELF_BUY_COLUMNS = [
 
 // Столбцы, которые красим сплошным цветом в "Основном отчёте"
 export const GREEN_KEYS = new Set(['revenue', 'net_profit']);
+export const YELLOW_KEYS = new Set(['cost_of_returns']);
 export const RED_KEYS = new Set([
-  'cost_of_goods', 'returns', 'cost_of_returns', 'commission', 'delivery', 'taxes',
+  'cost_of_goods', 'returns', 'commission', 'delivery', 'taxes',
   'marketing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews',
   'packaging', 'other_expenses',
 ]);
 
-// Колонки, для которых под суммой показываем её долю от выручки — и в строке месяца, и в
-// разбивке по товарам (там доля считается от выручки этого товара). "Чистая прибыль" сюда не
-// входит — для неё уже есть отдельная колонка "Маржа" с тем же смыслом.
+// Колонки, для которых под суммой показываем долю от чистой выручки (выручка минус возвраты) —
+// той же базы, от которой считается маржа. "Себестоимости возвратов" здесь намеренно нет:
+// это справочная сумма, которая не вычитается из прибыли. "Чистая прибыль" тоже не входит —
+// для неё уже есть отдельная колонка "Маржа" с тем же смыслом.
 // Единый "Маркетинг" есть только в строке месяца, а в разбивке по товарам он раскрыт на три
 // колонки — поэтому в наборе перечислены и он, и все три.
-export const PERCENT_OF_REVENUE_KEYS = new Set([
-  'cost_of_goods', 'returns', 'cost_of_returns', 'commission', 'delivery', 'taxes',
+export const PERCENT_OF_NET_REVENUE_KEYS = new Set([
+  'cost_of_goods', 'returns', 'commission', 'delivery', 'taxes',
   'marketing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews',
   'packaging', 'other_expenses',
 ]);
@@ -97,11 +99,12 @@ export const PERCENT_VALUE_KEYS = new Set(['margin', 'roi']);
 const MONTH_STRUCTURAL = ['month', 'revenue', 'net_profit', 'margin', 'roi'];
 const PRODUCT_STRUCTURAL = ['product_name', 'revenue', 'net_profit', 'margin', 'roi'];
 
-// "Себестоимость возвратов" не вычитается, а прибавляется: она справочная и в расчёт прибыли
-// не входит.
-const MONTH_LINE_EXTRAS = { cost_of_returns: { credit: true } };
+// "Себестоимость возвратов" — справочная сумма: она не вычитается и не прибавляется к прибыли.
+const MONTH_LINE_EXTRAS = {
+  cost_of_returns: { informational: true, note: 'справочно, не влияет на прибыль' },
+};
 const PRODUCT_LINE_EXTRAS = {
-  cost_of_returns: { credit: true },
+  cost_of_returns: { informational: true, note: 'справочно, не влияет на прибыль' },
 };
 
 function toLines(columns, structural, extras) {
@@ -123,7 +126,7 @@ export const METRICS = MAIN_COLUMNS
   .filter((col) => col.key !== 'month')
   .map((col, index) => ({
     ...col,
-    tone: RED_KEYS.has(col.key) ? 'down' : 'up',
+    tone: YELLOW_KEYS.has(col.key) ? 'warn' : (RED_KEYS.has(col.key) ? 'down' : 'up'),
     percent: PERCENT_VALUE_KEYS.has(col.key),
     // Внутри "неупорядоченного хвоста" сохраняем порядок таблицы.
     sortIndex: METRIC_ORDER.indexOf(col.key) === -1 ? METRIC_ORDER.length + index : METRIC_ORDER.indexOf(col.key),
