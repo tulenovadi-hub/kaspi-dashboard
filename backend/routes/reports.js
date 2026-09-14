@@ -162,7 +162,7 @@ async function aggregateKaspiPayMonthly(warehouses) {
     `SELECT
        to_char(kpt.operation_date, 'YYYY-MM') AS month,
        SUM(CASE WHEN kpt.operation_type = 'Возврат' THEN kpt.amount ELSE 0 END) AS returns_amount,
-       SUM(CASE WHEN kpt.operation_type != 'Возврат' THEN kpt.amount ELSE 0 END) AS purchases_amount,
+       SUM(CASE WHEN kpt.operation_type = 'Покупка' THEN kpt.amount ELSE 0 END) AS purchases_amount,
        SUM(kpt.commission_total) AS commission_total,
        SUM(kpt.delivery_cost) AS delivery_total,
        COUNT(*) AS operations_count
@@ -288,9 +288,8 @@ async function getProductBreakdownForMonth(month, warehouses) {
   const ordersResult = await pool.query(
     `SELECT kpt.order_number,
        MAX(NULLIF(kpt.product_name, '')) AS transaction_product_name,
-       SUM(CASE WHEN kpt.operation_type != 'Возврат' THEN kpt.amount ELSE 0 END) AS purchases_amount,
+       SUM(CASE WHEN kpt.operation_type = 'Покупка' THEN kpt.amount ELSE 0 END) AS purchases_amount,
        SUM(CASE WHEN kpt.operation_type = 'Возврат' THEN kpt.amount ELSE 0 END) AS returns_amount,
-       COUNT(*) FILTER (WHERE kpt.operation_type != 'Возврат') AS purchase_operations,
        SUM(kpt.commission_total) AS commission_total,
        SUM(kpt.delivery_cost) AS delivery_total
      FROM kaspi_pay_transactions kpt
@@ -358,7 +357,7 @@ async function getProductBreakdownForMonth(month, warehouses) {
       p.returnsRaw += Number(order.returns_amount) * share;
       p.commissionRaw += Number(order.commission_total) * share;
       p.deliveryRaw += Number(order.delivery_total) * share;
-      if (Number(order.purchase_operations) > 0) purchaseProductKeys.add(key);
+      if (Number(order.purchases_amount) > 0) purchaseProductKeys.add(key);
     }
 
     // Один многотоварный заказ считается одним выданным заказом для каждого представленного

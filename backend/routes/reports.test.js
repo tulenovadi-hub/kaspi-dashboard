@@ -25,12 +25,12 @@ test('product breakdown uses monthly operations and allocates shared costs by is
         rows: [
           {
             order_number: 'current-sale', transaction_product_name: 'A + B',
-            purchases_amount: '1000', returns_amount: '0', purchase_operations: '1',
+            purchases_amount: '1000', returns_amount: '0',
             commission_total: '-100', delivery_total: '-50',
           },
           {
             order_number: 'old-sale-returned-now', transaction_product_name: 'A',
-            purchases_amount: '0', returns_amount: '-300', purchase_operations: '0',
+            purchases_amount: '0', returns_amount: '-300',
             commission_total: '30', delivery_total: '0',
           },
         ],
