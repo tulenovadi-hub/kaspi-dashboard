@@ -20,6 +20,40 @@ function isValidDate(str) {
   return /^\d{4}-\d{2}-\d{2}$/.test(str);
 }
 
+// Очень лёгкая проверка для открытой Главной. Браузер вызывает её часто и перезагружает
+// тяжёлые графики/прибыль только когда набор заказов действительно изменился.
+router.get('/revision', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT COUNT(*) AS orders_count,
+             COUNT(*) FILTER (
+               WHERE status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
+             ) AS active_orders_count,
+             COALESCE(SUM(total_price) FILTER (
+               WHERE status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
+             ), 0) AS active_revenue,
+             MAX(creation_date) AS latest_creation,
+             (
+               SELECT COUNT(*) FROM order_items oi
+               WHERE oi.creation_date >= now() - interval '2 days'
+             ) AS items_count
+      FROM orders
+      WHERE creation_date >= now() - interval '2 days'
+    `);
+    const row = result.rows[0];
+    res.json({
+      orders_count: Number(row.orders_count),
+      active_orders_count: Number(row.active_orders_count),
+      active_revenue: Number(row.active_revenue),
+      items_count: Number(row.items_count),
+      latest_creation: row.latest_creation || null,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось проверить обновление заказов' });
+  }
+});
+
 router.get('/summary', async (req, res) => {
   const { from, to, mode } = req.query;
   if (!isValidDate(from) || !isValidDate(to)) {

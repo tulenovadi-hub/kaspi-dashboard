@@ -5,7 +5,7 @@ const cors = require('cors');
 const cron = require('node-cron');
 
 const { initDb, pool } = require('./db');
-const { syncRecentOrders } = require('./syncJob');
+const { syncRecentOrders, syncLatestOrders } = require('./syncJob');
 const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS } = require('./deliveryReturnsSync');
 const authRoutes = require('./routes/auth');
 const usersRoutes = require('./routes/users');
@@ -123,6 +123,7 @@ app.use('/api/debug', requireRole('admin'), debugRoutes);
 // результат сознательно.
 const AUTO_SEARCH_MIN_INTERVAL_MS = 30 * 60 * 1000;
 let lastAutoCancellationSearchAt = 0;
+let liveSyncPromise = null;
 
 function syncRecentDeliveryCancellations() {
   const now = Date.now();
@@ -130,6 +131,27 @@ function syncRecentDeliveryCancellations() {
   lastAutoCancellationSearchAt = now;
   return syncDeliveryCancellations(now - SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000, now);
 }
+
+// Отдельная лёгкая ручка для внешнего минутного cron на Oracle. Один запуск может затянуться
+// из-за ответа Kaspi, поэтому следующий не стартует параллельно, а получает skipped=true.
+// Полная суточная синхронизация ниже остаётся без изменений и служит страховочной сверкой.
+app.post('/api/sync/live', async (req, res) => {
+  if (liveSyncPromise) {
+    return res.json({ ok: true, skipped: true, reason: 'already_running' });
+  }
+
+  const startedAt = Date.now();
+  liveSyncPromise = syncLatestOrders(10);
+  try {
+    const result = await liveSyncPromise;
+    res.json({ ok: true, minutes: 10, duration_ms: Date.now() - startedAt, ...result });
+  } catch (err) {
+    console.error('Ошибка live-синхронизации:', err);
+    res.status(500).json({ error: 'Live-синхронизация не удалась' });
+  } finally {
+    liveSyncPromise = null;
+  }
+});
 
 app.post('/api/sync', async (req, res) => {
   const days = Number(req.body && req.body.days) || 1;

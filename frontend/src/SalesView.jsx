@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import PeriodSelector from './PeriodSelector.jsx';
 import TodayVsYesterday from './TodayVsYesterday.jsx';
 import SalesChart from './SalesChart.jsx';
 import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
-import { fetchSummary, fetchProducts, fetchSummaryProfit, fetchInventoryValue, triggerSync } from './api.js';
+import { fetchSummary, fetchProducts, fetchSummaryProfit, fetchInventoryValue, fetchOrdersRevision, triggerSync } from './api.js';
 import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber, shiftDays, daysInRange, formatOrders } from './dateUtils.js';
 import SalesViewMobile from './SalesViewMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
@@ -56,6 +56,18 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   const [error, setError] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState('');
+  const revisionRef = useRef(null);
+  const revisionPollBusyRef = useRef(false);
+
+  function revisionSignature(revision) {
+    return [
+      revision.orders_count || 0,
+      revision.active_orders_count || 0,
+      revision.active_revenue || 0,
+      revision.items_count || 0,
+      revision.latest_creation || '',
+    ].join(':');
+  }
 
   // Предыдущий период: ровно столько же дней, вплотную до начала выбранного.
   // "С начала месяца" 01.09–08.09 (8 дней) сравнивается с 24.08–31.08.
@@ -87,20 +99,24 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
       .catch(() => setPrevTotals(null)); // сравнение необязательное — молча прячем процент
   }
 
-  function loadData() {
-    setLoading(true);
-    setError('');
+  function loadData({ silent = false } = {}) {
+    if (!silent) {
+      setLoading(true);
+      setError('');
+    }
 
     const todayStr = toISODate(daysAgo(0));
     const yesterdayStr = toISODate(daysAgo(1));
 
-    Promise.all([
+    return Promise.all([
       fetchSummary(password, from, to, mode),
       fetchProducts(password, from, to, mode),
       fetchSummary(password, yesterdayStr, todayStr, mode),
       fetchSummaryProfit(password, from, to, mode),
+      fetchOrdersRevision(password),
     ])
-      .then(([summaryRes, productsRes, recentRes, profitRes]) => {
+      .then(([summaryRes, productsRes, recentRes, profitRes, revisionRes]) => {
+        revisionRef.current = revisionSignature(revisionRes);
         setSummaryDays(summaryRes.days);
         setProducts(productsRes.products);
         setPeriodNetProfit(Number(profitRes.net_profit) || 0);
@@ -126,24 +142,31 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
       .catch((err) => {
         if (err.message === 'UNAUTHORIZED') {
           onLogout();
-        } else {
+        } else if (!silent) {
           setError(err.message);
         }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!silent) setLoading(false);
+      });
+  }
+
+  function loadInventory() {
+    if (mode === 'selfbuy') return Promise.resolve();
+    return fetchInventoryValue(password)
+      .then((res) => {
+        setInventoryTotal(res.total);
+        setInventoryProducts(Array.isArray(res.by_product) ? res.by_product : []);
+      })
+      .catch(() => {}); // плитка необязательная — молча прячем, если не посчиталось
   }
 
   // active в зависимостях — не только реагируем на смену периода, но и перепроверяем данные
   // каждый раз, когда пользователь возвращается на этот раздел (страницы не размонтируются
   // при переключении, см. Dashboard.jsx, поэтому без этого повторный визит не обновил бы ничего).
   useEffect(() => {
-    if (!active || mode === 'selfbuy') return;
-    fetchInventoryValue(password)
-      .then((res) => {
-        setInventoryTotal(res.total);
-        setInventoryProducts(Array.isArray(res.by_product) ? res.by_product : []);
-      })
-      .catch(() => {}); // плитка необязательная — молча прячем, если не посчиталось
+    if (!active) return;
+    loadInventory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, mode, password, refreshTick]);
 
@@ -156,6 +179,44 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
     if (active && isMobile) loadPrevTotals();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, isMobile, from, to, mode, refreshTick]);
+
+  // Открытая Главная раз в 20 секунд спрашивает только короткую "ревизию" таблицы заказов.
+  // Полный расчёт графиков и прибыли запускается лишь когда число/дата заказов изменились.
+  // Сам Kaspi отсюда НЕ опрашивается — это независимо делает Oracle через /api/sync/live.
+  useEffect(() => {
+    if (!active || !isOnline) return undefined;
+
+    async function checkForNewOrders() {
+      if (document.hidden || syncing || revisionPollBusyRef.current) return;
+      revisionPollBusyRef.current = true;
+      try {
+        const revision = await fetchOrdersRevision(password);
+        const signature = revisionSignature(revision);
+        if (revisionRef.current !== null && signature !== revisionRef.current) {
+          revisionRef.current = signature;
+          await Promise.all([loadData({ silent: true }), loadInventory()]);
+        } else {
+          revisionRef.current = signature;
+        }
+      } catch (err) {
+        if (err.message === 'UNAUTHORIZED') onLogout();
+        // Фоновая проверка необязательная: краткий сетевой сбой не должен перекрывать страницу.
+      } finally {
+        revisionPollBusyRef.current = false;
+      }
+    }
+
+    const timer = window.setInterval(checkForNewOrders, 20 * 1000);
+    const onVisibilityChange = () => {
+      if (!document.hidden) checkForNewOrders();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, isOnline, password, from, to, mode, syncing, refreshTick]);
 
   // Мобильная версия присылает только ключ пресета — даты считаем тут, теми же правилами,
   // что и PeriodSelector на компьютере.
