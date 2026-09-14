@@ -252,35 +252,49 @@ async function fetchPackagingExpensesByMonth() {
 }
 
 // Разбивка "Основного отчёта" по товарам за конкретный месяц — то же самое, что строка месяца
-// в MAIN_COLUMNS, только на уровне каждого товара. Себестоимость (и её версия для возвратов)
-// берётся из computeCosts напрямую по товару — она точная (FIFO). А вот комиссия, доставка и сумма
-// возвратов в Excel-отчёте Kaspi Pay привязаны только к заказу целиком, а не к конкретному товару
-// внутри него — поэтому эти три величины распределяются между товарами заказа пропорционально их
-// доле в выручке заказа (сумме order_items.total_price). Для заказов с одним товаром это точно,
-// для заказов с несколькими товарами — обоснованная оценка. Реклама и оба вида бонусов
-// разносятся по товарам через привязку кампания→товар — точнее, чем проценты выше, но тоже
-// поровну между товарами одной кампании, если их несколько. "Прочие расходы" на уровне товара
-// не считаем вообще (см. фронтенд) — это расход бизнеса в целом, а не конкретного товара.
+// в MAIN_COLUMNS, только на уровне каждого товара. Выручку берём из операций "Покупка" именно
+// выбранного месяца, а не из полной стоимости заказа: иначе сентябрьский возврат апрельской
+// продажи ошибочно добавлял эту старую продажу в сентябрь. Комиссия, доставка и возвраты в
+// Excel-отчёте привязаны к заказу целиком, поэтому внутри многотоварного заказа распределяются
+// пропорционально стоимости позиций. Себестоимость берётся из computeCosts по товару (FIFO).
+// Реклама и бонусы разносятся через привязку кампания→товар; непривязанный остаток — по числу
+// выданных заказов. Упаковка и прочие расходы тоже распределяются по числу выданных заказов
+// каждого товара. Возврат без покупки в этом месяце выданным заказом не считается.
 // warehouses — список городов либо null. null означает "все склады и все заказы" (для верхней
 // таблицы "Основной отчёт (все склады)"): фильтр по origin_city не накладывается вообще, поэтому
 // в разбивку попадают в том числе заказы с нераспознанной точкой продаж (origin_city IS NULL).
 async function getProductBreakdownForMonth(month, warehouses) {
-  const { cogsByProductMonth, returnsCostByProductMonth } = await computeCosts(warehouses);
-  const productCogs = cogsByProductMonth[month] || {};
-  const productReturnsCost = returnsCostByProductMonth[month] || {};
-  const [productAdMarketing, productBonusMarketing, productReviewMarketing] = await Promise.all([
+  const [
+    costData,
+    productAdMarketing,
+    productBonusMarketing,
+    productReviewMarketing,
+    otherExpensesByMonth,
+    packagingByMonth,
+    marketingByMonth,
+  ] = await Promise.all([
+    computeCosts(warehouses),
     getAdMarketingByProductForMonth(month),
     getBonusMarketingByProductForMonth(month),
     getReviewMarketingByProductForMonth(month),
+    fetchOtherExpensesByMonth(),
+    fetchPackagingExpensesByMonth(),
+    fetchMarketingByMonth(),
   ]);
+  const { cogsByProductMonth, returnsCostByProductMonth } = costData;
+  const productCogs = cogsByProductMonth[month] || {};
+  const productReturnsCost = returnsCostByProductMonth[month] || {};
 
   const ordersResult = await pool.query(
     `SELECT kpt.order_number,
+       MAX(NULLIF(kpt.product_name, '')) AS transaction_product_name,
+       SUM(CASE WHEN kpt.operation_type != 'Возврат' THEN kpt.amount ELSE 0 END) AS purchases_amount,
        SUM(CASE WHEN kpt.operation_type = 'Возврат' THEN kpt.amount ELSE 0 END) AS returns_amount,
+       COUNT(*) FILTER (WHERE kpt.operation_type != 'Возврат') AS purchase_operations,
        SUM(kpt.commission_total) AS commission_total,
        SUM(kpt.delivery_cost) AS delivery_total
      FROM kaspi_pay_transactions kpt
-     JOIN orders o ON o.code = kpt.order_number
+     ${warehouses ? 'JOIN' : 'LEFT JOIN'} orders o ON o.code = kpt.order_number
      WHERE to_char(kpt.operation_date, 'YYYY-MM') = $1
        ${warehouses ? 'AND o.origin_city = ANY($2::text[])' : ''}
      GROUP BY kpt.order_number`,
@@ -308,66 +322,178 @@ async function getProductBreakdownForMonth(month, warehouses) {
 
   function getProduct(key, name) {
     if (!products.has(key)) {
-      products.set(key, { product_id: key, product_name: name, revenue: 0, returnsRaw: 0, commissionRaw: 0, deliveryRaw: 0 });
+      products.set(key, {
+        product_id: key,
+        product_name: name,
+        revenue: 0,
+        returnsRaw: 0,
+        commissionRaw: 0,
+        deliveryRaw: 0,
+        issuedOrders: 0,
+      });
     }
     return products.get(key);
   }
 
   for (const order of ordersResult.rows) {
-    const items = itemsByOrder.get(order.order_number) || [];
-    if (items.length === 0) continue;
+    let items = itemsByOrder.get(order.order_number) || [];
+    // Операция Kaspi Pay может сохраниться раньше, чем сам заказ попадёт из Kaspi API.
+    // Не теряем такую сумму из разбивки: временно показываем отдельную строку, которая исчезнет
+    // после синхронизации заказа и появления настоящего product_id.
+    if (items.length === 0) {
+      items = [{
+        product_id: `unmatched:${order.order_number}`,
+        product_name: order.transaction_product_name || `Заказ ${order.order_number} (товар не найден)`,
+        total_price: Math.abs(Number(order.purchases_amount)) || Math.abs(Number(order.returns_amount)) || 1,
+      }];
+    }
     const itemsTotal = items.reduce((sum, it) => sum + Number(it.total_price), 0);
+    const purchaseProductKeys = new Set();
 
     for (const item of items) {
       const key = item.product_id || `name:${item.product_name}`;
       const share = itemsTotal > 0 ? Number(item.total_price) / itemsTotal : 1 / items.length;
       const p = getProduct(key, item.product_name);
-      p.revenue += Number(item.total_price);
+      p.revenue += Number(order.purchases_amount) * share;
       p.returnsRaw += Number(order.returns_amount) * share;
       p.commissionRaw += Number(order.commission_total) * share;
       p.deliveryRaw += Number(order.delivery_total) * share;
+      if (Number(order.purchase_operations) > 0) purchaseProductKeys.add(key);
+    }
+
+    // Один многотоварный заказ считается одним выданным заказом для каждого представленного
+    // в нём товара. Повторные строки одного SKU внутри заказа счётчик не увеличивают.
+    for (const key of purchaseProductKeys) {
+      products.get(key).issuedOrders += 1;
+    }
+  }
+
+  // Если реклама была у товара без продаж в выбранном месяце, она всё равно должна быть видна
+  // и входить в сумму. Имя берём из последней известной позиции заказа.
+  const accountedProductIds = new Set([
+    ...Object.keys(productCogs),
+    ...Object.keys(productReturnsCost),
+    ...Object.keys(productAdMarketing),
+    ...Object.keys(productBonusMarketing),
+    ...Object.keys(productReviewMarketing),
+  ]);
+  const missingProductIds = [...accountedProductIds].filter((id) => !products.has(id));
+  let missingProductNames = new Map();
+  if (missingProductIds.length > 0) {
+    const namesResult = await pool.query(
+      `SELECT DISTINCT ON (product_id) product_id, product_name
+       FROM order_items
+       WHERE product_id = ANY($1::text[])
+       ORDER BY product_id, id DESC`,
+      [missingProductIds]
+    );
+    missingProductNames = new Map(namesResult.rows.map((row) => [row.product_id, row.product_name]));
+    for (const productId of missingProductIds) {
+      getProduct(productId, missingProductNames.get(productId) || productId);
     }
   }
 
   const rows = Array.from(products.values()).map((p) => {
     const costOfGoods = productCogs[p.product_id] || 0;
     const costOfReturns = productReturnsCost[p.product_id] || 0;
-    const marketingAds = productAdMarketing[p.product_id] || 0;
-    const marketingBonuses = productBonusMarketing[p.product_id] || 0;
-    const marketingReviews = productReviewMarketing[p.product_id] || 0;
     const returns = -p.returnsRaw;
     const commission = -p.commissionRaw;
     const delivery = -p.deliveryRaw;
     const netRevenue = p.revenue - returns;
-    const taxes = netRevenue > 0 ? netRevenue * TAX_RATE : 0;
-    const netProfit = netRevenue - costOfGoods - commission - delivery - taxes - marketingAds - marketingBonuses - marketingReviews;
-    // ROI считается только от "вложений" в товар (себестоимость + реклама + оба вида бонусов) —
-    // комиссия, доставка и налоги в знаменатель не входят, это не инвестиция, а транзакционные
-    // издержки Kaspi.
-    const totalExpenses = costOfGoods + marketingAds + marketingBonuses + marketingReviews;
-    const margin = netRevenue !== 0 ? (netProfit / netRevenue) * 100 : null;
-    const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 
     return {
       product_id: p.product_id,
       product_name: p.product_name || '(без названия)',
       revenue: p.revenue,
+      net_revenue: netRevenue,
+      issued_orders: p.issuedOrders,
       cost_of_goods: costOfGoods,
       returns,
       cost_of_returns: costOfReturns,
       commission,
       delivery,
-      taxes,
-      marketing_ads: marketingAds,
-      marketing_bonuses: marketingBonuses,
-      marketing_reviews: marketingReviews,
-      net_profit: netProfit,
-      margin,
-      roi,
+      taxes: 0,
+      marketing_ads: productAdMarketing[p.product_id] || 0,
+      marketing_bonuses: productBonusMarketing[p.product_id] || 0,
+      marketing_reviews: productReviewMarketing[p.product_id] || 0,
+      packaging: 0,
+      other_expenses: 0,
     };
   });
 
+  // Распределяет только ещё не разнесённый остаток. Последняя строка получает дробный остаток,
+  // поэтому сумма строк совпадает с общей суммой без погрешности плавающей точки.
+  function allocateRemainder(total, key, weightOf) {
+    const current = rows.reduce((sum, row) => sum + Number(row[key] || 0), 0);
+    const remainder = total - current;
+    if (Math.abs(remainder) < 1e-9 || rows.length === 0) return;
+    const weightedRows = rows.filter((row) => weightOf(row) > 0);
+    const recipients = weightedRows.length > 0 ? weightedRows : rows;
+    const totalWeight = recipients.reduce((sum, row) => sum + weightOf(row), 0);
+    let allocated = 0;
+    recipients.forEach((row, index) => {
+      const isLast = index === recipients.length - 1;
+      const share = totalWeight > 0 ? weightOf(row) / totalWeight : 1 / recipients.length;
+      const amount = isLast ? remainder - allocated : remainder * share;
+      row[key] += amount;
+      allocated += amount;
+    });
+  }
+
+  const issuedOrderWeight = (row) => Number(row.issued_orders) || 0;
+  const positiveRevenueWeight = (row) => Math.max(0, Number(row.net_revenue) || 0);
+  const totalMarketing = marketingByMonth[month] || 0;
+  const totalAds = Object.values(productAdMarketing).reduce((sum, value) => sum + Number(value), 0);
+  const totalBonuses = Object.values(productBonusMarketing).reduce((sum, value) => sum + Number(value), 0);
+  const totalReviews = Object.values(productReviewMarketing).reduce((sum, value) => sum + Number(value), 0);
+  const linkedMarketing = totalAds + totalBonuses + totalReviews;
+
+  // Обычно вся сумма уже разнесена через кампании. Если есть кампания без привязки, её остаток
+  // попадает в "Рекламу товаров" и распределяется по выданным заказам, чтобы детализация не
+  // расходилась с общей строкой месяца.
+  allocateRemainder(totalAds + (totalMarketing - linkedMarketing), 'marketing_ads', issuedOrderWeight);
+  allocateRemainder(totalBonuses, 'marketing_bonuses', issuedOrderWeight);
+  allocateRemainder(totalReviews, 'marketing_reviews', issuedOrderWeight);
+  allocateRemainder(packagingByMonth[month] || 0, 'packaging', issuedOrderWeight);
+  allocateRemainder(otherExpensesByMonth[month] || 0, 'other_expenses', issuedOrderWeight);
+
+  // Налог в общей строке считается от совокупной чистой выручки. Распределяем ровно эту сумму
+  // между товарами с положительной чистой выручкой — так возврат старой продажи не создаёт
+  // отрицательный налог и сумма налогов по товарам остаётся равна сумме сверху.
+  const totalNetRevenue = rows.reduce((sum, row) => sum + row.net_revenue, 0);
+  allocateRemainder(totalNetRevenue > 0 ? totalNetRevenue * TAX_RATE : 0, 'taxes', positiveRevenueWeight);
+
   rows.sort((a, b) => b.revenue - a.revenue);
+  const exactNetProfits = rows.map((row) => row.net_revenue
+    - row.cost_of_goods
+    - row.commission
+    - row.delivery
+    - row.taxes
+    - row.marketing_ads
+    - row.marketing_bonuses
+    - row.marketing_reviews
+    - row.packaging
+    - row.other_expenses);
+  const roundedTotalNetProfit = Math.round(exactNetProfits.reduce((sum, value) => sum + value, 0));
+  let roundedProfitAssigned = 0;
+
+  rows.forEach((row, index) => {
+    const isLast = index === rows.length - 1;
+    const netProfit = isLast
+      ? roundedTotalNetProfit - roundedProfitAssigned
+      : Math.round(exactNetProfits[index]);
+    roundedProfitAssigned += netProfit;
+    const totalInvestments = row.cost_of_goods
+      + row.marketing_ads
+      + row.marketing_bonuses
+      + row.marketing_reviews
+      + row.packaging
+      + row.other_expenses;
+    row.net_profit = netProfit;
+    row.margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
+    row.roi = totalInvestments !== 0 ? (netProfit / totalInvestments) * 100 : null;
+  });
+
   return rows;
 }
 

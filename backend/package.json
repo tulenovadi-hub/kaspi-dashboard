@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "sync": "node syncJob.js"
+    "sync": "node syncJob.js",
+    "test": "node --test"
   },
   "dependencies": {
     "express": "^4.19.2",

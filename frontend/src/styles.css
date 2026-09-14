@@ -2757,6 +2757,14 @@ input[type="date"] {
   padding: 6px 10px;
 }
 
+.warehouse-sub-table tfoot td {
+  padding: 9px 10px;
+  border-top: 2px solid var(--border);
+  border-bottom: 0;
+  background: var(--bg-card);
+  font-weight: 700;
+}
+
 .warehouse-product-cell {
   display: flex;
   align-items: center;

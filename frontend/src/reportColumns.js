@@ -38,8 +38,8 @@ export const MAIN_COLUMNS = [
 // Разбивка по товарам внутри развёрнутого месяца "Основного отчёта" — те же колонки, что в
 // MAIN_COLUMNS, только вместо "Месяц" — товар, а единый "Маркетинг" раскрыт на три источника
 // (реклама, бонусы от продавца, бонусы за отзыв) — все три точно разносятся по товару через
-// привязку кампания→товар. "Упаковки" здесь нет вовсе, а "Прочие расходы" на уровне товара не
-// считаются — это расход бизнеса в целом; сервер их не присылает, и в таблице стоит прочерк.
+// привязку кампания→товар. Упаковка и прочие расходы распределяются сервером между товарами
+// пропорционально количеству выданных заказов за месяц.
 export const PRODUCT_COLUMNS = [
   { key: 'product_name', label: 'Товар' },
   { key: 'revenue', label: 'Выручка' },
@@ -52,6 +52,7 @@ export const PRODUCT_COLUMNS = [
   { key: 'marketing_ads', label: 'Реклама товаров' },
   { key: 'marketing_bonuses', label: 'Бонусы от продавца' },
   { key: 'marketing_reviews', label: 'Бонусы за отзыв' },
+  { key: 'packaging', label: 'Упаковка' },
   { key: 'other_expenses', label: 'Прочие расходы' },
   { key: 'net_profit', label: 'Чистая прибыль' },
   { key: 'margin', label: 'Маржа' },
@@ -96,13 +97,11 @@ export const PERCENT_VALUE_KEYS = new Set(['margin', 'roi']);
 const MONTH_STRUCTURAL = ['month', 'revenue', 'net_profit', 'margin', 'roi'];
 const PRODUCT_STRUCTURAL = ['product_name', 'revenue', 'net_profit', 'margin', 'roi'];
 
-// Что нельзя вывести из самой колонки: "Себестоимость возвратов" не вычитается, а прибавляется
-// (она справочная, в расчёт прибыли не входит), а у "Прочих расходов" на уровне товара нужно
-// пояснение, почему там прочерк.
+// "Себестоимость возвратов" не вычитается, а прибавляется: она справочная и в расчёт прибыли
+// не входит.
 const MONTH_LINE_EXTRAS = { cost_of_returns: { credit: true } };
 const PRODUCT_LINE_EXTRAS = {
   cost_of_returns: { credit: true },
-  other_expenses: { note: 'не разносятся по товарам' },
 };
 
 function toLines(columns, structural, extras) {

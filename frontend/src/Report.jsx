@@ -66,6 +66,26 @@ function renderRowCells(columns, row, colorize, showPercentOfRevenue) {
   });
 }
 
+function sumProductRows(products) {
+  const moneyKeys = PRODUCT_COLUMNS
+    .map((col) => col.key)
+    .filter((key) => !['product_name', 'margin', 'roi'].includes(key));
+  const total = { product_name: 'Итого' };
+  for (const key of moneyKeys) {
+    total[key] = products.reduce((sum, product) => sum + Number(product[key] || 0), 0);
+  }
+  const netRevenue = total.revenue - total.returns;
+  const investments = total.cost_of_goods
+    + total.marketing_ads
+    + total.marketing_bonuses
+    + total.marketing_reviews
+    + total.packaging
+    + total.other_expenses;
+  total.margin = netRevenue !== 0 ? (total.net_profit / netRevenue) * 100 : null;
+  total.roi = investments !== 0 ? (total.net_profit / investments) * 100 : null;
+  return total;
+}
+
 // colorize — включает раскраску выручки/расходов и градиент маржи/ROI (только для "Основного отчёта").
 // showPercentOfRevenue — под суммой показывает её долю от выручки: в строке месяца от выручки
 // месяца, в разбивке по товарам — от выручки самого товара (renderRowCells берёт row.revenue,
@@ -131,6 +151,16 @@ function MonthlyTable({
                                   </tr>
                                 ))}
                               </tbody>
+                              <tfoot>
+                                <tr>
+                                  {renderRowCells(
+                                    PRODUCT_COLUMNS,
+                                    sumProductRows(productBreakdowns[cacheKey]),
+                                    colorize,
+                                    showPercentOfRevenue
+                                  )}
+                                </tr>
+                              </tfoot>
                             </table>
                           )}
                         </td>
