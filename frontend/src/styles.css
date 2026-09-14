@@ -831,6 +831,20 @@ button,
   font-weight: 700;
 }
 
+.profit-value-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.profit-margin {
+  font-size: 13px;
+  font-weight: 600;
+  color: inherit;
+  opacity: 0.82;
+}
+
 /* ===== Product picker ===== */
 .product-select {
   width: 100%;
@@ -1092,6 +1106,20 @@ button,
   font-family: var(--font-mono);
   text-align: right;
 }
+
+.product-profit-table {
+  min-width: 720px;
+}
+
+.product-profit-table tfoot td {
+  padding: 11px 10px;
+  border-top: 1px solid var(--border);
+  font-weight: 700;
+  background: var(--bg-card);
+}
+
+.profit-positive { color: var(--accent-up); }
+.profit-negative { color: var(--accent-down); }
 
 /* Доля статьи от выручки за месяц, под суммой в "Основном отчёте" */
 .report-percent-sub {
@@ -2405,6 +2433,10 @@ input[type="date"] {
 
 .table-scroll .product-table {
   min-width: 480px;
+}
+
+.table-scroll .product-profit-table {
+  min-width: 720px;
 }
 
 /* Последний столбец (Статус) браузер сжимает первым, если не хватает общей ширины —
@@ -4343,6 +4375,7 @@ input[type="date"] {
   font-family: var(--font-mono); font-size: 26px; font-weight: 700;
   letter-spacing: -0.01em; font-variant-numeric: tabular-nums; line-height: 1.15;
 }
+.svm-profit-margin { display: inline-block; margin-left: 8px; font-size: 12px; font-weight: 600; opacity: 0.82; }
 .svm-up { color: var(--accent-up); }
 .svm-down { color: var(--accent-down); }
 .svm-big-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; }
@@ -4363,6 +4396,7 @@ input[type="date"] {
 .svm-mini[aria-pressed="true"] { border-color: var(--accent-brand); background: rgba(110, 139, 255, 0.12); }
 .svm-mini-label { font-size: 10.5px; color: var(--text-muted); }
 .svm-mini-value { font-family: var(--font-mono); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.svm-mini-margin { font-size: 10.5px; opacity: 0.82; }
 
 .svm-notes-toggle {
   width: 100%; margin-top: 10px; border: 1px solid var(--border); background: transparent;

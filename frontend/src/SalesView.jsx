@@ -5,7 +5,7 @@ import SalesChart from './SalesChart.jsx';
 import ProductTable from './ProductTable.jsx';
 import ProductDetail from './ProductDetail.jsx';
 import { fetchSummary, fetchProducts, fetchSummaryProfit, fetchInventoryValue, fetchOrdersRevision, triggerSync } from './api.js';
-import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber, shiftDays, daysInRange, formatOrders } from './dateUtils.js';
+import { toISODate, daysAgo, startOfMonth, formatMoney, formatNumber, formatPercent, shiftDays, daysInRange, formatOrders } from './dateUtils.js';
 import SalesViewMobile from './SalesViewMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import { useAppRefresh } from './useAppRefresh.js';
@@ -268,6 +268,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   const totalRevenue = summaryDays.reduce((sum, d) => sum + Number(d.total_revenue), 0);
   const totalOrders = summaryDays.reduce((sum, d) => sum + Number(d.orders_count), 0);
   const avgOrder = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+  const periodMargin = totalRevenue > 0 ? (periodNetProfit / totalRevenue) * 100 : null;
 
   // Среднее количество заказов в день за период
   const daysCount = summaryDays.length || 1;
@@ -392,8 +393,9 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
             </div>
             <div className="stat-card">
               <div className="stat-label">Чистая прибыль</div>
-              <div className="stat-value" style={{ color: periodNetProfit < 0 ? '#ff6b6b' : '#3ddc97' }}>
-                {formatMoney(periodNetProfit)}
+              <div className="stat-value profit-value-line" style={{ color: periodNetProfit < 0 ? '#ff6b6b' : '#3ddc97' }}>
+                <span>{formatMoney(periodNetProfit)}</span>
+                <span className="profit-margin">маржа {formatPercent(periodMargin)}</span>
               </div>
             </div>
             {inventoryTotal !== null && (
@@ -431,6 +433,8 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
             <div style={{ color: '#6b7690', fontSize: 12, marginTop: usedEstimate || usedMarketingEstimate || confirmedReturns > 0 ? -4 : -12, marginBottom: 16 }}>
               Из чистой прибыли также вычтены расходы на маркетинг (реклама, бонусы от продавца, бонусы за отзыв)
               и операционные расходы со страницы «Расходы» — категории «Прочие затраты» и «Упаковка».
+              В разбивке по товарам эти общие расходы и подтверждённые возвраты распределены
+              пропорционально выручке каждого товара, поэтому сумма прибыли по строкам равна общей прибыли.
               Расходы месяца раскладываются равными долями на каждый его день, чтобы периоды сравнивались
               честно, независимо от того, какого числа прошёл платёж. В незаконченном месяце делятся на
               прошедшие дни, а не на весь месяц. Для маркетинга используются фактические данные и прогноз
@@ -457,7 +461,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
             <>
               <div className="section-title">Продажи по товарам</div>
               <div className="card">
-                <ProductTable products={products} onSelectProduct={setSelectedProduct} />
+                <ProductTable products={products} profitProducts={profitProducts} onSelectProduct={setSelectedProduct} />
               </div>
             </>
           )}

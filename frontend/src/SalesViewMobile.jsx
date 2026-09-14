@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import MetricLineChart from './MetricLineChart.jsx';
-import { formatMoney, formatNumber, percentChange, shiftDays, toISODate, daysAgo } from './dateUtils.js';
+import { formatMoney, formatNumber, formatPercent, percentChange, shiftDays, toISODate, daysAgo } from './dateUtils.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
 import { useClosing } from './useClosing.js';
 import Odometer from './Odometer.jsx';
@@ -203,6 +203,7 @@ export default function SalesViewMobile({
   const [showNotes, setShowNotes] = useState(false);
 
   const labels = days.map((d) => dayLabel(d.day));
+  const periodMargin = totalRevenue > 0 ? (periodNetProfit / totalRevenue) * 100 : null;
 
   // Показатели — те же пять карточек, что на компьютере. series есть у тех, кого сервер
   // отдаёт по дням; у "Денег в товаре" его нет и быть не может — это снимок на сейчас.
@@ -232,6 +233,7 @@ export default function SalesViewMobile({
     {
       key: 'profit', label: 'Чистая прибыль', value: periodNetProfit, format: formatMoney, listLabel: 'Чистая прибыль',
       tone: periodNetProfit < 0 ? 'down' : 'up',
+      margin: periodMargin,
       prev: prevTotals ? prevTotals.profit : null,
       // Прибыль приходит отдельным запросом (/summary-profit) и может покрывать не те же дни,
       // что выручка, — поэтому и подписи для подсказки берём из её собственного ряда.
@@ -253,10 +255,8 @@ export default function SalesViewMobile({
   // со штуками, и по остальным показателям товарной картины не было вообще.
   //
   // Каждая строка: value — само число, meta — вторая строка помельче, percent — доля справа.
-  // Доля считается от СУММЫ ПО ТОВАРАМ, а не от цифры в карточке: у прибыли карточка ещё
-  // вычитает маркетинг, операционные расходы и подтверждённые возвраты (они по магазину
-  // целиком и на товары не делятся),
-  // и от неё проценты в сумме давали бы не 100%.
+  // Общие расходы уже распределены между товарами на сервере пропорционально выручке,
+  // поэтому сумма строк по прибыли теперь равна цифре в карточке.
   const productRows = (() => {
     const profitById = new Map(profitProducts.map((p) => [p.product_id, Number(p.net_profit) || 0]));
     const money = (v) => formatMoney(v);
@@ -301,12 +301,12 @@ export default function SalesViewMobile({
       }
       if (metric === 'profit') {
         // Маржа рядом с суммой — иначе непонятно, много это или мало для такой выручки.
-        const margin = revenue > 0 ? Math.round((profit / revenue) * 100) : null;
+        const margin = revenue > 0 ? (profit / revenue) * 100 : null;
         return {
           ...base,
           value: profit,
           text: money(profit),
-          meta: margin === null ? null : `маржа ${margin}%`,
+          meta: margin === null ? null : `маржа ${formatPercent(margin)}`,
           tone: profit < 0 ? 'down' : 'up',
         };
       }
@@ -390,6 +390,7 @@ export default function SalesViewMobile({
             </div>
             <div className={`svm-big-value${current.tone === 'up' ? ' svm-up' : current.tone === 'down' ? ' svm-down' : ''}`}>
               <Odometer value={current.value} format={current.format} />
+              {current.key === 'profit' && <span className="svm-profit-margin">маржа {formatPercent(current.margin)}</span>}
             </div>
           </div>
           {/* Процент — по ВЫБРАННОМУ показателю и к предыдущему периоду такой же длины.
@@ -439,6 +440,7 @@ export default function SalesViewMobile({
               <div className="svm-mini-label">{m.label}</div>
               <div className={`svm-mini-value${m.tone === 'up' ? ' svm-up' : m.tone === 'down' ? ' svm-down' : ''}`}>
                 {m.short || m.format(m.value)}
+                {m.key === 'profit' && <span className="svm-mini-margin"> · {formatPercent(m.margin)}</span>}
               </div>
             </button>
           ))}
@@ -486,9 +488,9 @@ export default function SalesViewMobile({
                 )}
                 {metric === 'profit' && (
                   <p>
-                    В разбивке по товарам ниже — прибыль до маркетинга, операционных расходов и
-                    общего вычета возвратов: они считаются по магазину целиком и на товары не делятся. Поэтому сумма по
-                    товарам больше цифры в карточке, а проценты в ней — доли друг от друга.
+                    В разбивке по товарам ниже уже учтены маркетинг, операционные расходы и
+                    подтверждённые возвраты. Общие суммы распределены пропорционально выручке
+                    каждого товара, поэтому сумма прибыли по товарам равна цифре в карточке.
                   </p>
                 )}
               </div>

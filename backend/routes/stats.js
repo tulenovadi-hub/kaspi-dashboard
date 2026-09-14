@@ -527,8 +527,11 @@ async function computeSummaryNetProfit(from, to, mode) {
   // Выручка выбранного периода по дням нужна для прогноза маркетинга. Берём те же позиции,
   // из которых ниже считается прибыль, поэтому прогноз относится ровно к заказам на Главной.
   const revenueByDay = new Map();
+  const revenueByProduct = new Map();
   for (const it of itemsResult.rows) {
-    revenueByDay.set(it.day, (revenueByDay.get(it.day) || 0) + Number(it.total_price));
+    const revenue = Number(it.total_price);
+    revenueByDay.set(it.day, (revenueByDay.get(it.day) || 0) + revenue);
+    revenueByProduct.set(it.product_id, (revenueByProduct.get(it.product_id) || 0) + revenue);
   }
   const marketingForecast = addMarketingForecast(marketingData, revenueByDay, from, to);
   const marketingByDay = marketingForecast.byDay;
@@ -660,14 +663,11 @@ async function computeSummaryNetProfit(from, to, mode) {
   }
 
   let estimatedNetProfit = 0;
-  // Прибыль по каждому товару — для разбивки под карточкой на Главной. Копит ровно те же
-  // слагаемые, что и итог (включая оценку по заказам без Excel-отчёта), поэтому сумма по
-  // товарам отличается от карточки на маркетинг, операционные расходы и подтверждённые
-  // возвраты: они по
-  // магазину целиком и на товары не раскладываются — та же договорённость, что в разбивке
-  // по товарам в "Отчёте" (там в строке товара тоже нет прочих затрат и упаковки).
-  // Только id и сумма: название фронт берёт из /api/stats/products — там тот же набор
-  // товаров (оба считают позиции заказов за один период), так что join по id полный.
+  // Прибыль по каждому товару до общих расходов. Ниже маркетинг, операционные расходы и
+  // подтверждённые возвраты распределяются пропорционально выручке товара. Для этих сумм
+  // нет полной надёжной привязки к конкретному SKU (часть кампаний общая, операционные
+  // расходы относятся ко всему магазину), а такое правило прозрачно и гарантирует сверку:
+  // сумма чистой прибыли всех товаров равна карточке сверху.
   const profitByProduct = new Map();
   for (const [productId, stat] of perProductKnown) {
     profitByProduct.set(productId, stat.profit);
@@ -681,15 +681,51 @@ async function computeSummaryNetProfit(from, to, mode) {
     profitByProduct.set(it.product_id, (profitByProduct.get(it.product_id) || 0) + revenue * ratio);
   }
 
+  const totalNetProfit = knownNetProfit + estimatedNetProfit - marketing - opExpenses - confirmedReturns;
+  const totalProductRevenue = [...revenueByProduct.values()].reduce((sum, value) => sum + value, 0);
+  const productEntries = [...profitByProduct.entries()];
+  let allocatedMarketing = 0;
+  let allocatedOpExpenses = 0;
+  let allocatedReturns = 0;
+  let roundedProfitAssigned = 0;
+
+  const products = productEntries.map(([productId, contributionProfit], index) => {
+    const revenue = revenueByProduct.get(productId) || 0;
+    const share = totalProductRevenue > 0 ? revenue / totalProductRevenue : 0;
+    const isLast = index === productEntries.length - 1;
+
+    // Последний товар получает остаток от дробных копеек, поэтому распределённые суммы
+    // сходятся с общими точно, а не только приблизительно.
+    const productMarketing = isLast ? marketing - allocatedMarketing : marketing * share;
+    const productOpExpenses = isLast ? opExpenses - allocatedOpExpenses : opExpenses * share;
+    const productReturns = isLast ? confirmedReturns - allocatedReturns : confirmedReturns * share;
+    allocatedMarketing += productMarketing;
+    allocatedOpExpenses += productOpExpenses;
+    allocatedReturns += productReturns;
+
+    const exactProfit = contributionProfit - productMarketing - productOpExpenses - productReturns;
+    // В интерфейсе деньги показываются целыми тенге. Последней строке отдаём остаток округления,
+    // чтобы пользователь мог сложить видимые числа и получить ровно видимый общий итог.
+    const netProfit = isLast ? Math.round(totalNetProfit) - roundedProfitAssigned : Math.round(exactProfit);
+    roundedProfitAssigned += netProfit;
+
+    return {
+      product_id: productId,
+      net_profit: netProfit,
+      margin: revenue > 0 ? (netProfit / revenue) * 100 : null,
+      allocated_marketing: productMarketing,
+      allocated_operating_expenses: productOpExpenses,
+      allocated_returns: productReturns,
+    };
+  }).sort((a, b) => b.net_profit - a.net_profit);
+
   return {
-    netProfit: knownNetProfit + estimatedNetProfit - marketing - opExpenses - confirmedReturns,
+    netProfit: totalNetProfit,
     usedEstimate: unknownItems.length > 0,
     usedMarketingEstimate: marketingForecast.estimatedTotal > 0,
     confirmedReturns,
     days: buildDays(),
-    products: [...profitByProduct.entries()]
-      .map(([productId, profit]) => ({ product_id: productId, net_profit: profit }))
-      .sort((a, b) => b.net_profit - a.net_profit),
+    products,
   };
 }
 
