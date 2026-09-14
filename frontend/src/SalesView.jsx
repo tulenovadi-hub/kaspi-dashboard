@@ -460,8 +460,9 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
                 values={activeDesktopMetric.series}
                 labels={activeDesktopMetric.labels}
                 color={desktopChartColor}
-                height={230}
+                height={360}
                 format={activeDesktopMetric.format}
+                responsiveWidth
               />
             ) : (
               <div className="sales-metric-no-chart">

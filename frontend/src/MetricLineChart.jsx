@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-// График на мобильной "Главной". Отличие от SalesChart на компьютере — линия ПЕРЕЕЗЖАЕТ при
-// смене показателя, а не перерисовывается мгновенно.
+// Общий график "Главной" на телефоне и компьютере. Линия ПЕРЕЕЗЖАЕТ при смене показателя,
+// а не перерисовывается мгновенно.
 //
 // Почему requestAnimationFrame, а не CSS-переход на атрибуте d: анимация d в CSS поддержана не
 // везде одинаково (приложение стоит на айфоне как PWA) и ломается при смене числа точек.
@@ -62,7 +62,12 @@ function toShape(values) {
 }
 
 export default function MetricLineChart({
-  values, labels, color = 'var(--accent-brand)', height = 140, format = (v) => v,
+  values,
+  labels,
+  color = 'var(--accent-brand)',
+  height = 140,
+  format = (v) => v,
+  responsiveWidth = false,
 }) {
   const target = toShape(values);
   const [shown, setShown] = useState(target);
@@ -72,6 +77,36 @@ export default function MetricLineChart({
   const plotRef = useRef(null);
   const draggingRef = useRef(false);
   const [picked, setPicked] = useState(null); // индекс выбранного дня или null
+  const [measuredWidth, setMeasuredWidth] = useState(W);
+
+  // На телефоне сохраняем исходную систему координат 320×140. На компьютере график гораздо
+  // шире, поэтому фиксированный viewBox 320×height с preserveAspectRatio="none" растягивал его
+  // только по горизонтали: круглые точки превращались в овалы, а вся линия выглядела сплющенной.
+  // Опциональный режим измеряет настоящую ширину карточки, и одна единица SVG снова равна одному
+  // экранному пикселю по обеим осям. useLayoutEffect нужен, чтобы исправленный размер попал уже в
+  // первый видимый кадр, без короткого показа растянутого графика.
+  useLayoutEffect(() => {
+    if (!responsiveWidth) return undefined;
+    const el = plotRef.current;
+    if (!el) return undefined;
+
+    const measure = () => {
+      const next = Math.max(PAD_X * 2 + 1, Math.round(el.getBoundingClientRect().width));
+      setMeasuredWidth((current) => (current === next ? current : next));
+    };
+
+    measure();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(measure);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [responsiveWidth]);
+
+  const chartWidth = responsiveWidth ? measuredWidth : W;
 
   useEffect(() => {
     const start = shownRef.current;
@@ -107,7 +142,7 @@ export default function MetricLineChart({
   const top = 12;
 
   const points = shown.points;
-  const x = (i) => PAD_X + (i * (W - PAD_X * 2)) / Math.max(1, points.length - 1);
+  const x = (i) => PAD_X + (i * (chartWidth - PAD_X * 2)) / Math.max(1, points.length - 1);
   const y = (share) => bottom - share * (bottom - top);
 
   const line = points.map((share, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(share).toFixed(1)}`).join(' ');
@@ -128,9 +163,9 @@ export default function MetricLineChart({
     const rect = el.getBoundingClientRect();
     if (!rect.width || points.length === 0) return null;
     if (points.length === 1) return 0;
-    // Из пикселей экрана — в координаты viewBox (по горизонтали svg растянут на всю ширину).
-    const vx = ((clientX - rect.left) / rect.width) * W;
-    const stepX = (W - PAD_X * 2) / (points.length - 1);
+    // Из пикселей экрана — в координаты viewBox.
+    const vx = ((clientX - rect.left) / rect.width) * chartWidth;
+    const stepX = (chartWidth - PAD_X * 2) / (points.length - 1);
     const i = Math.round((vx - PAD_X) / stepX);
     return Math.max(0, Math.min(points.length - 1, i));
   }
@@ -164,7 +199,7 @@ export default function MetricLineChart({
 
   let tip = null;
   if (active !== null) {
-    const pxShare = (x(active) / W) * 100;
+    const pxShare = (x(active) / chartWidth) * 100;
     const py = y(points[active]);
     const style = {};
     if (pxShare <= 22) style.left = 0;
@@ -204,7 +239,7 @@ export default function MetricLineChart({
         <svg
           className="mlc-svg"
           style={{ height }}
-          viewBox={`0 0 ${W} ${height}`}
+          viewBox={`0 0 ${chartWidth} ${height}`}
           preserveAspectRatio="none"
           role="img"
           aria-label="График по дням выбранного периода"
@@ -213,7 +248,7 @@ export default function MetricLineChart({
             <line
               x1={PAD_X}
               y1={y(shown.zero)}
-              x2={W - PAD_X}
+              x2={chartWidth - PAD_X}
               y2={y(shown.zero)}
               stroke="var(--border)"
               strokeWidth="1"
