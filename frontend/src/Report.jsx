@@ -5,7 +5,7 @@ import ReportMobile from './ReportMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import {
   GENERAL_COLUMNS, MAIN_COLUMNS, PRODUCT_COLUMNS, SELF_BUY_COLUMNS,
-  GREEN_KEYS, RED_KEYS, YELLOW_KEYS, PERCENT_OF_NET_REVENUE_KEYS, PERCENT_VALUE_KEYS,
+  GREEN_KEYS, RED_KEYS, YELLOW_KEYS, PERCENT_OF_REVENUE_KEYS, PERCENT_VALUE_KEYS,
 } from './reportColumns.js';
 import { useAppRefresh } from './useAppRefresh.js';
 
@@ -34,8 +34,8 @@ function gradientColor(value, max) {
 // месяца/товара), остальные — через formatMoney, кроме margin/roi (через formatPercent).
 // Значение undefined (например, "Прочие расходы" в разбивке по товарам, где эта колонка
 // принципиально не считается) всегда рисуется прочерком, а не "0 ₸".
-// showExpensePercentages — под расходом показывает его долю от чистой выручки после возвратов:
-// это та же база, от которой считается маржа. Справочная себестоимость возвратов сюда не входит.
+// showExpensePercentages — под расходом показывает его долю от полной выручки: это та же база,
+// от которой считается маржа. Справочная себестоимость возвратов сюда не входит.
 function renderRowCells(columns, row, colorize, showExpensePercentages) {
   return columns.map((col) => {
     if (col.key === 'month') return <td key={col.key}>{formatMonthLabel(row.month)}</td>;
@@ -53,18 +53,15 @@ function renderRowCells(columns, row, colorize, showExpensePercentages) {
     else if (colorize && RED_KEYS.has(col.key)) cellClassName += ' report-cell-red';
     else if (colorize && YELLOW_KEYS.has(col.key)) cellClassName += ' report-cell-yellow';
 
-    const marginBase = row.net_revenue !== undefined
-      ? Number(row.net_revenue)
-      : Number(row.revenue || 0) - Number(row.returns || 0);
     const showPct = showExpensePercentages
-      && PERCENT_OF_NET_REVENUE_KEYS.has(col.key)
+      && PERCENT_OF_REVENUE_KEYS.has(col.key)
       && value !== undefined
-      && marginBase;
+      && row.revenue;
     if (showPct) {
       return (
         <td key={col.key} className={cellClassName}>
           {formatMoney(value)}
-          <div className="report-percent-sub">{(value / marginBase * 100).toFixed(1)}%</div>
+          <div className="report-percent-sub">{(value / row.revenue * 100).toFixed(1)}%</div>
         </td>
       );
     }
@@ -89,14 +86,14 @@ function sumProductRows(products) {
     + total.marketing_reviews
     + total.packaging
     + total.other_expenses;
-  total.margin = netRevenue !== 0 ? (total.net_profit / netRevenue) * 100 : null;
+  total.margin = total.revenue !== 0 ? (total.net_profit / total.revenue) * 100 : null;
   total.roi = investments !== 0 ? (total.net_profit / investments) * 100 : null;
   return total;
 }
 
 // colorize — включает раскраску выручки/расходов и градиент маржи/ROI (только для "Основного отчёта").
-// showExpensePercentages — под суммой показывает долю от чистой выручки после возвратов:
-// в строке месяца от чистой выручки месяца, в разбивке — от чистой выручки товара.
+// showExpensePercentages — под суммой показывает долю от полной выручки:
+// в строке месяца от выручки месяца, в разбивке — от выручки товара.
 // expandable — если true, клик по строке месяца разворачивает под ней разбивку по товарам
 // (данные подгружаются лениво через onToggleMonth и кэшируются в productBreakdowns на уровне Report).
 // scope — какая из двух разворачиваемых таблиц ('all' — все склады, 'main' — Алматы + Астана).

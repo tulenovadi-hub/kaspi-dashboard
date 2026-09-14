@@ -1122,7 +1122,7 @@ button,
 .profit-negative { color: var(--accent-down); }
 .report-cell-yellow { color: var(--accent-warn); }
 
-/* Доля статьи от чистой выручки, под суммой в "Основном отчёте" */
+/* Доля статьи от полной выручки, под суммой в "Основном отчёте" */
 .report-percent-sub {
   font-size: 11px;
   color: var(--text-muted);

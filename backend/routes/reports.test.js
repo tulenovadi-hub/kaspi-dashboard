@@ -93,4 +93,5 @@ test('product breakdown uses monthly operations and allocates shared costs by is
   assert.equal(byId.get('b').other_expenses, 100);
   assert.equal(sum('taxes'), 21);
   assert.equal(sum('net_profit'), -191);
+  assert.equal(byId.get('a').margin, (-179 / 600) * 100, 'margin must use gross revenue before returns');
 });

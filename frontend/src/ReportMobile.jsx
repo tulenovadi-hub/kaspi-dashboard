@@ -33,7 +33,7 @@ function shortMonth(monthKey) {
   return `${short} ${year.slice(2)}`;
 }
 
-// Одна строка разбора: статья, сумма, её доля от чистой выручки и та же доля полоской.
+// Одна строка разбора: статья, сумма, её доля от полной выручки и та же доля полоской.
 // Справочная себестоимость возвратов выделяется жёлтым и не получает процент: она не участвует
 // в расчёте чистой прибыли.
 function Line({ line, row }) {
@@ -51,10 +51,7 @@ function Line({ line, row }) {
     );
   }
 
-  const marginBase = row.net_revenue !== undefined
-    ? Number(row.net_revenue)
-    : Number(row.revenue || 0) - Number(row.returns || 0);
-  const share = marginBase ? (value / marginBase) * 100 : 0;
+  const share = row.revenue ? (value / row.revenue) * 100 : 0;
   const valueClass = line.informational
     ? 'report-cell-yellow'
     : (line.credit ? 'report-cell-green' : 'report-cell-red');
@@ -69,7 +66,7 @@ function Line({ line, row }) {
         <div className="rm-line-share">{line.note}</div>
       ) : (
         <>
-          <div className="rm-line-share">{share.toFixed(1)}% от чистой выручки</div>
+          <div className="rm-line-share">{share.toFixed(1)}% от выручки</div>
           <div className="rm-line-bar">
             <i style={{ width: `${Math.min(100, Math.abs(share))}%`, background: line.credit ? 'var(--accent-up)' : 'var(--accent-down)' }} />
           </div>

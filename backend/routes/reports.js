@@ -180,7 +180,7 @@ async function aggregateKaspiPayMonthly(warehouses) {
     const costOfGoods = cogsByMonth[row.month] || 0; // себестоимость проданных товаров (FIFO)
     const costOfReturns = returnsCostByMonth[row.month] || 0; // информационно, не влияет на прибыль
     const returns = -Number(row.returns_amount); // сумма возвратов как положительное число
-    const netRevenue = revenue - returns; // чистый оборот после возвратов — база для налога и маржи
+    const netRevenue = revenue - returns; // чистый оборот после возвратов — база для налога
 
     const commission = -Number(row.commission_total); // положительное число — расход
     const delivery = -Number(row.delivery_total); // положительное число — расход
@@ -189,7 +189,7 @@ async function aggregateKaspiPayMonthly(warehouses) {
     const netProfit = netRevenue - costOfGoods - commission - delivery - taxes;
     const totalExpenses = costOfGoods + commission + delivery + taxes;
 
-    const margin = netRevenue !== 0 ? (netProfit / netRevenue) * 100 : null;
+    const margin = revenue !== 0 ? (netProfit / revenue) * 100 : null;
     const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 
     return {
@@ -489,7 +489,7 @@ async function getProductBreakdownForMonth(month, warehouses) {
       + row.packaging
       + row.other_expenses;
     row.net_profit = netProfit;
-    row.margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
+    row.margin = row.revenue !== 0 ? (netProfit / row.revenue) * 100 : null;
     row.roi = totalInvestments !== 0 ? (netProfit / totalInvestments) * 100 : null;
   });
 
@@ -607,7 +607,7 @@ function withStoreWideExpenses(rows, otherExpensesByMonth, marketingByMonth, pac
     // комиссия, доставка и налоги в знаменатель не входят, это не инвестиция, а транзакционные
     // издержки Kaspi.
     const totalExpenses = row.cost_of_goods + marketing + packaging + otherExpenses;
-    const margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
+    const margin = row.revenue !== 0 ? (netProfit / row.revenue) * 100 : null;
     const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 
     return {

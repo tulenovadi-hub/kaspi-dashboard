@@ -54,7 +54,7 @@ async function getMonthlyReportText() {
     // ROI = чистая прибыль / (себестоимость + маркетинг + упаковка + прочие расходы) — та же
     // формула, что и на странице "Отчёт" (комиссия/доставка/налоги в знаменатель не входят).
     const totalExpenses = row.cost_of_goods + marketing + packaging + otherExpenses;
-    const margin = row.net_revenue !== 0 ? (netProfit / row.net_revenue) * 100 : null;
+    const margin = row.revenue !== 0 ? (netProfit / row.revenue) * 100 : null;
     const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
     return { ...row, marketing, packaging, other_expenses: otherExpenses, net_profit: netProfit, margin, roi };
   });
@@ -63,7 +63,7 @@ async function getMonthlyReportText() {
 
   return rows
     .map((r) => (
-      `${r.month}: выручка ${fmt(r.net_revenue)}, себестоимость ${fmt(r.cost_of_goods)}, возвраты ${fmt(r.returns)}, ` +
+      `${r.month}: выручка ${fmt(r.revenue)}, себестоимость ${fmt(r.cost_of_goods)}, возвраты ${fmt(r.returns)}, ` +
       `комиссия ${fmt(r.commission)}, доставка ${fmt(r.delivery)}, налоги ${fmt(r.taxes)}, маркетинг ${fmt(r.marketing)}, ` +
       `упаковка ${fmt(r.packaging)}, прочие расходы ${fmt(r.other_expenses)}, чистая прибыль ${fmt(r.net_profit)}, ` +
       `маржа ${pct(r.margin)}, ROI ${pct(r.roi)}`
@@ -118,8 +118,7 @@ async function getProductMarginsText(from, to) {
 
   const rows = Array.from(totals.entries())
     .map(([productId, acc]) => {
-      const netRevenue = acc.revenue - acc.returns;
-      const margin = netRevenue !== 0 ? (acc.net_profit / netRevenue) * 100 : null;
+      const margin = acc.revenue !== 0 ? (acc.net_profit / acc.revenue) * 100 : null;
       return { ...acc, qty: qtyByProduct.get(productId) || 0, margin };
     })
     .sort((a, b) => b.revenue - a.revenue)
