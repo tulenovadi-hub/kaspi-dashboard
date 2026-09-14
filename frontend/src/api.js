@@ -169,7 +169,7 @@ export function fetchProductStats(password, productId, from, to, mode = 'main') 
 }
 
 // wait: true — сервер ответит только когда реально закончит тянуть заказы из Kaspi.
-// Без этого кнопка "Обновить сейчас" гасла раньше, чем данные доезжали до базы (см. server.js).
+// Без этого кнопка "Сверить с Kaspi" гасла раньше, чем данные доезжали до базы (см. server.js).
 export function triggerSync(password) {
   return apiRequest('/api/sync', password, {
     method: 'POST',

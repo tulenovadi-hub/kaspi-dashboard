@@ -105,7 +105,7 @@ async function syncRecentOrders(daysBack = 3) {
   }
 
   console.log(`Синхронизация завершена. Заказов сохранено: ${totalOrders}, позиций товаров: ${totalItems}`);
-  // Итог нужен кнопке "Обновить сейчас" на Главной: она ждёт окончания и показывает, сколько
+  // Итог нужен кнопке "Сверить с Kaspi" на Главной: она ждёт окончания и показывает, сколько
   // заказов приехало. Остальные вызовы (крон, запуск файла руками) результат просто игнорируют.
   return { orders: totalOrders, items: totalItems, new_orders: newOrders };
 }
@@ -121,6 +121,20 @@ async function syncLatestOrders(minutesBack = 10) {
   const orders = await fetchOrders(dateFrom, now);
   const result = await saveOrders(orders, { onlyMissingEntries: true });
   console.log(`Live-синхронизация завершена. Найдено: ${result.orders}, новых: ${result.new_orders}`);
+  return result;
+}
+
+// Раз в 10 минут повторно читаем заказы за последние сутки. Так обновляются не только новые
+// заказы, но и более поздние изменения уже известных: отмена, завершение и другие статусы.
+// Состав заказа повторно скачивается только если заказ новый или позиции ещё не сохранены.
+async function syncOrderStatuses(hoursBack = 24) {
+  const safeHours = Math.max(1, Math.min(72, Number(hoursBack) || 24));
+  const now = Date.now();
+  const dateFrom = now - safeHours * 60 * 60 * 1000;
+  console.log(`Сверка статусов заказов за последние ${safeHours} ч.`);
+  const orders = await fetchOrders(dateFrom, now);
+  const result = await saveOrders(orders, { onlyMissingEntries: true });
+  console.log(`Сверка статусов завершена. Проверено: ${result.orders}, новых: ${result.new_orders}`);
   return result;
 }
 
@@ -146,4 +160,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { syncRecentOrders, syncLatestOrders };
+module.exports = { syncRecentOrders, syncLatestOrders, syncOrderStatuses };

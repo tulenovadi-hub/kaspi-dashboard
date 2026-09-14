@@ -5,8 +5,9 @@ const cors = require('cors');
 const cron = require('node-cron');
 
 const { initDb, pool } = require('./db');
-const { syncRecentOrders, syncLatestOrders } = require('./syncJob');
+const { syncRecentOrders, syncLatestOrders, syncOrderStatuses } = require('./syncJob');
 const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS } = require('./deliveryReturnsSync');
+const { enqueueKaspiSync, getKaspiSyncState } = require('./syncCoordinator');
 const authRoutes = require('./routes/auth');
 const usersRoutes = require('./routes/users');
 const statsRoutes = require('./routes/stats');
@@ -99,7 +100,7 @@ app.use('/api/abc', requireRole('admin'), abcRoutes);
 app.use('/api/unit-economics', requireRole('admin'), unitEconomicsRoutes);
 app.use('/api/debug', requireRole('admin'), debugRoutes);
 
-// Эндпоинт, чтобы вручную запустить синхронизацию из дашборда (кнопка "Обновить сейчас")
+// Эндпоинт, чтобы вручную запустить синхронизацию из дашборда (кнопка "Сверить с Kaspi")
 // или из внешнего планировщика (например, cron на своём сервере). Можно передать
 // { "days": 150 } в теле запроса, чтобы сделать разовую глубокую синхронизацию.
 //
@@ -121,35 +122,90 @@ app.use('/api/debug', requireRole('admin'), debugRoutes);
 // /api/sync часто — поэтому автоматический путь ищет отмены не чаще раза в полчаса. Кнопка
 // "Проверить сейчас" на странице отмен этим ограничением не связана: там человек ждёт
 // результат сознательно.
+const STATUS_SYNC_MIN_INTERVAL_MS = 10 * 60 * 1000;
 const AUTO_SEARCH_MIN_INTERVAL_MS = 30 * 60 * 1000;
+let lastOrderStatusSyncAt = 0;
 let lastAutoCancellationSearchAt = 0;
-let liveSyncPromise = null;
 
-function syncRecentDeliveryCancellations() {
+async function syncRecentDeliveryCancellations() {
   const now = Date.now();
-  if (now - lastAutoCancellationSearchAt < AUTO_SEARCH_MIN_INTERVAL_MS) return Promise.resolve(null);
+  if (now - lastAutoCancellationSearchAt < AUTO_SEARCH_MIN_INTERVAL_MS) return null;
+  // Отмечаем попытку до запроса: если Kaspi временно ошибся, не долбим тяжёлый 20-дневный
+  // поиск каждую следующую минуту, а повторяем его через обычные 30 минут.
   lastAutoCancellationSearchAt = now;
   return syncDeliveryCancellations(now - SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000, now);
 }
 
-// Отдельная лёгкая ручка для внешнего минутного cron на Oracle. Один запуск может затянуться
-// из-за ответа Kaspi, поэтому следующий не стартует параллельно, а получает skipped=true.
-// Полная суточная синхронизация ниже остаётся без изменений и служит страховочной сверкой.
-app.post('/api/sync/live', async (req, res) => {
-  if (liveSyncPromise) {
-    return res.json({ ok: true, skipped: true, reason: 'already_running' });
+async function trySyncRecentDeliveryCancellations() {
+  try {
+    return await syncRecentDeliveryCancellations();
+  } catch (err) {
+    // Заказы к этому моменту уже сохранены. Ошибка дополнительной проверки отмен не должна
+    // превращать весь live/manual запуск в неудачный и скрывать полезный результат.
+    console.error('Ошибка поиска отмен при доставке:', err);
+    return null;
+  }
+}
+
+async function syncOrdersAndRecentCancellations(days) {
+  const orders = await syncRecentOrders(days);
+  if (days >= 1) lastOrderStatusSyncAt = Date.now();
+  const cancellations = await trySyncRecentDeliveryCancellations();
+  return { ...orders, delivery_cancellations: cancellations };
+}
+
+async function runLiveSyncCycle() {
+  const statusSyncDue = Date.now() - lastOrderStatusSyncAt >= STATUS_SYNC_MIN_INTERVAL_MS;
+  let orderMode = 'latest';
+  let orders;
+
+  if (statusSyncDue) {
+    orderMode = 'statuses_24h';
+    // При временной ошибке повторим широкую сверку через 10 минут, а между ними продолжим
+    // короткие минутные проходы по новым заказам.
+    lastOrderStatusSyncAt = Date.now();
+    orders = await syncOrderStatuses(24);
+  } else {
+    orders = await syncLatestOrders(10);
   }
 
+  // Выполняется после заказов в той же очереди, поэтому даже долгая проверка отмен не
+  // пересекается с очередным минутным запросом.
+  const cancellations = await trySyncRecentDeliveryCancellations();
+  return { mode: orderMode, ...orders, delivery_cancellations: cancellations };
+}
+
+async function runNightlySync() {
+  const orders = await syncRecentOrders();
+  lastOrderStatusSyncAt = Date.now();
+
+  const now = Date.now();
+  const cancellations = await syncDeliveryCancellations(
+    now - SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    now
+  );
+  lastAutoCancellationSearchAt = Date.now();
+  const refreshed = await refreshTrackedOrders();
+  const trackingChecked = await refreshTrackingStatuses();
+  const wonderChecked = await refreshWonderReceived();
+  return { orders, cancellations, refreshed, trackingChecked, wonderChecked };
+}
+
+// Отдельная лёгкая ручка для внешнего минутного cron на Oracle. Один запуск может затянуться
+// из-за ответа Kaspi, поэтому следующий не стартует параллельно, а получает skipped=true.
+// Обычно проверяет новые заказы за 10 минут; раз в 10 минут сверяет статусы за сутки, а раз
+// в 30 минут ищет отмены при доставке. Все этапы идут строго последовательно.
+app.post('/api/sync/live', async (req, res) => {
+  const syncPromise = enqueueKaspiSync('live', runLiveSyncCycle, { skipIfBusy: true });
+  if (!syncPromise) return res.json({ ok: true, skipped: true, reason: 'already_running', queue: getKaspiSyncState() });
+
   const startedAt = Date.now();
-  liveSyncPromise = syncLatestOrders(10);
   try {
-    const result = await liveSyncPromise;
-    res.json({ ok: true, minutes: 10, duration_ms: Date.now() - startedAt, ...result });
+    const result = await syncPromise;
+    res.json({ ok: true, duration_ms: Date.now() - startedAt, ...result });
   } catch (err) {
     console.error('Ошибка live-синхронизации:', err);
     res.status(500).json({ error: 'Live-синхронизация не удалась' });
-  } finally {
-    liveSyncPromise = null;
   }
 });
 
@@ -157,7 +213,7 @@ app.post('/api/sync', async (req, res) => {
   const days = Number(req.body && req.body.days) || 1;
   // `wait` — дождаться конца синхронизации и ответить итогом.
   //
-  // Зачем понадобилось (2026-09-10): кнопка "Обновить сейчас" на Главной получала ответ
+  // Зачем понадобилось (2026-09-10): кнопка "Сверить с Kaspi" на Главной получала ответ
   // МГНОВЕННО, ещё до того, как сервер сходит в Kaspi, и страница перечитывала базу раньше,
   // чем в неё попадали новые заказы. Выглядело так, будто кнопка не работает: нажимаешь,
   // надпись "Обновляем..." гаснет, а свежего заказа нет — он доезжал через несколько секунд,
@@ -169,22 +225,16 @@ app.post('/api/sync', async (req, res) => {
 
   if (!wait) {
     res.json({ ok: true, days });
-    syncRecentOrders(days).catch((err) => console.error('Ошибка фоновой синхронизации:', err));
-    // Отдельно от заказов: упавший поиск отмен не должен утаскивать за собой синхронизацию
-    // заказов, и наоборот.
-    syncRecentDeliveryCancellations().catch((err) => console.error('Ошибка поиска отмен при доставке:', err));
+    enqueueKaspiSync('full-background', () => syncOrdersAndRecentCancellations(days))
+      .catch((err) => console.error('Ошибка фоновой синхронизации:', err));
     return;
   }
 
   try {
-    const result = await syncRecentOrders(days);
-    // Ответа ждём вместе с заказами: кнопка "Обновить сейчас" на Главной для того и ждёт,
+    // Ответа ждём вместе с заказами: кнопка "Сверить с Kaspi" на Главной для того и ждёт,
     // чтобы страница перечитала базу уже со всем свежим.
-    const cancellations = await syncRecentDeliveryCancellations().catch((err) => {
-      console.error('Ошибка поиска отмен при доставке:', err);
-      return null;
-    });
-    res.json({ ok: true, days, ...result, delivery_cancellations: cancellations });
+    const result = await enqueueKaspiSync('full-manual', () => syncOrdersAndRecentCancellations(days));
+    res.json({ ok: true, days, ...result });
   } catch (err) {
     console.error('Ошибка ручной синхронизации:', err);
     res.status(500).json({ error: 'Синхронизация не удалась' });
@@ -205,19 +255,13 @@ initDb()
     // Этого времени обычно достаточно, чтобы все заказы за прошедший день уже были обработаны Kaspi.
     cron.schedule('0 3 * * *', () => {
       console.log('Запуск плановой ночной синхронизации...');
-      syncRecentOrders().catch((err) => console.error('Ошибка плановой синхронизации:', err));
-
       // Отменённые при доставке заказы: новые за последние SEARCH_WINDOW_DAYS дней (окно
       // считается по дате создания заказа, см. комментарий у константы) + перепроверка уже
       // отслеживаемых незавершённых заказов (вдруг переехали в архив) + обновление реального
       // трекинга доставки/возврата. Исходный бэкфилл всей истории делается один раз вручную
       // (см. backend/routes/deliveryReturns.js POST /sync).
-      const now = Date.now();
-      syncDeliveryCancellations(now - SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000, now)
-        .then(() => refreshTrackedOrders())
-        .then(() => refreshTrackingStatuses())
-        .then(() => refreshWonderReceived())
-        .catch((err) => console.error('Ошибка синхронизации отменённых при доставке заказов:', err));
+      enqueueKaspiSync('nightly', runNightlySync)
+        .catch((err) => console.error('Ошибка плановой синхронизации:', err));
     });
 
     // Сразу при запуске сервера тоже делаем синхронизацию —
@@ -225,10 +269,10 @@ initDb()
     // 5 дней с запасом покрывает любой разумный перерыв в работе сервиса (например,
     // "просыпание" после сна на бесплатном тарифе) — раньше было 60, но это того не стоило:
     // каждый рестарт заново гонял тяжёлую синхронизацию на два месяца назад.
-    syncRecentOrders(5).catch((err) => console.error('Ошибка стартовой синхронизации:', err));
     // И отмены при доставке — по той же причине: инстанс просыпается днём, ночной cron к
-    // этому моменту уже не сработал.
-    syncRecentDeliveryCancellations().catch((err) => console.error('Ошибка стартового поиска отмен:', err));
+    // этому моменту уже не сработал. Оба шага выполняются последовательно в общей очереди.
+    enqueueKaspiSync('startup', () => syncOrdersAndRecentCancellations(5))
+      .catch((err) => console.error('Ошибка стартовой синхронизации:', err));
   })
   .catch((err) => {
     console.error('Не удалось подключиться к базе данных:', err);

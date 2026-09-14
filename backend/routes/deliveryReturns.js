@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('../db');
 const { syncDeliveryCancellations, syncOrderByNumber, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS, lastSearchStats } = require('../deliveryReturnsSync');
+const { enqueueKaspiSync } = require('../syncCoordinator');
 
 const router = express.Router();
 
@@ -115,7 +116,10 @@ router.post('/sync', async (req, res) => {
       if (!/^\d+$/.test(orderNumber)) {
         return res.status(400).json({ error: 'Номер заказа — это только цифры' });
       }
-      const result = await syncOrderByNumber(orderNumber);
+      const result = await enqueueKaspiSync(
+        'delivery-order-lookup',
+        () => syncOrderByNumber(orderNumber)
+      );
       return res.json({ ok: true, order: orderNumber, ...result });
     }
 
@@ -124,46 +128,49 @@ router.post('/sync', async (req, res) => {
       ? new Date(req.body.from).getTime()
       : dateToMs - SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
-    // Замеряем каждый шаг: когда проверка идёт долго, гадать, какой из четырёх виноват,
-    // бессмысленно — цифры уезжают в ответ и видны прямо на странице.
-    const timings = {};
-    async function step(name, fn) {
-      const started = Date.now();
-      try {
-        return await fn();
-      } finally {
-        timings[name] = Date.now() - started;
+    const result = await enqueueKaspiSync('delivery-manual', async () => {
+      // Замеряем каждый шаг: когда проверка идёт долго, гадать, какой из четырёх виноват,
+      // бессмысленно — цифры уезжают в ответ и видны прямо на странице.
+      const timings = {};
+      async function step(name, fn) {
+        const started = Date.now();
+        try {
+          return await fn();
+        } finally {
+          timings[name] = Date.now() - started;
+        }
       }
-    }
 
-    const foundNew = await step('search', () => syncDeliveryCancellations(dateFromMs, dateToMs));
-    // Сколько запросов к Kaspi стоил поиск и не ушёл ли он в перебор состояний.
-    timings.search_requests = lastSearchStats.requests;
-    timings.search_fallback = lastSearchStats.fallback;
-    const refreshed = await step('orders', () => refreshTrackedOrders());
-    const trackingChecked = await step('tracking', () => refreshTrackingStatuses());
+      const foundNew = await step('search', () => syncDeliveryCancellations(dateFromMs, dateToMs));
+      // Сколько запросов к Kaspi стоил поиск и не ушёл ли он в перебор состояний.
+      timings.search_requests = lastSearchStats.requests;
+      timings.search_fallback = lastSearchStats.fallback;
+      const refreshed = await step('orders', () => refreshTrackedOrders());
+      const trackingChecked = await step('tracking', () => refreshTrackingStatuses());
 
-    // Отдельный try/catch — если у Wonder не задан логин или он сам недоступен, это не должно
-    // сбрасывать уже полученные результаты по остальным шагам синхронизации.
-    let wonderChecked = 0;
-    try {
-      wonderChecked = await step('wonder', () => refreshWonderReceived());
-    } catch (err) {
-      console.error('Не удалось сверить заказы с Wonder:', err);
-    }
+      // Отдельный try/catch — если у Wonder не задан логин или он сам недоступен, это не должно
+      // сбрасывать уже полученные результаты по остальным шагам синхронизации.
+      let wonderChecked = 0;
+      try {
+        wonderChecked = await step('wonder', () => refreshWonderReceived());
+      } catch (err) {
+        console.error('Не удалось сверить заказы с Wonder:', err);
+      }
 
-    // window_days отдаём наружу, чтобы по ответу было видно, за какой период реально искали
-    // (у ручного бэкфилла с { "from": ... } он больше, чем обычные SEARCH_WINDOW_DAYS).
-    const windowDays = Math.round((dateToMs - dateFromMs) / (24 * 60 * 60 * 1000));
-    res.json({
-      ok: true,
-      window_days: windowDays,
-      found_new: foundNew,
-      refreshed,
-      tracking_checked: trackingChecked,
-      wonder_checked: wonderChecked,
-      timings,
+      // window_days отдаём наружу, чтобы по ответу было видно, за какой период реально искали
+      // (у ручного бэкфилла с { "from": ... } он больше, чем обычные SEARCH_WINDOW_DAYS).
+      const windowDays = Math.round((dateToMs - dateFromMs) / (24 * 60 * 60 * 1000));
+      return {
+        ok: true,
+        window_days: windowDays,
+        found_new: foundNew,
+        refreshed,
+        tracking_checked: trackingChecked,
+        wonder_checked: wonderChecked,
+        timings,
+      };
     });
+    res.json(result);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось проверить отменённые заказы' });

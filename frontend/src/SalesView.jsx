@@ -337,7 +337,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
           <div className="sync-status">
             {syncResult && <span className="sync-result">{syncResult}</span>}
             <button className="sync-button" onClick={handleManualSync} disabled={syncing}>
-              {syncing ? 'Обновляем...' : 'Обновить сейчас'}
+              {syncing ? 'Сверяем...' : 'Сверить с Kaspi'}
             </button>
           </div>
         )}
