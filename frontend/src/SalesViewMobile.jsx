@@ -194,7 +194,7 @@ function PeriodSheet({ from, to, onApply, onClose }) {
 export default function SalesViewMobile({
   days, profitDays, products, todayRevenue, yesterdayRevenue, prevTotals,
   totalRevenue, totalOrders, avgOrder, avgOrdersPerDay, periodNetProfit, profitProducts,
-  inventoryTotal, inventoryProducts, usedEstimate, usedMarketingEstimate, showMarketingNote,
+  inventoryTotal, inventoryProducts, usedEstimate, usedMarketingEstimate, confirmedReturns, showMarketingNote,
   from, to, presetKey, onPeriodChange, onCustomDates,
   showSync, syncing, onSync, syncResult, onSelectProduct,
 }) {
@@ -254,7 +254,8 @@ export default function SalesViewMobile({
   //
   // Каждая строка: value — само число, meta — вторая строка помельче, percent — доля справа.
   // Доля считается от СУММЫ ПО ТОВАРАМ, а не от цифры в карточке: у прибыли карточка ещё
-  // вычитает маркетинг и операционные расходы (они по магазину целиком и на товары не делятся),
+  // вычитает маркетинг, операционные расходы и подтверждённые возвраты (они по магазину
+  // целиком и на товары не делятся),
   // и от неё проценты в сумме давали бы не 100%.
   const productRows = (() => {
     const profitById = new Map(profitProducts.map((p) => [p.product_id, Number(p.net_profit) || 0]));
@@ -445,7 +446,7 @@ export default function SalesViewMobile({
       </div>
 
       {/* Обе сноски с компьютера — текста на треть экрана, поэтому свёрнуты. */}
-      {(usedEstimate || usedMarketingEstimate || showMarketingNote || metric === 'profit') && (
+      {(usedEstimate || usedMarketingEstimate || confirmedReturns > 0 || showMarketingNote || metric === 'profit') && (
         <>
           <button className="svm-notes-toggle" onClick={() => setShowNotes((v) => !v)} aria-expanded={showNotes}>
             {showNotes ? 'Скрыть примечания' : 'Как считается прибыль'}
@@ -466,6 +467,13 @@ export default function SalesViewMobile({
                     прогноз автоматически заменится фактическими расходами.
                   </p>
                 )}
+                {confirmedReturns > 0 && (
+                  <p>
+                    Из чистой прибыли вычтены подтверждённые возвраты из загруженного отчёта
+                    Kaspi Pay: {formatMoney(confirmedReturns)}. Будущие возвраты по заказам в пути
+                    не прогнозируются.
+                  </p>
+                )}
                 {showMarketingNote && (
                   <p>
                     Из чистой прибыли также вычтены расходы на маркетинг (реклама, бонусы от продавца,
@@ -478,8 +486,8 @@ export default function SalesViewMobile({
                 )}
                 {metric === 'profit' && (
                   <p>
-                    В разбивке по товарам ниже — прибыль до маркетинга и операционных расходов:
-                    они считаются по магазину целиком и на товары не делятся. Поэтому сумма по
+                    В разбивке по товарам ниже — прибыль до маркетинга, операционных расходов и
+                    общего вычета возвратов: они считаются по магазину целиком и на товары не делятся. Поэтому сумма по
                     товарам больше цифры в карточке, а проценты в ней — доли друг от друга.
                   </p>
                 )}

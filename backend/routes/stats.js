@@ -246,21 +246,20 @@ async function computeKnownProfitRatio(from, to, mode, kptByOrder, costData) {
     const share = orderRevenue > 0 ? Number(it.total_price) / orderRevenue : 0;
 
     let purchases = 0;
-    let returns = 0;
     let commission = 0;
     let delivery = 0;
     for (const row of kptRows) {
+      // Возвраты не включаем в коэффициент для будущих заказов: владелец решила не
+      // прогнозировать их вероятность. Уже подтверждённые возвраты вычитаются отдельно
+      // по фактическим строкам Excel в fetchConfirmedReturnsByDay().
+      if (row.operation_type === 'Возврат') continue;
       const allocatedAmount = Number(row.amount) * share;
       commission += -Number(row.commission_total) * share;
       delivery += -Number(row.delivery_cost) * share;
-      if (row.operation_type === 'Возврат') {
-        returns += -allocatedAmount;
-      } else {
-        purchases += allocatedAmount;
-      }
+      purchases += allocatedAmount;
     }
 
-    const netRevenueItem = purchases - returns;
+    const netRevenueItem = purchases;
     const cost = costData.costByOrderItem[`${it.order_number}::${it.product_id}`] || 0;
     const taxes = netRevenueItem > 0 ? netRevenueItem * TAX_RATE : 0;
     const profitItem = netRevenueItem - cost - commission - delivery - taxes;
@@ -395,6 +394,27 @@ function addMarketingForecast(marketingData, revenueByDay, from, to) {
 // карго из Китая, она входит в себестоимость партии, а не в отдельный расход.
 const PROFIT_EXPENSE_CATEGORIES = ['Прочие затраты', 'Упаковка'];
 
+// Подтверждённые возвраты берём ровно из загруженного Excel Kaspi Pay и относим к дате
+// операции из отчёта. Будущие возвраты не прогнозируем. Сумма продаж на Главной при этом
+// не меняется: возврат влияет только на чистую прибыль, как отдельно попросила владелец.
+async function fetchConfirmedReturnsByDay(from, to, mode) {
+  const result = await pool.query(
+    `SELECT to_char(kpt.operation_date::date, 'YYYY-MM-DD') AS day,
+            COALESCE(SUM(-kpt.amount), 0) AS total
+     FROM kaspi_pay_transactions kpt
+     JOIN orders o ON o.code = kpt.order_number
+     WHERE kpt.operation_type = 'Возврат'
+       AND kpt.operation_date >= $1::date
+       AND kpt.operation_date < $2::date + interval '1 day'
+       AND o.origin_city = ANY($3::text[])
+     GROUP BY kpt.operation_date::date
+     ORDER BY kpt.operation_date::date`,
+    [from, to, citiesFor(mode)]
+  );
+
+  return new Map(result.rows.map((row) => [row.day, Number(row.total) || 0]));
+}
+
 // Сегодняшняя дата по Алматы (UTC+5) — тот же сдвиг, что у выручки в SQL выше.
 // Date.now() всегда в UTC, поэтому от часового пояса сервера (Render живёт в UTC) не зависит.
 function todayAlmaty() {
@@ -475,7 +495,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   // Маркетинг не привязан к городу отгрузки, поэтому вычитаем его только на "Главной" (mode
   // !== 'selfbuy') — так же, как колонка "Маркетинг" в "Отчёте" есть только в "Основном отчёте"
   // (Алматы, Астана), а не в "Самовыкупах".
-  const [itemsResult, kptResult, costData, marketingData, opExpensesByDay] = await Promise.all([
+  const [itemsResult, kptResult, costData, marketingData, opExpensesByDay, confirmedReturnsByDay] = await Promise.all([
     pool.query(
       // day — та же "казахстанская" дата, что и в /summary (сдвиг +5 часов), иначе выручка и
       // прибыль одного заказа попадали бы на разные дни графика.
@@ -501,6 +521,7 @@ async function computeSummaryNetProfit(from, to, mode) {
     // на "Главной" (mode !== 'selfbuy'), ровно как колонки "Прочие затраты"/"Упаковка" в
     // "Отчёте" есть лишь в основном отчёте, а не в "Самовыкупах".
     mode !== 'selfbuy' ? fetchOpExpensesByDay(from, to) : Promise.resolve(new Map()),
+    fetchConfirmedReturnsByDay(from, to, mode),
   ]);
 
   // Выручка выбранного периода по дням нужна для прогноза маркетинга. Берём те же позиции,
@@ -516,6 +537,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   // Итог за период — сумма тех же дневных долей, что уходят в график, а не отдельный запрос:
   // так число в карточке и сумма точек графика не могут разъехаться в принципе.
   const opExpenses = [...opExpensesByDay.values()].reduce((sum, value) => sum + value, 0);
+  const confirmedReturns = [...confirmedReturnsByDay.values()].reduce((sum, value) => sum + value, 0);
 
   // Прибыль по дням — для графика на телефоне. Собирается тем же проходом, что и итог, поэтому
   // сумма дней сходится с числом в карточке: маркетинг вычитается по своим датам (они у него
@@ -523,6 +545,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   const profitByDay = new Map();
   const estimatedDays = new Set(marketingForecast.estimatedDays);
   const addDayProfit = (day, value) => profitByDay.set(day, (profitByDay.get(day) || 0) + value);
+  for (const [day, amount] of confirmedReturnsByDay) addDayProfit(day, -amount);
   function buildDays() {
     const days = [];
     for (let d = from; d <= to; d = addDays(d, 1)) {
@@ -540,9 +563,10 @@ async function computeSummaryNetProfit(from, to, mode) {
 
   if (itemsResult.rows.length === 0) {
     return {
-      netProfit: -marketing - opExpenses,
+      netProfit: -marketing - opExpenses - confirmedReturns,
       usedEstimate: false,
       usedMarketingEstimate: false,
+      confirmedReturns,
       days: buildDays(),
       products: [],
     };
@@ -578,22 +602,20 @@ async function computeSummaryNetProfit(from, to, mode) {
     const share = orderRevenue > 0 ? Number(it.total_price) / orderRevenue : 0;
 
     let purchases = 0;
-    let returns = 0;
     let commission = 0;
     let delivery = 0;
     for (const row of kptRows) {
+      // Фактические возвраты вычитаются общей суммой по дате операции ниже. Здесь оставляем
+      // только покупку, чтобы возврат не попал одновременно и сюда, и в отдельный вычет.
+      if (row.operation_type === 'Возврат') continue;
       const allocatedAmount = Number(row.amount) * share;
       // commission_total/delivery_cost хранятся отрицательными (расход) — переворачиваем в плюс.
       commission += -Number(row.commission_total) * share;
       delivery += -Number(row.delivery_cost) * share;
-      if (row.operation_type === 'Возврат') {
-        returns += -allocatedAmount; // amount у возврата тоже отрицательный — переворачиваем в плюс
-      } else {
-        purchases += allocatedAmount;
-      }
+      purchases += allocatedAmount;
     }
 
-    const netRevenueItem = purchases - returns;
+    const netRevenueItem = purchases;
     const cost = costData.costByOrderItem[`${it.order_number}::${it.product_id}`] || 0;
     const taxes = netRevenueItem > 0 ? netRevenueItem * TAX_RATE : 0;
     const netProfitItem = netRevenueItem - cost - commission - delivery - taxes;
@@ -640,7 +662,8 @@ async function computeSummaryNetProfit(from, to, mode) {
   let estimatedNetProfit = 0;
   // Прибыль по каждому товару — для разбивки под карточкой на Главной. Копит ровно те же
   // слагаемые, что и итог (включая оценку по заказам без Excel-отчёта), поэтому сумма по
-  // товарам отличается от карточки строго на маркетинг и операционные расходы: они по
+  // товарам отличается от карточки на маркетинг, операционные расходы и подтверждённые
+  // возвраты: они по
   // магазину целиком и на товары не раскладываются — та же договорённость, что в разбивке
   // по товарам в "Отчёте" (там в строке товара тоже нет прочих затрат и упаковки).
   // Только id и сумма: название фронт берёт из /api/stats/products — там тот же набор
@@ -659,9 +682,10 @@ async function computeSummaryNetProfit(from, to, mode) {
   }
 
   return {
-    netProfit: knownNetProfit + estimatedNetProfit - marketing - opExpenses,
+    netProfit: knownNetProfit + estimatedNetProfit - marketing - opExpenses - confirmedReturns,
     usedEstimate: unknownItems.length > 0,
     usedMarketingEstimate: marketingForecast.estimatedTotal > 0,
+    confirmedReturns,
     days: buildDays(),
     products: [...profitByProduct.entries()]
       .map(([productId, profit]) => ({ product_id: productId, net_profit: profit }))
@@ -676,11 +700,12 @@ router.get('/summary-profit', async (req, res) => {
   }
 
   try {
-    const { netProfit, usedEstimate, usedMarketingEstimate, days, products } = await computeSummaryNetProfit(from, to, mode);
+    const { netProfit, usedEstimate, usedMarketingEstimate, confirmedReturns, days, products } = await computeSummaryNetProfit(from, to, mode);
     res.json({
       net_profit: netProfit,
       used_estimate: usedEstimate,
       used_marketing_estimate: usedMarketingEstimate,
+      confirmed_returns: confirmedReturns,
       days,
       products,
     });

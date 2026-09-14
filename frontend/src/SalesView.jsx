@@ -24,11 +24,13 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   const [periodNetProfit, setPeriodNetProfit] = useState(0);
   const [usedEstimate, setUsedEstimate] = useState(false);
   const [usedMarketingEstimate, setUsedMarketingEstimate] = useState(false);
+  const [confirmedReturns, setConfirmedReturns] = useState(0);
   // Чистая прибыль по дням — только для графика на телефоне (на компьютере график всегда
   // по выручке). Приходит из того же /summary-profit, что и итоговая цифра.
   const [profitDays, setProfitDays] = useState([]);
   // Чистая прибыль по товарам — для разбивки под карточкой на телефоне. Приходит тем же
-  // запросом; в ней нет маркетинга и операционных расходов (они по магазину целиком), см.
+  // запросом; в ней нет маркетинга, операционных расходов и общего вычета возвратов
+  // (они по магазину целиком), см.
   // computeSummaryNetProfit на бэкенде.
   const [profitProducts, setProfitProducts] = useState([]);
 
@@ -122,6 +124,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
         setPeriodNetProfit(Number(profitRes.net_profit) || 0);
         setUsedEstimate(!!profitRes.used_estimate);
         setUsedMarketingEstimate(!!profitRes.used_marketing_estimate);
+        setConfirmedReturns(Number(profitRes.confirmed_returns) || 0);
         setProfitDays(Array.isArray(profitRes.days) ? profitRes.days : []);
         setProfitProducts(Array.isArray(profitRes.products) ? profitRes.products : []);
 
@@ -310,6 +313,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
                 inventoryProducts={inventoryProducts}
                 usedEstimate={usedEstimate}
                 usedMarketingEstimate={usedMarketingEstimate}
+                confirmedReturns={confirmedReturns}
                 showMarketingNote={mode !== 'selfbuy'}
                 from={from}
                 to={to}
@@ -416,8 +420,15 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
             </div>
           )}
 
-          {mode !== 'selfbuy' && (
+          {confirmedReturns > 0 && (
             <div style={{ color: '#6b7690', fontSize: 12, marginTop: usedEstimate || usedMarketingEstimate ? -4 : -12, marginBottom: 16 }}>
+              Из чистой прибыли вычтены подтверждённые возвраты из загруженного отчёта Kaspi Pay: {formatMoney(confirmedReturns)}.
+              Будущие возвраты по заказам в пути не прогнозируются.
+            </div>
+          )}
+
+          {mode !== 'selfbuy' && (
+            <div style={{ color: '#6b7690', fontSize: 12, marginTop: usedEstimate || usedMarketingEstimate || confirmedReturns > 0 ? -4 : -12, marginBottom: 16 }}>
               Из чистой прибыли также вычтены расходы на маркетинг (реклама, бонусы от продавца, бонусы за отзыв)
               и операционные расходы со страницы «Расходы» — категории «Прочие затраты» и «Упаковка».
               Расходы месяца раскладываются равными долями на каждый его день, чтобы периоды сравнивались
