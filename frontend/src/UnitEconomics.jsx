@@ -253,6 +253,10 @@ export default function UnitEconomics({ password, active = true, isOnline = true
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  // По умолчанию решение должно читаться в три строки: выручка, вся себестоимость и чистая
+  // прибыль. Детали расходов открываются только по просьбе — иначе главная мысль теряется
+  // среди десяти статей.
+  const [costsExpanded, setCostsExpanded] = useState(false);
 
   // Свайп вниз по странице просит перезапросить данные, не размонтируя её: содержимое
   // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
@@ -453,16 +457,24 @@ export default function UnitEconomics({ password, active = true, isOnline = true
   // Расчёт показываем только когда введено главное — цена продажи и цена закупки.
   const filled = num(form.sellPrice) > 0 && num(form.purchaseAmount) > 0;
 
-  const expenseRows = [
-    ...result.parts.map((p) => ({ ...p })),
-    { key: 'profit', label: 'Прибыль', value: result.perUnit.profit, color: '#3ddc97', isProfit: true },
-  ];
+  // Здесь "Себестоимость" — не только закупочная цена, а ВСЕ расходы до последней статьи:
+  // логистика, импорт/НДС, Kaspi, маркетинг, налог и собственные переменные расходы.
+  const totalCost = result.parts.reduce((sum, part) => sum + part.value, 0);
+  const costRow = { key: 'cost', label: 'Себестоимость', value: totalCost, color: '#6e8bff' };
+  const profitRow = {
+    key: 'profit',
+    label: 'Чистая прибыль',
+    value: result.perUnit.profit,
+    color: '#3ddc97',
+    isProfit: true,
+  };
+  const graphRows = costsExpanded ? [...result.parts, profitRow] : [costRow, profitRow];
 
   // Полосы структуры цены: при убытке вместо зелёной прибыли рисуем красную нехватку.
   const barParts = [
-    ...result.parts,
+    ...(costsExpanded ? result.parts : [costRow]),
     result.perUnit.profit >= 0
-      ? { key: 'profit', label: 'Прибыль', value: result.perUnit.profit, color: '#3ddc97' }
+      ? profitRow
       : { key: 'loss', label: 'Не хватает до нуля', value: -result.perUnit.profit, color: '#ff6b6b' },
   ];
   const barTotal = barParts.reduce((sum, p) => sum + Math.max(0, p.value), 0);
@@ -731,6 +743,12 @@ export default function UnitEconomics({ password, active = true, isOnline = true
             <div className="form-section-title">Структура цены</div>
             {filled ? (
               <>
+                {/* Выручка — это вся полоса целиком, а не ещё один её сегмент. Если положить
+                    выручку рядом с себестоимостью и прибылью, сумма стала бы 200%. */}
+                <div className="ue-revenue-total">
+                  <span>Выручка</span>
+                  <b>{formatMoney(result.sellPrice)} · 100%</b>
+                </div>
                 {/* Ширины считаются от суммы САМИХ полос, а не от цены: когда товар в минусе,
                     расходы больше цены, и доли от цены дали бы в сумме больше 100% — полоса
                     поехала бы. При убытке последний сегмент красный: видно, сколько не хватает
@@ -750,7 +768,7 @@ export default function UnitEconomics({ password, active = true, isOnline = true
                   })}
                 </div>
                 <div className="ue-legend">
-                  {expenseRows.map((row) => {
+                  {graphRows.map((row) => {
                     const share = result.sellPrice > 0 ? (row.value / result.sellPrice) * 100 : 0;
                     if (share === 0) return null;
                     return (
@@ -787,14 +805,39 @@ export default function UnitEconomics({ password, active = true, isOnline = true
                     <td className="num">{formatMoney(result.revenue)}</td>
                     <td className="num">100%</td>
                   </tr>
-                  {expenseRows.map((row) => (
-                    <tr key={row.key}>
+                  <tr className="ue-cost-row">
+                    <td>
+                      <button
+                        type="button"
+                        className="ue-cost-toggle"
+                        aria-expanded={costsExpanded}
+                        aria-label={`${costsExpanded ? 'Скрыть' : 'Показать'} статьи себестоимости`}
+                        onClick={() => setCostsExpanded((expanded) => !expanded)}
+                      >
+                        <svg className="ue-cost-chevron" viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="M6 3.5 10.5 8 6 12.5" />
+                        </svg>
+                        <span>Себестоимость</span>
+                      </button>
+                    </td>
+                    <td className="num">{formatMoney(totalCost)}</td>
+                    <td className="num">{formatMoney(totalCost * result.quantity)}</td>
+                    <td className="num">{result.sellPrice > 0 ? `${((totalCost / result.sellPrice) * 100).toFixed(1)}%` : '—'}</td>
+                  </tr>
+                  {costsExpanded && result.parts.map((row) => (
+                    <tr key={row.key} className="ue-cost-detail-row">
                       <td>{row.label}</td>
-                      <td className={`num${row.isProfit && row.value < 0 ? ' report-cell-red' : ''}`}>{formatMoney(row.value)}</td>
-                      <td className={`num${row.isProfit && row.value < 0 ? ' report-cell-red' : ''}`}>{formatMoney(row.value * result.quantity)}</td>
+                      <td className="num">{formatMoney(row.value)}</td>
+                      <td className="num">{formatMoney(row.value * result.quantity)}</td>
                       <td className="num">{result.sellPrice > 0 ? `${((row.value / result.sellPrice) * 100).toFixed(1)}%` : '—'}</td>
                     </tr>
                   ))}
+                  <tr>
+                    <td><b>Чистая прибыль</b></td>
+                    <td className={`num${result.perUnit.profit < 0 ? ' report-cell-red' : ''}`}>{formatMoney(result.perUnit.profit)}</td>
+                    <td className={`num${result.totalProfit < 0 ? ' report-cell-red' : ''}`}>{formatMoney(result.totalProfit)}</td>
+                    <td className="num">{result.sellPrice > 0 ? `${result.margin.toFixed(1)}%` : '—'}</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
