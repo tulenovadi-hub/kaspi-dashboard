@@ -27,6 +27,9 @@ async function computePurchasing() {
   const bufferPct = Number(settingsRow.buffer_pct);
   const bufferMult = 1 + bufferPct / 100;
 
+  const hiddenResult = await pool.query(`SELECT product_id FROM purchasing_hidden_products`);
+  const hiddenIds = new Set(hiddenResult.rows.map((row) => String(row.product_id)));
+
   const warehouseRows = await computeWarehouseStock(); // per (товар, склад), только received-партии
 
   const inTransitResult = await pool.query(
@@ -141,6 +144,7 @@ async function computePurchasing() {
       to_purchase_value: toPurchase * costPrice,
       cost_price: costPrice,
       status,
+      hidden: hiddenIds.has(String(productId)),
     });
   }
 
@@ -154,7 +158,9 @@ async function computePurchasing() {
     return a.product_name.localeCompare(b.product_name, 'ru');
   });
 
-  const totals = products.reduce(
+  // Скрытый старый товар остаётся в ответе, чтобы его можно было открыть внизу страницы и
+  // вернуть обратно, но не должен влиять на рабочие счётчики и суммы плана закупа.
+  const totals = products.filter((product) => !product.hidden).reduce(
     (acc, p) => {
       acc.to_purchase_qty += p.to_purchase;
       acc.to_purchase_value += p.to_purchase_value;
@@ -205,4 +211,34 @@ router.put('/settings', async (req, res) => {
   }
 });
 
+router.put('/hidden/:productId', async (req, res) => {
+  const productId = String(req.params.productId || '').trim();
+  if (!productId) return res.status(400).json({ error: 'Не указан товар' });
+  try {
+    await pool.query(
+      `INSERT INTO purchasing_hidden_products (product_id, hidden_at)
+       VALUES ($1, now())
+       ON CONFLICT (product_id) DO UPDATE SET hidden_at = now()`,
+      [productId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось скрыть товар' });
+  }
+});
+
+router.delete('/hidden/:productId', async (req, res) => {
+  const productId = String(req.params.productId || '').trim();
+  if (!productId) return res.status(400).json({ error: 'Не указан товар' });
+  try {
+    await pool.query(`DELETE FROM purchasing_hidden_products WHERE product_id = $1`, [productId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось вернуть товар' });
+  }
+});
+
 module.exports = router;
+module.exports.computePurchasing = computePurchasing;

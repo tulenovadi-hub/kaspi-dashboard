@@ -1,5 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { fetchPurchasing, updatePurchasingSettings, fetchProductImages } from './api.js';
+import {
+  fetchPurchasing,
+  updatePurchasingSettings,
+  fetchProductImages,
+  setPurchasingProductHidden,
+} from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
 import PurchasingMobile from './PurchasingMobile.jsx';
@@ -121,6 +126,57 @@ function exportCsv(products) {
   URL.revokeObjectURL(url);
 }
 
+function HiddenProducts({ products, images, expanded, onToggle, onRestore, changingProductId }) {
+  return (
+    <section className="purchasing-hidden-section">
+      <button
+        type="button"
+        className="purchasing-hidden-toggle"
+        aria-expanded={expanded}
+        onClick={onToggle}
+      >
+        <svg viewBox="0 0 8 12" aria-hidden="true">
+          <path d="M1.6 1.4 6 6l-4.4 4.6" />
+        </svg>
+        <span>Скрытые товары</span>
+        <b>{products.length}</b>
+      </button>
+      <div
+        className={`purchasing-hidden-collapsible${expanded ? ' is-open' : ''}`}
+        hidden={!expanded}
+      >
+        <div>
+          <div className="purchasing-hidden-list">
+            {products.length === 0 ? (
+              <div className="empty-state">Скрытых товаров пока нет</div>
+            ) : products.map((product) => (
+              <div className="purchasing-hidden-item" key={product.product_id}>
+                {images[product.product_id] ? (
+                  <img className="warehouse-thumb" src={images[product.product_id]} alt={product.product_name} />
+                ) : (
+                  <div className="warehouse-thumb warehouse-thumb-empty" />
+                )}
+                <div className="purchasing-hidden-name">
+                  <span>{product.product_name}</span>
+                  <small>{product.product_id}</small>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-button purchasing-restore-button"
+                  disabled={changingProductId === product.product_id}
+                  onClick={() => onRestore(product.product_id)}
+                >
+                  {changingProductId === product.product_id ? 'Возвращаем…' : 'Вернуть'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Purchasing({ password, onGoToBatches, active = true, isOnline = true }) {
   const [data, setData] = useState(null);
   const [images, setImages] = useState({});
@@ -130,6 +186,8 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [showSettings, setShowSettings] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
+  const [changingProductId, setChangingProductId] = useState(null);
 
   // На телефоне вместо таблицы на 11 колонок — карточки товаров (PurchasingMobile.jsx).
   // Окно настройки параметров общее с компьютером — своё делать нельзя, разъедется.
@@ -138,7 +196,7 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
   function loadAll() {
     setLoading(true);
     setError('');
-    fetchPurchasing(password)
+    return fetchPurchasing(password)
       .then((res) => {
         setData(res);
         const ids = Array.from(new Set(res.products.map((p) => p.product_id)));
@@ -164,8 +222,24 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, refreshTick]);
 
+  async function changeProductHidden(productId, hidden) {
+    if (changingProductId) return;
+    setChangingProductId(productId);
+    setError('');
+    try {
+      await setPurchasingProductHidden(password, productId, hidden);
+      await loadAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setChangingProductId(null);
+    }
+  }
+
   const products = data ? data.products : [];
-  const filtered = products
+  const visibleProducts = products.filter((product) => !product.hidden);
+  const hiddenProducts = products.filter((product) => product.hidden);
+  const filtered = visibleProducts
     .filter((p) => !search || p.product_name.toLowerCase().includes(search.toLowerCase()))
     .filter((p) => activeTab === 'all' || p.status === activeTab);
 
@@ -194,7 +268,7 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
 
           <div className="period-bar">
             {TABS.map((t) => {
-              const count = t.key === 'all' ? products.length : data.totals[t.key];
+              const count = t.key === 'all' ? visibleProducts.length : data.totals[t.key];
               return (
                 <button
                   key={t.key}
@@ -237,7 +311,7 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
           ) : data && (
             <PurchasingMobile
               products={filtered}
-              totalCount={products.length}
+              totalCount={visibleProducts.length}
               totals={data.totals}
               settings={data.settings}
               images={images}
@@ -248,6 +322,8 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
               onOpenSettings={() => setShowSettings(true)}
               onExportCsv={() => exportCsv(filtered)}
               onGoToBatches={onGoToBatches}
+              onHide={(productId) => changeProductHidden(productId, true)}
+              changingProductId={changingProductId}
             />
           )}
         </div>
@@ -273,6 +349,7 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
                   <th className="num">Лишнее кол-во</th>
                   <th>Статус</th>
                   <th className="num">К закупу</th>
+                  <th aria-label="Действия" />
                 </tr>
               </thead>
               <tbody>
@@ -351,6 +428,16 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
                           <span className="purchasing-none">— не нужно</span>
                         )}
                       </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="purchasing-hide-button"
+                          disabled={changingProductId === p.product_id}
+                          onClick={() => changeProductHidden(p.product_id, true)}
+                        >
+                          {changingProductId === p.product_id ? 'Скрываем…' : 'Скрыть'}
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -367,6 +454,17 @@ export default function Purchasing({ password, onGoToBatches, active = true, isO
           «В пути» — партии со статусом «В пути» на странице «Поставки» (заказаны у поставщика, но ещё не прибыли на склад).
           «Доступно» — реальный остаток по городам (метод FIFO), как на странице «Склад».
         </div>
+      )}
+
+      {data && (
+        <HiddenProducts
+          products={hiddenProducts}
+          images={images}
+          expanded={showHidden}
+          onToggle={() => setShowHidden((shown) => !shown)}
+          onRestore={(productId) => changeProductHidden(productId, false)}
+          changingProductId={changingProductId}
+        />
       )}
 
       {showSettings && data && (

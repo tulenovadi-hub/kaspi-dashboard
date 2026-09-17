@@ -223,6 +223,12 @@ export function updatePurchasingSettings(password, settings) {
   });
 }
 
+export function setPurchasingProductHidden(password, productId, hidden) {
+  return apiRequest(`/api/purchasing/hidden/${encodeURIComponent(productId)}`, password, {
+    method: hidden ? 'PUT' : 'DELETE',
+  });
+}
+
 export function uploadKaspiPayReport(password, file) {
   const formData = new FormData();
   formData.append('file', file);

@@ -93,6 +93,7 @@ function DaysBar({ product, leadTimeDays }) {
 export default function PurchasingMobile({
   products, totals, settings, images, search, onSearch,
   activeTab, onTab, onOpenSettings, onExportCsv, onGoToBatches, totalCount,
+  onHide, changingProductId,
 }) {
   const [openId, setOpenId] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -209,6 +210,14 @@ export default function PurchasingMobile({
                       ))}
                     </div>
                   )}
+                  <button
+                    type="button"
+                    className="pm-hide-product"
+                    disabled={changingProductId === p.product_id}
+                    onClick={() => onHide(p.product_id)}
+                  >
+                    {changingProductId === p.product_id ? 'Скрываем…' : 'Скрыть товар'}
+                  </button>
                 </div>
               </div>
             </div>

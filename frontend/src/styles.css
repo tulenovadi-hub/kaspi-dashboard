@@ -1841,6 +1841,67 @@ input[type="date"] {
   margin-top: 14px;
 }
 
+.purchasing-hide-button {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  padding: 5px 2px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.purchasing-hide-button:hover { color: var(--text-primary); }
+.purchasing-hide-button:disabled { opacity: 0.55; cursor: default; }
+
+/* Список в самом низу намеренно свёрнут даже после скрытия товара: старые позиции не должны
+   снова занимать место, пока человек сам не откроет раздел. */
+.purchasing-hidden-section { margin-top: 18px; }
+.purchasing-hidden-toggle {
+  width: 100%; display: flex; align-items: center; gap: 9px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card);
+  color: var(--text-secondary); padding: 12px 14px; font-family: inherit; font-size: 13px;
+  text-align: left; cursor: pointer;
+}
+.purchasing-hidden-toggle:hover { border-color: rgba(110, 139, 255, 0.45); color: var(--text-primary); }
+.purchasing-hidden-toggle svg {
+  width: 8px; height: 12px; flex: 0 0 auto; fill: none; stroke: currentColor;
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+  transition: transform 0.22s ease;
+}
+.purchasing-hidden-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.purchasing-hidden-toggle span { flex: 1 1 auto; }
+.purchasing-hidden-toggle b {
+  min-width: 24px; padding: 2px 7px; border-radius: 999px; background: var(--bg);
+  color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; text-align: center;
+}
+.purchasing-hidden-collapsible {
+  display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.25s ease;
+}
+.purchasing-hidden-collapsible[hidden] { display: none; }
+.purchasing-hidden-collapsible.is-open { grid-template-rows: 1fr; }
+.purchasing-hidden-collapsible > div { min-height: 0; overflow: hidden; }
+.purchasing-hidden-list {
+  margin-top: 8px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg-card); overflow: hidden;
+}
+.purchasing-hidden-item {
+  display: flex; align-items: center; gap: 11px; padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.purchasing-hidden-item:last-child { border-bottom: none; }
+.purchasing-hidden-name { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.purchasing-hidden-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.purchasing-hidden-name small { color: var(--text-muted); font-family: var(--font-mono); font-size: 10.5px; }
+.purchasing-restore-button { flex: 0 0 auto; padding: 7px 11px; font-size: 12px; }
+.purchasing-restore-button:disabled { opacity: 0.55; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .purchasing-hidden-toggle svg,
+  .purchasing-hidden-collapsible { transition: none; }
+}
+
 /* ===== Modal ===== */
 .modal-overlay {
   position: fixed;
@@ -4408,6 +4469,13 @@ input[type="date"] {
   font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary);
   border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px;
 }
+.pm-hide-product {
+  width: 100%; margin-top: 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: transparent; color: var(--text-muted); padding: 9px 12px;
+  font-family: inherit; font-size: 12.5px; cursor: pointer;
+}
+.pm-hide-product:active { background: var(--bg); color: var(--text-primary); }
+.pm-hide-product:disabled { opacity: 0.55; cursor: default; }
 
 /* ===== Главная на телефоне (SalesViewMobile.jsx) =====
    На компьютере пять карточек показателей стоят в ряд; на телефоне они вставали в столбик и

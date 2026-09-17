@@ -125,6 +125,17 @@ async function initDb() {
   `);
   await pool.query(`INSERT INTO purchasing_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;`);
 
+  // Товары, которые больше не планируем закупать. Храним отдельно от партий и заказов:
+  // скрытие относится только к странице "Закуп" и не должно удалять товар из истории,
+  // склада, отчётов или FIFO. product_id — устойчивый артикул Kaspi, поэтому имени здесь
+  // не нужно: актуальное название по-прежнему приходит из расчёта закупа.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS purchasing_hidden_products (
+      product_id TEXT PRIMARY KEY,
+      hidden_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
   // Данные, импортированные из Excel-отчёта Kaspi Pay (детализация по операциям):
   // выручка, все виды комиссий и стоимость доставки Kaspi по каждой операции.
   // Используется для отчёта по прибыли/марже/ROI помесячно.
