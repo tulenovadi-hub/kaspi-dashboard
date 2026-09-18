@@ -254,7 +254,8 @@ router.post('/:orderNumber/archive', async (req, res) => {
 });
 
 // Вернуть вручную убранную строку из архива в основную таблицу. Интерфейс показывает эту кнопку
-// только у записей с archived_at: автоматически завершённые возвраты остаются в архиве.
+// только у записей с archived_at, по которым ещё идёт возврат: автоматически завершённые
+// возвраты остаются в архиве.
 router.delete('/:orderNumber/archive', async (req, res) => {
   try {
     const result = await pool.query(

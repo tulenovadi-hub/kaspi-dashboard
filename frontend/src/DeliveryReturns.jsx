@@ -262,7 +262,7 @@ function OrdersTable({
                       </button>
                     )}
                     {stockButtonMode === 'archive' ? (
-                      o.archived_at && (
+                      o.archived_at && o.in_return_flow && (
                         <button
                           className="dr-unarchive-button"
                           onClick={() => onUnarchive(o.order_number)}
