@@ -32,28 +32,17 @@ function copyThroughSelection(value) {
 }
 
 async function copyText(value) {
-  // Вызов Clipboard API и запасной способ запускаем синхронно внутри настоящего клика.
-  // Предыдущий вариант считал один лишь сработавший `copy` event доказательством успеха,
-  // хотя Chrome фактически не менял буфер — поэтому галочка была ложной.
-  let clipboardWrite = null;
+  // Не запускаем запасной способ одновременно с Clipboard API: его временное поле забирает
+  // фокус и может отменить ещё не завершившуюся современную запись в буфер.
   if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
     try {
-      clipboardWrite = navigator.clipboard.writeText(value);
+      await navigator.clipboard.writeText(value);
+      return;
     } catch (err) {
       // В старом браузере остаётся синхронное копирование через временное поле.
     }
   }
-  const selectionCopied = copyThroughSelection(value);
-
-  if (clipboardWrite) {
-    try {
-      await clipboardWrite;
-      return;
-    } catch (err) {
-      // Если современный API запрещён, принимаем только результат реального execCommand.
-    }
-  }
-  if (selectionCopied) return;
+  if (copyThroughSelection(value)) return;
 
   throw new Error('Clipboard copy failed');
 }
