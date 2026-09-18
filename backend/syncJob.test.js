@@ -63,7 +63,7 @@ test('returned-order sync scans from the stock cutoff and stores RETURNED status
   const { syncReturnedOrders, hasCompletedEvidence } = require('./syncJob');
 
   assert.equal(hasCompletedEvidence({ status: 'COMPLETED' }), true);
-  assert.equal(hasCompletedEvidence({ status: 'CANCELLED', completionDate: 123 }), true);
+  assert.equal(hasCompletedEvidence({ status: 'CANCELLED', completionDate: 123 }), false);
   assert.equal(hasCompletedEvidence({ status: 'RETURNED' }), false);
 
   const result = await syncReturnedOrders();

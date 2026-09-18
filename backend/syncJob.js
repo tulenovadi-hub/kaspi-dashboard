@@ -12,7 +12,10 @@ const MEANINGFUL_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_B
 const ORDER_STATES = ['NEW', 'SIGN_REQUIRED', 'PICKUP', 'DELIVERY', 'KASPI_DELIVERY', 'ARCHIVE'];
 
 function hasCompletedEvidence(attrs) {
-  return attrs.status === 'COMPLETED' || (attrs.completionDate !== null && attrs.completionDate !== undefined);
+  // completionDate у Kaspi означает завершение жизненного цикла заказа и заполняется не
+  // только после выдачи покупателю, но и у отменённых заказов. Поэтому единственное надёжное
+  // доказательство выдачи в основном API — реально увиденный статус COMPLETED.
+  return attrs.status === 'COMPLETED';
 }
 
 // Сохраняет уже полученный список заказов. Для частой live-синхронизации состав повторно

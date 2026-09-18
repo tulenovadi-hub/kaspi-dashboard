@@ -35,10 +35,7 @@ async function initDb() {
     UPDATE orders
     SET was_completed = true
     WHERE was_completed = false
-      AND (
-        status = 'COMPLETED'
-        OR NULLIF(raw_data->'attributes'->>'completionDate', '') IS NOT NULL
-      )
+      AND status = 'COMPLETED'
   `);
   await pool.query(`UPDATE orders SET pickup_point_id = raw_data->'attributes'->>'pickupPointId' WHERE raw_data IS NOT NULL;`);
 
@@ -410,6 +407,21 @@ async function initDb() {
   // Принят ли заказ складом партнёра Wonder (platform.wonder-fulfillment.kz) — сверяется по
   // номеру заказа со списком refund-order-groups у Wonder. NULL — ещё не проверяли.
   await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS wonder_received BOOLEAN;`);
+
+  // Исправление 18.09.2026: completionDate у Kaspi есть и у отменённых заказов, поэтому
+  // первая версия was_completed ошибочно пометила часть delivery_cancellations как выданные.
+  // Заказ из реестра отмен при доставке, который сейчас не COMPLETED, покупателю не выдавался.
+  // Сбрасываем только эту доказанную группу; обычные покупательские возвраты в реестр отмен не
+  // входят и сохраняют необратимый признак ниже.
+  await pool.query(`
+    UPDATE orders o
+    SET was_completed = false
+    WHERE o.was_completed = true
+      AND o.status IS DISTINCT FROM 'COMPLETED'
+      AND EXISTS (
+        SELECT 1 FROM delivery_cancellations dc WHERE dc.order_number = o.code
+      )
+  `);
 
   // У старых покупательских возвратов Kaspi мог уже сменить текущий status с COMPLETED на
   // RETURNED, а completionDate в старом сыром ответе иногда отсутствует. Если такого заказа
