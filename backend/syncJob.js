@@ -3,10 +3,13 @@
 
 require('dotenv').config();
 const { pool, initDb } = require('./db');
-const { fetchOrders, fetchOrderEntries } = require('./kaspiClient');
+const { fetchOrders, fetchOrderEntries, fetchOrdersByStatus } = require('./kaspiClient');
 const { resolveWarehouse } = require('./warehouseMapping');
+const { STOCK_CUTOFF_DATE } = require('./constants');
 
-const MEANINGFUL_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK', 'RETURNED'];
+const CUSTOMER_RETURN_STATUSES = ['KASPI_DELIVERY_RETURN_REQUESTED', 'RETURNED'];
+const MEANINGFUL_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK', ...CUSTOMER_RETURN_STATUSES];
+const ORDER_STATES = ['NEW', 'SIGN_REQUIRED', 'PICKUP', 'DELIVERY', 'KASPI_DELIVERY', 'ARCHIVE'];
 
 // Сохраняет уже полученный список заказов. Для частой live-синхронизации состав повторно
 // запрашиваем только у нового заказа (или если он почему-то остался без позиций). Полная
@@ -138,6 +141,45 @@ async function syncOrderStatuses(hoursBack = 24) {
   return result;
 }
 
+// Покупательский возврат оформляется уже после выдачи заказа, часто спустя несколько дней.
+// Обычная сверка статусов смотрит только заказы, СОЗДАННЫЕ за последние сутки, поэтому такой
+// переход в ожидание/завершение возврата могла никогда не увидеть. Отдельно ищем оба статуса
+// покупательского возврата с даты складского снимка и сохраняем их в ту же таблицу orders.
+//
+// Это не означает возврат товара в доступный остаток: warehouse.js, наоборот, продолжает
+// списывать оба статуса. Здесь мы только делаем историю полной и однозначной.
+async function fetchCustomerReturnsByStatus(status, dateFrom, dateTo) {
+  try {
+    // Тот же быстрый путь, что уже используется поиском отмен: один статус сразу во всех
+    // состояниях заказа. Так мы не угадываем, в каком state Kaspi держит ожидающий возврат.
+    return await fetchOrdersByStatus(null, status, dateFrom, dateTo);
+  } catch (err) {
+    // Запасной путь для варианта API, который требует state. Состояния идем последовательно,
+    // чтобы шесть широких исторических запросов не создавали всплеск параллельной нагрузки.
+    console.error(`Поиск ${status} без состояния не прошёл, перебираем состояния:`, err.message);
+    const orders = [];
+    for (const state of ORDER_STATES) {
+      const found = await fetchOrdersByStatus(state, status, dateFrom, dateTo).catch(() => []);
+      orders.push(...found);
+    }
+    return orders;
+  }
+}
+
+async function syncReturnedOrders() {
+  const dateFrom = new Date(`${STOCK_CUTOFF_DATE}T00:00:00.000Z`).getTime();
+  const dateTo = Date.now();
+  console.log(`Сверка покупательских возвратов с ${STOCK_CUTOFF_DATE}.`);
+  const byId = new Map();
+  for (const status of CUSTOMER_RETURN_STATUSES) {
+    const orders = await fetchCustomerReturnsByStatus(status, dateFrom, dateTo);
+    for (const order of orders) byId.set(order.id, order);
+  }
+  const result = await saveOrders([...byId.values()], { onlyMissingEntries: true });
+  console.log(`Сверка возвратов завершена. Найдено: ${result.orders}.`);
+  return result;
+}
+
 // Если файл запущен напрямую (node syncJob.js), а не подключён как модуль — выполняем синхронизацию сразу
 async function syncHistorical(daysBack = 60) {
   const dateTo = Date.now();
@@ -160,4 +202,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { syncRecentOrders, syncLatestOrders, syncOrderStatuses };
+module.exports = { syncRecentOrders, syncLatestOrders, syncOrderStatuses, syncReturnedOrders };

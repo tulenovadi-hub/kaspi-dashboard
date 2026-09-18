@@ -114,7 +114,7 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
   const [imageBusy, setImageBusy] = useState(null); // product_id, который сейчас загружается/удаляется
   const [inventory, setInventory] = useState(null); // сводка "деньги в товаре" — считается отдельным роутом
 
-  // На телефоне вместо таблицы на 8 колонок рисуются карточки товаров (WarehouseMobile.jsx):
+  // На телефоне вместо широкой таблицы рисуются карточки товаров (WarehouseMobile.jsx):
   // 799px таблицы в 313px экрана не помещаются никаким способом.
   const isMobile = useIsMobile();
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -280,6 +280,7 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
                         <th className="num">Поставлено</th>
                         <th className="num">Продано</th>
                         <th className="num">В обработке</th>
+                        <th className="num">Возвраты покупателей</th>
                         <th className="num">Возвращается</th>
                         <th className="num">Себестоимость (FIFO)</th>
                         <th className="num">Стоимость остатка</th>
@@ -339,6 +340,9 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
                               <td className="num">{formatNumber(p.total_supplied)}</td>
                               <td className="num">{formatNumber(p.total_sold)}</td>
                               <td className="num">{formatNumber(p.in_progress)}</td>
+                              <td className="num" title="Оформленные покупательские возвраты остаются списанными и не возвращаются в доступный остаток автоматически">
+                                {p.customer_returns > 0 ? formatNumber(p.customer_returns) : '—'}
+                              </td>
                               <td className="num" title={p.returning > 0 ? 'Отменено при доставке и едет обратно на склад. Из остатка вычтено — вернётся в остаток, когда трекинг Kaspi подтвердит приём на складе' : undefined}>
                                 {p.returning > 0 ? formatNumber(p.returning) : '—'}
                               </td>
@@ -347,7 +351,7 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
                             </tr>
                             {expanded === rowKey && p.batches.length > 0 && (
                               <tr>
-                                <td colSpan={8} className="warehouse-batches-cell">
+                                <td colSpan={9} className="warehouse-batches-cell">
                                   <table className="product-table warehouse-sub-table">
                                     <thead>
                                       <tr>
@@ -377,7 +381,7 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
                     </tbody>
                     <tfoot>
                       <tr className="warehouse-total-row">
-                        <td colSpan={6} className="num">Итого:</td>
+                        <td colSpan={8} className="num">Итого:</td>
                         <td className="num">{formatMoney(cityTotal)}</td>
                       </tr>
                     </tfoot>
@@ -394,7 +398,8 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
       <div className="report-note">
         Остаток считается по методу FIFO отдельно для каждого склада, и учитывает только заказы {cutoffDate ? `с ${cutoffDate} и позже` : 'после даты отсечки'} —
         так партии, введённые с учётом остатков на эту дату, не задваиваются со старыми продажами. «Продано» — завершённые заказы (COMPLETED), «В обработке» —
-        заказы, которые уже приняты в работу, но ещё не завершены (актуально для рассрочки). Нажмите на строку товара, чтобы увидеть разбивку по партиям.
+        заказы, которые уже приняты в работу, но ещё не завершены (актуально для рассрочки). «Возвраты покупателей» остаются списанными и не добавляются
+        в доступный остаток автоматически. Обратно можно добавить только отменённый при доставке заказ кнопкой «+ в остаток». Нажмите на строку товара, чтобы увидеть разбивку по партиям.
         Наведите на картинку товара, чтобы загрузить свою (или удалить уже загруженную) — картинки автоматически не подтягиваются, только вручную.
       </div>
     </div>

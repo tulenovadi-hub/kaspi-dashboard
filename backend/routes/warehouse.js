@@ -4,10 +4,11 @@ const { STOCK_CUTOFF_DATE } = require('../constants');
 
 const router = express.Router();
 
-// Заказы, которые реально считаются продажей (совпадает с логикой в stats.js)
-const VALID_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK'];
+// Обычные продажи и принятые в работу заказы.
+const SALE_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK'];
 const COMPLETED_STATUSES = ['COMPLETED'];
 const IN_PROGRESS_STATUSES = ['ACCEPTED_BY_MERCHANT', 'APPROVED_BY_BANK'];
+const CUSTOMER_RETURN_STATUSES = ['KASPI_DELIVERY_RETURN_REQUESTED', 'RETURNED'];
 
 // На "Складе" показываем только склады с display: true в справочнике — самовыкупные
 // (Юбилейное, Талдыкорган, Атырау) сюда не входят, они отслеживаются на других страницах.
@@ -43,19 +44,26 @@ async function computeWarehouseStock() {
   const soldResult = await pool.query(
     `SELECT oi.product_id, MAX(oi.product_name) AS product_name, o.origin_city AS warehouse,
             SUM(CASE WHEN o.status = ANY($2::text[]) THEN oi.quantity ELSE 0 END) AS completed_qty,
-            SUM(CASE WHEN o.status = ANY($3::text[]) THEN oi.quantity ELSE 0 END) AS in_progress_qty
+            SUM(CASE WHEN o.status = ANY($3::text[]) THEN oi.quantity ELSE 0 END) AS in_progress_qty,
+            SUM(CASE WHEN o.status = ANY($4::text[]) THEN oi.quantity ELSE 0 END) AS customer_return_qty
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
-     WHERE o.status = ANY($1::text[])
+     LEFT JOIN delivery_cancellations dc ON dc.order_number = o.code
+     WHERE (o.status = ANY($1::text[])
+            OR (o.status = ANY($4::text[]) AND dc.order_number IS NULL))
        AND o.origin_city IS NOT NULL
-       AND o.creation_date >= $4::date
+       AND o.creation_date >= $5::date
      GROUP BY oi.product_id, o.origin_city`,
-    [VALID_STATUSES, COMPLETED_STATUSES, IN_PROGRESS_STATUSES, STOCK_CUTOFF_DATE]
+    [SALE_STATUSES, COMPLETED_STATUSES, IN_PROGRESS_STATUSES, CUSTOMER_RETURN_STATUSES, STOCK_CUTOFF_DATE]
   );
   const soldMap = new Map(
     soldResult.rows.map((r) => [
       `${r.product_id}::${r.warehouse}`,
-      { completed: Number(r.completed_qty), inProgress: Number(r.in_progress_qty) },
+      {
+        completed: Number(r.completed_qty),
+        inProgress: Number(r.in_progress_qty),
+        customerReturns: Number(r.customer_return_qty),
+      },
     ])
   );
   const soldProductNames = new Map(soldResult.rows.map((r) => [r.product_id, r.product_name]));
@@ -74,7 +82,7 @@ async function computeWarehouseStock() {
   // никогда. Вся накопленная история отмен размечена разовым бэкфиллом в db.js как уже принятая,
   // поэтому старый архив остаток не трогает.
   //
-  // Из выборки исключены заказы, статус которых у нас всё ещё "продажа" (VALID_STATUSES): такой
+  // Из выборки исключены заказы, статус которых у нас всё ещё "продажа" (SALE_STATUSES): такой
   // заказ уже списан со склада как проданный, и вычесть его второй раз означало бы посчитать
   // одну и ту же штуку дважды.
   const returningResult = await pool.query(
@@ -89,7 +97,7 @@ async function computeWarehouseStock() {
        AND o.creation_date >= $1::date
        AND o.status <> ALL($2::text[])
      GROUP BY oi.product_id, o.origin_city`,
-    [STOCK_CUTOFF_DATE, VALID_STATUSES]
+    [STOCK_CUTOFF_DATE, SALE_STATUSES]
   );
   const returningMap = new Map(
     returningResult.rows.map((r) => [`${r.product_id}::${r.warehouse}`, Number(r.returning_qty)])
@@ -116,12 +124,12 @@ async function computeWarehouseStock() {
 
   const products = [];
   for (const [key, info] of byKey) {
-    const sold = soldMap.get(key) || { completed: 0, inProgress: 0 };
+    const sold = soldMap.get(key) || { completed: 0, inProgress: 0, customerReturns: 0 };
     const returning = returningMap.get(key) || 0;
-    // Списываем со склада и завершённые, и ещё обрабатываемые заказы, и те, что едут обратно после
-    // отмены — товара физически нет на полке во всех трёх случаях, просто в разных колонках
-    // показываем для наглядности.
-    let toConsume = sold.completed + sold.inProgress + returning;
+    // Обычный возврат покупателя не становится доступным к продаже автоматически: он может
+    // быть повреждён и сначала возвращается в пункт приёма Kaspi. Поэтому RETURNED остаётся
+    // списанным навсегда. Ручное возвращение предусмотрено только для отмен при доставке.
+    let toConsume = sold.completed + sold.inProgress + sold.customerReturns + returning;
     let totalSupplied = 0;
     let remainingValue = 0;
 
@@ -143,6 +151,7 @@ async function computeWarehouseStock() {
       total_supplied: totalSupplied,
       total_sold: sold.completed,
       in_progress: sold.inProgress,
+      customer_returns: sold.customerReturns,
       returning,
       remaining: totalRemaining,
       remaining_value: remainingValue,
@@ -166,7 +175,7 @@ async function computeWarehouseStock() {
     const alreadyListed = products.some((p) => p.product_id === productId && p.warehouse === warehouse);
     if (alreadyListed) continue;
 
-    const sold = soldMap.get(key) || { completed: 0, inProgress: 0 };
+    const sold = soldMap.get(key) || { completed: 0, inProgress: 0, customerReturns: 0 };
     const returning = returningMap.get(key) || 0;
     products.push({
       product_id: productId,
@@ -175,11 +184,12 @@ async function computeWarehouseStock() {
       total_supplied: 0,
       total_sold: sold.completed,
       in_progress: sold.inProgress,
+      customer_returns: sold.customerReturns,
       returning,
       remaining: 0,
       remaining_value: 0,
       current_cost_price: null,
-      oversold_qty: sold.completed + sold.inProgress + returning,
+      oversold_qty: sold.completed + sold.inProgress + sold.customerReturns + returning,
       batches: [],
     });
   }

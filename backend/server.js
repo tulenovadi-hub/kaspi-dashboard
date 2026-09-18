@@ -5,7 +5,7 @@ const cors = require('cors');
 const cron = require('node-cron');
 
 const { initDb, pool } = require('./db');
-const { syncRecentOrders, syncLatestOrders, syncOrderStatuses } = require('./syncJob');
+const { syncRecentOrders, syncLatestOrders, syncOrderStatuses, syncReturnedOrders } = require('./syncJob');
 const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS } = require('./deliveryReturnsSync');
 const { enqueueKaspiSync, getKaspiSyncState } = require('./syncCoordinator');
 const authRoutes = require('./routes/auth');
@@ -150,8 +150,12 @@ async function trySyncRecentDeliveryCancellations() {
 async function syncOrdersAndRecentCancellations(days) {
   const orders = await syncRecentOrders(days);
   if (days >= 1) lastOrderStatusSyncAt = Date.now();
+  // Возвраты покупателей могут быть оформлены спустя много дней после создания заказа,
+  // поэтому окно days для них неприменимо: каждый полный проход сверяет RETURNED со складской
+  // даты отсечки. Очередь Kaspi гарантирует, что этот запрос не наложится на live-синхронизацию.
+  const returnedOrders = await syncReturnedOrders();
   const cancellations = await trySyncRecentDeliveryCancellations();
-  return { ...orders, delivery_cancellations: cancellations };
+  return { ...orders, returned_orders: returnedOrders.orders, delivery_cancellations: cancellations };
 }
 
 async function runLiveSyncCycle() {
@@ -178,6 +182,7 @@ async function runLiveSyncCycle() {
 async function runNightlySync() {
   const orders = await syncRecentOrders();
   lastOrderStatusSyncAt = Date.now();
+  const returnedOrders = await syncReturnedOrders();
 
   const now = Date.now();
   const cancellations = await syncDeliveryCancellations(
@@ -188,7 +193,7 @@ async function runNightlySync() {
   const refreshed = await refreshTrackedOrders();
   const trackingChecked = await refreshTrackingStatuses();
   const wonderChecked = await refreshWonderReceived();
-  return { orders, cancellations, refreshed, trackingChecked, wonderChecked };
+  return { orders, returnedOrders, cancellations, refreshed, trackingChecked, wonderChecked };
 }
 
 // Отдельная лёгкая ручка для внешнего минутного cron на Oracle. Один запуск может затянуться

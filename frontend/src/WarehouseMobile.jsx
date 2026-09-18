@@ -205,6 +205,7 @@ export default function WarehouseMobile({
                   <dl className="wm-kv">
                     <dt>Поставлено всего</dt><dd>{formatNumber(p.total_supplied)} шт</dd>
                     <dt>Продано</dt><dd>{formatNumber(p.total_sold)} шт</dd>
+                    <dt>Возвраты покупателей</dt><dd>{formatNumber(p.customer_returns || 0)} шт</dd>
                     <dt>Себестоимость (FIFO)</dt><dd>{p.current_cost_price !== null ? formatMoney(p.current_cost_price) : '—'}</dd>
                     <dt>Стоимость остатка</dt><dd>{formatMoney(p.remaining_value)}</dd>
                   </dl>
