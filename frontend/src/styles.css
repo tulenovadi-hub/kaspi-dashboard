@@ -3020,6 +3020,141 @@ input[type="date"] {
   color: var(--accent-down);
 }
 
+.warehouse-reconcile-open {
+  white-space: nowrap;
+}
+
+.warehouse-reconcile-modal {
+  max-width: 900px;
+}
+
+.warehouse-reconcile-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.warehouse-reconcile-head label,
+.warehouse-reconcile-row label,
+.warehouse-reconcile-note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.warehouse-reconcile-head label > span,
+.warehouse-reconcile-row label > span,
+.warehouse-reconcile-note > span,
+.warehouse-reconcile-preview > span,
+.warehouse-reconcile-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.warehouse-reconcile-head input,
+.warehouse-reconcile-row input,
+.warehouse-reconcile-row select,
+.warehouse-reconcile-note textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 9px;
+  padding: 10px 11px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.warehouse-reconcile-label {
+  margin-bottom: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.warehouse-reconcile-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.warehouse-reconcile-row {
+  display: grid;
+  grid-template-columns: minmax(210px, 1.8fr) minmax(110px, 0.8fr) minmax(100px, 0.7fr) minmax(160px, 1fr) 36px;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+
+.warehouse-reconcile-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  padding-bottom: 10px;
+}
+
+.warehouse-reconcile-preview b {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.warehouse-reconcile-preview b.is-up {
+  color: var(--accent-up);
+}
+
+.warehouse-reconcile-preview b.is-down {
+  color: var(--accent-down);
+}
+
+.warehouse-reconcile-remove {
+  width: 36px;
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--accent-down);
+  cursor: pointer;
+}
+
+.warehouse-reconcile-remove:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.warehouse-reconcile-add {
+  margin-top: 12px;
+}
+
+.warehouse-reconcile-note {
+  margin-top: 18px;
+}
+
+.warehouse-reconcile-note textarea {
+  resize: vertical;
+}
+
+.warehouse-reconcile-hint {
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.warehouse-reconcile-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
 @media (max-width: 640px) {
   .warehouse-history-summary {
     align-items: flex-start;
@@ -3033,6 +3168,38 @@ input[type="date"] {
 
   .warehouse-history-table {
     min-width: 650px;
+  }
+
+  .warehouse-reconcile-open {
+    width: 100%;
+  }
+
+  .warehouse-reconcile-head,
+  .warehouse-reconcile-row {
+    grid-template-columns: 1fr;
+  }
+
+  .warehouse-reconcile-row {
+    position: relative;
+    padding-right: 54px;
+  }
+
+  .warehouse-reconcile-remove {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+  }
+
+  .warehouse-reconcile-preview {
+    padding-bottom: 0;
+  }
+
+  .warehouse-reconcile-actions {
+    flex-direction: column-reverse;
+  }
+
+  .warehouse-reconcile-actions button {
+    width: 100%;
   }
 }
 

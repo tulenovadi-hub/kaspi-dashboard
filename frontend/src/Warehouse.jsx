@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { fetchWarehouse, fetchWarehouseReconciliations, fetchInventoryValue, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
+import { fetchWarehouse, fetchWarehouseReconciliations, reconcileWarehouse, fetchInventoryValue, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
 import WarehouseMobile from './WarehouseMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import { useAppRefresh } from './useAppRefresh.js';
+import { useBodyScrollLock } from './useBodyScrollLock.js';
+import { useClosing } from './useClosing.js';
 
 // Сжимаем картинку на клиенте перед отправкой — это просто маленькая иконка-превью на
 // "Складе", полное разрешение исходного фото не нужно, а без сжатия загрузка была бы
@@ -167,7 +169,214 @@ function ReconciliationHistory({ reconciliations }) {
   );
 }
 
-export default function Warehouse({ password, active = true, isOnline = true }) {
+function localDateTimeValue() {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60 * 1000);
+  return local.toISOString().slice(0, 16);
+}
+
+function newRow() {
+  return {
+    key: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    product_id: '',
+    warehouse: 'Алматы',
+    target_quantity: '',
+  };
+}
+
+function ReconciliationModal({ password, products, onClose, onSaved }) {
+  const [source, setSource] = useState('Wonder Fulfillment');
+  const [capturedAt, setCapturedAt] = useState(localDateTimeValue);
+  const [note, setNote] = useState('');
+  const [rows, setRows] = useState(() => [newRow()]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [idempotencyKey] = useState(() => (
+    globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : `warehouse-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  ));
+
+  useBodyScrollLock();
+  const { closing, close } = useClosing(onClose);
+
+  const productOptions = Array.from(
+    products.reduce((map, product) => {
+      if (!map.has(product.product_id)) map.set(product.product_id, product.product_name);
+      return map;
+    }, new Map()),
+    ([product_id, product_name]) => ({ product_id, product_name })
+  ).sort((a, b) => a.product_name.localeCompare(b.product_name, 'ru'));
+
+  function updateRow(key, patch) {
+    setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  }
+
+  function currentFor(row) {
+    return products.find((product) => product.product_id === row.product_id && product.warehouse === row.warehouse);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+
+    const prepared = rows.filter((row) => row.product_id || row.target_quantity !== '');
+    if (prepared.length === 0) {
+      setError('Добавьте хотя бы один товар');
+      return;
+    }
+
+    const seen = new Set();
+    const items = [];
+    for (const row of prepared) {
+      const product = productOptions.find((option) => option.product_id === row.product_id);
+      const target = Number(row.target_quantity);
+      if (!product || !Number.isInteger(target) || target < 0) {
+        setError('У каждого товара выберите склад и укажите целый фактический остаток');
+        return;
+      }
+      const key = `${row.product_id}::${row.warehouse}`;
+      if (seen.has(key)) {
+        setError(`Товар «${product.product_name}» на складе ${row.warehouse} добавлен дважды`);
+        return;
+      }
+      seen.add(key);
+      items.push({
+        product_id: product.product_id,
+        product_name: product.product_name,
+        warehouse: row.warehouse,
+        target_quantity: target,
+      });
+    }
+
+    const capturedDate = new Date(capturedAt);
+    if (Number.isNaN(capturedDate.getTime())) {
+      setError('Укажите время сверки');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await reconcileWarehouse(password, {
+        idempotency_key: idempotencyKey,
+        source: source.trim() || 'Ручная сверка',
+        source_captured_at: capturedDate.toISOString(),
+        note: note.trim() || null,
+        items,
+      });
+      await onSaved();
+    } catch (err) {
+      setError(err.message || 'Не удалось сохранить сверку');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={`modal-overlay${closing ? ' is-closing' : ''}`} onClick={saving ? undefined : close}>
+      <div className="modal-box modal-box-wide warehouse-reconcile-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Новая сверка остатков</h2>
+          <button className="modal-close" type="button" onClick={close} disabled={saving}>✕</button>
+        </div>
+
+        {error && <div className="error-banner">{error}</div>}
+
+        <form onSubmit={handleSubmit}>
+          <div className="warehouse-reconcile-head">
+            <label>
+              <span>Источник</span>
+              <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="Например, Wonder Fulfillment" required />
+            </label>
+            <label>
+              <span>Время сверки</span>
+              <input type="datetime-local" value={capturedAt} onChange={(e) => setCapturedAt(e.target.value)} required />
+            </label>
+          </div>
+
+          <div className="warehouse-reconcile-label">Товары</div>
+          <div className="warehouse-reconcile-rows">
+            {rows.map((row, index) => {
+              const current = currentFor(row);
+              const currentQty = current ? Number(current.remaining) : 0;
+              const target = row.target_quantity === '' ? null : Number(row.target_quantity);
+              const difference = target !== null && Number.isFinite(target) ? target - currentQty : null;
+              return (
+                <div className="warehouse-reconcile-row" key={row.key}>
+                  <label className="warehouse-reconcile-product">
+                    <span>Товар</span>
+                    <select value={row.product_id} onChange={(e) => updateRow(row.key, { product_id: e.target.value })} required>
+                      <option value="">Выберите товар</option>
+                      {productOptions.map((product) => (
+                        <option value={product.product_id} key={product.product_id}>{product.product_name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Склад</span>
+                    <select value={row.warehouse} onChange={(e) => updateRow(row.key, { warehouse: e.target.value })}>
+                      <option value="Алматы">Алматы</option>
+                      <option value="Астана">Астана</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Фактически</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      inputMode="numeric"
+                      value={row.target_quantity}
+                      onChange={(e) => updateRow(row.key, { target_quantity: e.target.value })}
+                      required
+                    />
+                  </label>
+                  <div className="warehouse-reconcile-preview">
+                    <span>Изменение</span>
+                    <b className={difference > 0 ? 'is-up' : difference < 0 ? 'is-down' : ''}>
+                      {row.product_id && difference !== null
+                        ? `${formatNumber(currentQty)} → ${formatNumber(target)} (${signedQuantity(difference)})`
+                        : '—'}
+                    </b>
+                  </div>
+                  <button
+                    className="warehouse-reconcile-remove"
+                    type="button"
+                    aria-label={`Удалить строку ${index + 1}`}
+                    onClick={() => setRows((currentRows) => currentRows.filter((item) => item.key !== row.key))}
+                    disabled={rows.length === 1}
+                  >✕</button>
+                </div>
+              );
+            })}
+          </div>
+
+          <button className="secondary-button warehouse-reconcile-add" type="button" onClick={() => setRows((current) => [...current, newRow()])}>
+            + Добавить товар
+          </button>
+
+          <label className="warehouse-reconcile-note">
+            <span>Комментарий</span>
+            <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Причина сверки или примечание" rows="3" />
+          </label>
+
+          <div className="warehouse-reconcile-hint">
+            Поставки и заказы не изменятся. В историю попадёт одна общая сверка со всеми строками.
+          </div>
+
+          <div className="warehouse-reconcile-actions">
+            <button className="secondary-button" type="button" onClick={close} disabled={saving}>Отмена</button>
+            <button className="primary-button" type="submit" disabled={saving}>
+              {saving ? 'Сохраняем…' : 'Сохранить сверку'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export default function Warehouse({ password, role, active = true, isOnline = true }) {
   const [products, setProducts] = useState([]);
   const [images, setImages] = useState({});
   const [cutoffDate, setCutoffDate] = useState('');
@@ -179,6 +388,7 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
   const [imageBusy, setImageBusy] = useState(null); // product_id, который сейчас загружается/удаляется
   const [inventory, setInventory] = useState(null); // сводка "деньги в товаре" — считается отдельным роутом
   const [reconciliations, setReconciliations] = useState([]);
+  const [reconciliationOpen, setReconciliationOpen] = useState(false);
 
   // На телефоне вместо широкой таблицы рисуются карточки товаров (WarehouseMobile.jsx):
   // 799px таблицы в 313px экрана не помещаются никаким способом.
@@ -284,6 +494,11 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
     <div>
       <div className="app-header">
         <h1 className="app-title">Склад <span>остатков</span></h1>
+        {role === 'admin' && (
+          <button className="primary-button warehouse-reconcile-open" type="button" onClick={() => setReconciliationOpen(true)}>
+            Сверить остатки
+          </button>
+        )}
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -474,6 +689,18 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
         Обратно можно добавить только отменённый при доставке заказ кнопкой «+ в остаток». Нажмите на строку товара, чтобы увидеть разбивку по партиям.
         Наведите на картинку товара, чтобы загрузить свою (или удалить уже загруженную) — картинки автоматически не подтягиваются, только вручную.
       </div>
+
+      {reconciliationOpen && (
+        <ReconciliationModal
+          password={password}
+          products={products}
+          onClose={() => setReconciliationOpen(false)}
+          onSaved={async () => {
+            setReconciliationOpen(false);
+            loadAll();
+          }}
+        />
+      )}
     </div>
   );
 }

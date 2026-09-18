@@ -130,7 +130,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
     if (key === 'warehouse') {
       return (
         <div key={key} className="page-pane" style={style}>
-          <Warehouse password={password} active={active} isOnline={isOnline} />
+          <Warehouse password={password} role={role} active={active} isOnline={isOnline} />
         </div>
       );
     }
