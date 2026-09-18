@@ -529,6 +529,10 @@ async function initDb() {
   // удаление осталось только как ручной DELETE через API (см. routes/deliveryReturns.js).
   // NULL — заказ ещё в основной таблице.
   await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;`);
+  // Явное решение пользователя вернуть заказ из архива. Одного archived_at недостаточно:
+  // завершённые заказы попадают в архив автоматически даже с archived_at = NULL. Флаг позволяет
+  // держать любой такой заказ в основном списке, пока пользователь снова не нажмёт «В архив».
+  await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS restored_from_archive BOOLEAN NOT NULL DEFAULT false;`);
 
   // Тот же разовый бэкфилл, что и у stock_returned_at, и по тому же условию: в основной таблице
   // остаются только заказы, реально едущие обратно на момент появления колонки (те самые три).

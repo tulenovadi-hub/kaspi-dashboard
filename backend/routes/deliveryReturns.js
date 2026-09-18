@@ -19,6 +19,7 @@ router.get('/', async (req, res) => {
       `SELECT dc.order_number, dc.creation_date, dc.total_price, dc.cancellation_reason, dc.delivery_mode,
               dc.origin_city, dc.state, dc.status, dc.tracking_status, dc.tracking_active,
               dc.last_track_at, dc.wonder_received, dc.stock_returned_at, dc.archived_at,
+              dc.restored_from_archive,
               o.was_completed, items.product_names, items.quantity
        FROM delivery_cancellations dc
        LEFT JOIN orders o ON o.code = dc.order_number
@@ -54,6 +55,7 @@ router.get('/', async (req, res) => {
         stock_returned_at: r.stock_returned_at,
         was_completed: r.was_completed === true,
         archived_at: r.archived_at,
+        restored_from_archive: r.restored_from_archive === true,
         // Показывать ли заказ в активном списке (иначе он уезжает в "Архив" внизу страницы).
         // Три случая: трекинг говорит, что заказ едет обратно прямо сейчас; Kaspi уже
         // отчитался о приёме; отмена ещё не закрыта ("Ожидает отмены" = CANCELLING) и трекинг
@@ -238,7 +240,8 @@ router.delete('/:orderNumber/return-to-stock', async (req, res) => {
 router.post('/:orderNumber/archive', async (req, res) => {
   try {
     const result = await pool.query(
-      `UPDATE delivery_cancellations SET archived_at = now()
+      `UPDATE delivery_cancellations
+       SET archived_at = now(), restored_from_archive = false
        WHERE order_number = $1 AND archived_at IS NULL
        RETURNING order_number`,
       [req.params.orderNumber]
@@ -253,19 +256,21 @@ router.post('/:orderNumber/archive', async (req, res) => {
   }
 });
 
-// Вернуть вручную убранную строку из архива в основную таблицу. Интерфейс показывает эту кнопку
-// только у записей с archived_at, по которым ещё идёт возврат: автоматически завершённые
-// возвраты остаются в архиве.
+// Вернуть любую строку из архива в основную таблицу. archived_at покрывает ручной архив, а
+// restored_from_archive нужен для автоматически завершённых заказов: у них archived_at может
+// быть NULL, но интерфейс по умолчанию всё равно относит их в архив по состоянию возврата.
 router.delete('/:orderNumber/archive', async (req, res) => {
   try {
     const result = await pool.query(
-      `UPDATE delivery_cancellations SET archived_at = NULL
-       WHERE order_number = $1 AND archived_at IS NOT NULL
+      `UPDATE delivery_cancellations
+       SET archived_at = NULL, restored_from_archive = true
+       WHERE order_number = $1
+         AND (archived_at IS NOT NULL OR restored_from_archive = false)
        RETURNING order_number`,
       [req.params.orderNumber]
     );
     if (result.rowCount === 0) {
-      return res.status(404).json({ error: 'Заказ не найден или и так не в архиве' });
+      return res.status(404).json({ error: 'Заказ не найден или уже находится в основном списке' });
     }
     res.json({ ok: true, order: result.rows[0] });
   } catch (err) {
