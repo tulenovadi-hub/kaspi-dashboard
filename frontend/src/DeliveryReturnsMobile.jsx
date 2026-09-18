@@ -46,7 +46,7 @@ export default function DeliveryReturnsMobile({
   subtractedUnits, subtractedInArchive, suspiciousCount, waitingCount,
   search, onSearch,
   statusLabel, reasonLabel, wonderLabel, isHighlighted, isDone, showStockButton,
-  onToggleStock, togglingId, onArchive, archivingId,
+  onToggleStock, togglingId, onArchive, archivingId, onUnarchive, unarchivingId,
   onSync, onLookup, lookupResult, lookupRaw, syncing, loading, isOnline,
 }) {
   const [showNote, setShowNote] = useState(false);
@@ -264,6 +264,27 @@ export default function DeliveryReturnsMobile({
                                 onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onToggleStock(o); } }}
                               >
                                 {togglingId === o.order_number ? '…' : '+ в остаток'}
+                              </span>
+                            )}
+                            {o.archived_at && (
+                              <span
+                                className="dm-btn-unarchive"
+                                role="button"
+                                tabIndex={0}
+                                aria-disabled={unarchivingId === o.order_number}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (unarchivingId !== o.order_number) onUnarchive(o.order_number);
+                                }}
+                                onKeyDown={(e) => {
+                                  if ((e.key === 'Enter' || e.key === ' ') && unarchivingId !== o.order_number) {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onUnarchive(o.order_number);
+                                  }
+                                }}
+                              >
+                                {unarchivingId === o.order_number ? 'Возвращаю…' : 'Вернуть из архива'}
                               </span>
                             )}
                           </span>

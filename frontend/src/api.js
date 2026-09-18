@@ -335,6 +335,11 @@ export function archiveDeliveryReturn(password, orderNumber) {
   return apiRequest(`/api/delivery-returns/${orderNumber}/archive`, password, { method: 'POST' });
 }
 
+// Вернуть ранее убранную вручную строку из архива в основной список.
+export function unarchiveDeliveryReturn(password, orderNumber) {
+  return apiRequest(`/api/delivery-returns/${orderNumber}/archive`, password, { method: 'DELETE' });
+}
+
 export function deleteDeliveryReturn(password, orderNumber) {
   return apiRequest(`/api/delivery-returns/${orderNumber}`, password, { method: 'DELETE' });
 }

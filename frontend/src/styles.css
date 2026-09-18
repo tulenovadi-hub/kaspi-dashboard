@@ -5947,6 +5947,13 @@ input[type="date"] {
 }
 .dm-btn-quiet:disabled { opacity: 0.6; cursor: default; }
 
+.dm-btn-unarchive {
+  display: block; margin-top: 8px; padding: 9px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--accent-brand); color: var(--accent-brand); text-align: center;
+  font-family: var(--font-display); font-size: 13px; font-weight: 600;
+}
+.dm-btn-unarchive[aria-disabled="true"] { opacity: 0.6; cursor: default; }
+
 .dm-search {
   width: 100%; margin-top: 8px; background: var(--bg-card); border: 1px solid var(--border);
   color: var(--text-primary); border-radius: 10px; padding: 9px 11px;
@@ -6025,6 +6032,14 @@ input[type="date"] {
   font-size: 13px;
   align-self: center;
 }
+
+.dr-unarchive-button {
+  padding: 7px 10px; border: 1px solid var(--accent-brand); border-radius: 8px;
+  background: transparent; color: var(--accent-brand); font: inherit; font-size: 12px;
+  white-space: nowrap; cursor: pointer;
+}
+.dr-unarchive-button:hover { background: rgba(110, 139, 255, 0.1); }
+.dr-unarchive-button:disabled { opacity: 0.6; cursor: default; }
 
 .dm-lookup {
   display: flex;

@@ -1,5 +1,12 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { fetchDeliveryReturns, syncDeliveryReturns, archiveDeliveryReturn, returnDeliveryOrderToStock, removeDeliveryOrderFromStock } from './api.js';
+import {
+  fetchDeliveryReturns,
+  syncDeliveryReturns,
+  archiveDeliveryReturn,
+  unarchiveDeliveryReturn,
+  returnDeliveryOrderToStock,
+  removeDeliveryOrderFromStock,
+} from './api.js';
 import { formatMoney } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
 import DeliveryReturnsMobile from './DeliveryReturnsMobile.jsx';
@@ -104,7 +111,8 @@ function createEmptyFilters() {
 }
 
 function OrdersTable({
-  orders, onArchive, archivingId, showDaysColumn, emptyText, onToggleStock, togglingId, stockButtonMode,
+  orders, onArchive, archivingId, onUnarchive, unarchivingId, showDaysColumn, emptyText,
+  onToggleStock, togglingId, stockButtonMode,
   filters, updateFilter, toggleSetValue, selectAll, selectNone, statusOptions, cityOptions,
 }) {
   return (
@@ -253,14 +261,27 @@ function OrdersTable({
                         {togglingId === o.order_number ? '…' : (o.subtracted_from_stock ? '+ в остаток' : '− из остатка')}
                       </button>
                     )}
-                    <button
-                      className="batch-delete"
-                      onClick={() => onArchive(o.order_number)}
-                      disabled={archivingId === o.order_number}
-                      title="Убрать строку в архив внизу страницы"
-                    >
-                      ✕
-                    </button>
+                    {stockButtonMode === 'archive' ? (
+                      o.archived_at && (
+                        <button
+                          className="dr-unarchive-button"
+                          onClick={() => onUnarchive(o.order_number)}
+                          disabled={unarchivingId === o.order_number}
+                          title="Вернуть заказ из архива в основной список"
+                        >
+                          {unarchivingId === o.order_number ? 'Возвращаю…' : 'Вернуть из архива'}
+                        </button>
+                      )
+                    ) : (
+                      <button
+                        className="batch-delete"
+                        onClick={() => onArchive(o.order_number)}
+                        disabled={archivingId === o.order_number}
+                        title="Убрать строку в архив внизу страницы"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -286,6 +307,7 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   const [lookupNumber, setLookupNumber] = useState('');
   const [error, setError] = useState('');
   const [archivingId, setArchivingId] = useState(null);
+  const [unarchivingId, setUnarchivingId] = useState(null);
   const [filters, setFilters] = useState(createEmptyFilters);
   const [showArchive, setShowArchive] = useState(false);
   const [togglingId, setTogglingId] = useState(null);
@@ -380,6 +402,16 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
       .finally(() => setArchivingId(null));
   }
 
+  // Вернуть вручную убранную строку из архива в основную таблицу.
+  function handleUnarchive(orderNumber) {
+    setUnarchivingId(orderNumber);
+    setError('');
+    unarchiveDeliveryReturn(password, orderNumber)
+      .then(() => loadData())
+      .catch((err) => setError(err.message))
+      .finally(() => setUnarchivingId(null));
+  }
+
   const updateFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
   const toggleSetValue = (key, value) => {
     setFilters((f) => {
@@ -451,7 +483,8 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
 
   const tableProps = {
     filters, updateFilter, toggleSetValue, selectAll, selectNone, statusOptions, cityOptions,
-    archivingId, onArchive: handleArchive, onToggleStock: handleToggleStock, togglingId,
+    archivingId, onArchive: handleArchive, unarchivingId, onUnarchive: handleUnarchive,
+    onToggleStock: handleToggleStock, togglingId,
   };
 
   // Телефон — отдельный компонент, но данные, действия ("+ в остаток", "в архив",
@@ -484,6 +517,8 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
             togglingId={togglingId}
             onArchive={handleArchive}
             archivingId={archivingId}
+            onUnarchive={handleUnarchive}
+            unarchivingId={unarchivingId}
             onSync={handleSync}
             onLookup={handleLookup}
             lookupResult={lookupResult}
