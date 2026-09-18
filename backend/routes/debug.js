@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const { pool } = require('../db');
+const { STOCK_CUTOFF_DATE } = require('../constants');
 
 const router = express.Router();
 
@@ -76,6 +77,70 @@ router.get('/db-order/:code', async (req, res) => {
     res.json({ found: true, order: order.rows[0], items: items.rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Аудит исправления от 18.09.2026: обычные покупательские возвраты, которые старая формула
+// исключала из списания и тем самым ошибочно возвращала в доступный остаток. Отмены при
+// доставке сюда намеренно не входят — для них действует отдельная ручная кнопка.
+router.get('/warehouse-return-leakage', async (req, res) => {
+  try {
+    const statuses = ['KASPI_DELIVERY_RETURN_REQUESTED', 'RETURNED'];
+    const details = await pool.query(
+      `SELECT oi.product_id,
+              MAX(oi.product_name) AS product_name,
+              o.origin_city AS warehouse,
+              COUNT(DISTINCT o.id)::int AS orders_count,
+              SUM(oi.quantity)::int AS units_count,
+              COUNT(DISTINCT o.id) FILTER (WHERE o.status = 'KASPI_DELIVERY_RETURN_REQUESTED')::int AS awaiting_count,
+              COUNT(DISTINCT o.id) FILTER (WHERE o.status = 'RETURNED')::int AS returned_count,
+              MIN(o.creation_date) AS first_order_date,
+              MAX(o.creation_date) AS last_order_date
+       FROM orders o
+       JOIN order_items oi ON oi.order_id = o.id
+       LEFT JOIN delivery_cancellations dc ON dc.order_number = o.code
+       WHERE o.creation_date >= $1::date
+         AND o.status = ANY($2::text[])
+         AND o.was_completed = true
+         AND o.origin_city IS NOT NULL
+         AND dc.order_number IS NULL
+       GROUP BY oi.product_id, o.origin_city
+       ORDER BY units_count DESC, product_name`,
+      [STOCK_CUTOFF_DATE, statuses]
+    );
+
+    const totals = await pool.query(
+      `SELECT COUNT(DISTINCT o.id)::int AS orders_count,
+              COALESCE(SUM(oi.quantity), 0)::int AS units_count,
+              MIN(o.creation_date) AS first_order_date,
+              MAX(o.creation_date) AS last_order_date
+       FROM orders o
+       JOIN order_items oi ON oi.order_id = o.id
+       LEFT JOIN delivery_cancellations dc ON dc.order_number = o.code
+       WHERE o.creation_date >= $1::date
+         AND o.status = ANY($2::text[])
+         AND o.was_completed = true
+         AND o.origin_city IS NOT NULL
+         AND dc.order_number IS NULL`,
+      [STOCK_CUTOFF_DATE, statuses]
+    );
+
+    res.json({
+      from: STOCK_CUTOFF_DATE,
+      as_of: new Date().toISOString(),
+      definition: 'Обычные покупательские возвраты, которые старая формула повторно включала в доступный остаток',
+      totals: totals.rows[0],
+      products: details.rows.map((row) => ({
+        ...row,
+        orders_count: Number(row.orders_count),
+        units_count: Number(row.units_count),
+        awaiting_count: Number(row.awaiting_count),
+        returned_count: Number(row.returned_count),
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось построить отчёт по покупательским возвратам' });
   }
 });
 
