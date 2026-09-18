@@ -481,6 +481,12 @@ router.post('/reconcile', async (req, res) => {
     const requestedCost = item.unit_cost === null || item.unit_cost === undefined || item.unit_cost === ''
       ? null
       : Number(item.unit_cost);
+    const snapshotBefore = item.quantity_before === null || item.quantity_before === undefined || item.quantity_before === ''
+      ? null
+      : Number(item.quantity_before);
+    const snapshotRawBalance = item.raw_balance_before === null || item.raw_balance_before === undefined || item.raw_balance_before === ''
+      ? null
+      : Number(item.raw_balance_before);
     const key = `${productId}::${warehouse}`;
     if (!productId || !DISPLAY_WAREHOUSES.includes(warehouse) || !Number.isInteger(target) || target < 0) {
       return res.status(400).json({ error: `Некорректная строка остатка: ${productName || productId}` });
@@ -488,9 +494,13 @@ router.post('/reconcile', async (req, res) => {
     if (requestedCost !== null && (!Number.isFinite(requestedCost) || requestedCost < 0)) {
       return res.status(400).json({ error: `Некорректная себестоимость: ${productName}` });
     }
+    if ((snapshotBefore !== null && !Number.isInteger(snapshotBefore)) ||
+        (snapshotRawBalance !== null && !Number.isInteger(snapshotRawBalance))) {
+      return res.status(400).json({ error: `Некорректный исходный снимок: ${productName}` });
+    }
     if (seen.has(key)) return res.status(400).json({ error: `Товар ${productName} повторяется на складе ${warehouse}` });
     seen.add(key);
-    normalized.push({ productId, productName, warehouse, target, requestedCost });
+    normalized.push({ productId, productName, warehouse, target, requestedCost, snapshotBefore, snapshotRawBalance });
   }
 
   try {
@@ -523,10 +533,20 @@ router.post('/reconcile', async (req, res) => {
         for (const item of normalized) {
           const key = `${item.productId}::${item.warehouse}`;
           const current = currentMap.get(key);
-          const before = current ? Number(current.remaining) : 0;
+          const currentBefore = current ? Number(current.remaining) : 0;
+          const currentRawBalance = current ? currentBefore - Number(current.oversold_qty || 0) : 0;
+          // Для снимка, который прислали несколькими минутами раньше, разрешаем передать
+          // значения «до» из того же момента. Тогда заказы, появившиеся пока шёл деплой, не
+          // смешиваются со сверкой: в журнале остаётся честное 33 → 20, а новый заказ уже
+          // после этой точки отдельно уменьшит текущий остаток до 19.
+          const before = item.snapshotBefore !== null ? item.snapshotBefore : currentBefore;
           // remaining уже включает прошлые контрольные точки. oversold_qty хранит скрытую
           // отрицательную часть математического баланса, которую новая точка тоже сбрасывает.
-          const rawBalance = current ? before - Number(current.oversold_qty || 0) : 0;
+          const rawBalance = item.snapshotRawBalance !== null
+            ? item.snapshotRawBalance
+            : item.snapshotBefore !== null
+              ? item.snapshotBefore
+              : currentRawBalance;
           const displayChange = item.target - before;
           const balanceDelta = item.target - rawBalance;
           const unitCost = item.requestedCost !== null
