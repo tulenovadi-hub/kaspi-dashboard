@@ -59,6 +59,7 @@ test('RETURNED orders remain deducted from available warehouse stock', async () 
   assert.ok(!soldQueryParams[0].includes('RETURNED'));
   assert.deepEqual(soldQueryParams[3], ['KASPI_DELIVERY_RETURN_REQUESTED', 'RETURNED']);
   assert.match(soldQuerySql, /dc\.order_number IS NULL/);
+  assert.match(soldQuerySql, /o\.was_completed = true/);
   assert.ok(!cancellationQueryParams[1].includes('RETURNED'));
   assert.equal(products[0].total_sold, 2);
   assert.equal(products[0].in_progress, 1);

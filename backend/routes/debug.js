@@ -63,7 +63,7 @@ router.get('/merchantproduct/:productId', async (req, res) => {
 router.get('/db-order/:code', async (req, res) => {
   try {
     const order = await pool.query(
-      `SELECT id, code, creation_date, total_price, state, status, origin_city, pickup_point_id
+      `SELECT id, code, creation_date, total_price, state, status, was_completed, origin_city, pickup_point_id
        FROM orders WHERE code = $1`,
       [req.params.code]
     );

@@ -11,6 +11,10 @@ const CUSTOMER_RETURN_STATUSES = ['KASPI_DELIVERY_RETURN_REQUESTED', 'RETURNED']
 const MEANINGFUL_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK', ...CUSTOMER_RETURN_STATUSES];
 const ORDER_STATES = ['NEW', 'SIGN_REQUIRED', 'PICKUP', 'DELIVERY', 'KASPI_DELIVERY', 'ARCHIVE'];
 
+function hasCompletedEvidence(attrs) {
+  return attrs.status === 'COMPLETED' || (attrs.completionDate !== null && attrs.completionDate !== undefined);
+}
+
 // Сохраняет уже полученный список заказов. Для частой live-синхронизации состав повторно
 // запрашиваем только у нового заказа (или если он почему-то остался без позиций). Полная
 // синхронизация сохраняет прежнее поведение и перечитывает состав всех заказов в окне.
@@ -32,24 +36,28 @@ async function saveOrders(orders, { onlyMissingEntries = false } = {}) {
 
   let totalItems = 0;
   let newOrders = 0;
+  const customerReturnCodes = [];
 
   for (const order of orders) {
     const attrs = order.attributes;
     const isNew = !existingIds.has(order.id);
     if (isNew) newOrders += 1;
+    const completedEvidence = hasCompletedEvidence(attrs);
+    if (CUSTOMER_RETURN_STATUSES.includes(attrs.status) && attrs.code) customerReturnCodes.push(String(attrs.code));
 
     const originCity = resolveWarehouse(attrs.pickupPointId);
     await pool.query(
-      `INSERT INTO orders (id, code, creation_date, total_price, state, status, raw_data, origin_city, pickup_point_id)
-       VALUES ($1, $2, to_timestamp($3 / 1000.0), $4, $5, $6, $7, $8, $9)
+      `INSERT INTO orders (id, code, creation_date, total_price, state, status, raw_data, origin_city, pickup_point_id, was_completed)
+       VALUES ($1, $2, to_timestamp($3 / 1000.0), $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (id) DO UPDATE SET
          total_price = EXCLUDED.total_price,
          state = EXCLUDED.state,
          status = EXCLUDED.status,
          raw_data = EXCLUDED.raw_data,
          origin_city = EXCLUDED.origin_city,
-         pickup_point_id = EXCLUDED.pickup_point_id`,
-      [order.id, attrs.code, attrs.creationDate, attrs.totalPrice, attrs.state, attrs.status, JSON.stringify(order), originCity, attrs.pickupPointId || null]
+         pickup_point_id = EXCLUDED.pickup_point_id,
+         was_completed = orders.was_completed OR EXCLUDED.was_completed`,
+      [order.id, attrs.code, attrs.creationDate, attrs.totalPrice, attrs.state, attrs.status, JSON.stringify(order), originCity, attrs.pickupPointId || null, completedEvidence]
     );
 
     if (!MEANINGFUL_STATUSES.includes(attrs.status)) continue;
@@ -73,6 +81,21 @@ async function saveOrders(orders, { onlyMissingEntries = false } = {}) {
     } catch (err) {
       console.error(`Не удалось получить состав заказа ${order.id}:`, err.message);
     }
+  }
+
+  // RETURNED сам по себе двусмысленен: это может быть обычный возврат после выдачи либо
+  // трекинг отмены при доставке. Одним запросом закрепляем was_completed только за теми
+  // возвратами, которых нет в отдельном реестре delivery_cancellations.
+  if (customerReturnCodes.length > 0) {
+    await pool.query(
+      `UPDATE orders o
+       SET was_completed = true
+       WHERE o.code = ANY($1::text[])
+         AND NOT EXISTS (
+           SELECT 1 FROM delivery_cancellations dc WHERE dc.order_number = o.code
+         )`,
+      [[...new Set(customerReturnCodes)]]
+    );
   }
 
   return { orders: orders.length, items: totalItems, new_orders: newOrders };
@@ -202,4 +225,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { syncRecentOrders, syncLatestOrders, syncOrderStatuses, syncReturnedOrders };
+module.exports = { syncRecentOrders, syncLatestOrders, syncOrderStatuses, syncReturnedOrders, hasCompletedEvidence };

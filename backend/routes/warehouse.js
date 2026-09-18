@@ -43,13 +43,17 @@ async function computeWarehouseStock() {
   // "Юбилейное", который на сайте учитывать не нужно, поэтому такие заказы просто исключаем.
   const soldResult = await pool.query(
     `SELECT oi.product_id, MAX(oi.product_name) AS product_name, o.origin_city AS warehouse,
-            SUM(CASE WHEN o.status = ANY($2::text[]) THEN oi.quantity ELSE 0 END) AS completed_qty,
-            SUM(CASE WHEN o.status = ANY($3::text[]) THEN oi.quantity ELSE 0 END) AS in_progress_qty,
+            SUM(CASE WHEN o.status = ANY($2::text[])
+                           OR (o.was_completed = true AND o.status <> ALL($4::text[]))
+                     THEN oi.quantity ELSE 0 END) AS completed_qty,
+            SUM(CASE WHEN o.was_completed = false AND o.status = ANY($3::text[])
+                     THEN oi.quantity ELSE 0 END) AS in_progress_qty,
             SUM(CASE WHEN o.status = ANY($4::text[]) THEN oi.quantity ELSE 0 END) AS customer_return_qty
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
      LEFT JOIN delivery_cancellations dc ON dc.order_number = o.code
-     WHERE (o.status = ANY($1::text[])
+     WHERE (o.was_completed = true
+            OR o.status = ANY($1::text[])
             OR (o.status = ANY($4::text[]) AND dc.order_number IS NULL))
        AND o.origin_city IS NOT NULL
        AND o.creation_date >= $5::date
@@ -82,9 +86,9 @@ async function computeWarehouseStock() {
   // никогда. Вся накопленная история отмен размечена разовым бэкфиллом в db.js как уже принятая,
   // поэтому старый архив остаток не трогает.
   //
-  // Из выборки исключены заказы, статус которых у нас всё ещё "продажа" (SALE_STATUSES): такой
-  // заказ уже списан со склада как проданный, и вычесть его второй раз означало бы посчитать
-  // одну и ту же штуку дважды.
+  // Из выборки исключены заказы, статус которых у нас всё ещё "продажа" (SALE_STATUSES), а
+  // также все заказы, которые когда-либо были выданы покупателю. Они уже навсегда списаны
+  // выше, и кнопка отмены при доставке не должна суметь вернуть их в доступный остаток.
   const returningResult = await pool.query(
     `SELECT oi.product_id, MAX(oi.product_name) AS product_name, o.origin_city AS warehouse,
             SUM(oi.quantity) AS returning_qty
@@ -95,6 +99,7 @@ async function computeWarehouseStock() {
        AND (dc.tracking_active = true OR dc.tracking_status = 'RETURNED')
        AND o.origin_city IS NOT NULL
        AND o.creation_date >= $1::date
+       AND o.was_completed = false
        AND o.status <> ALL($2::text[])
      GROUP BY oi.product_id, o.origin_city`,
     [STOCK_CUTOFF_DATE, SALE_STATUSES]

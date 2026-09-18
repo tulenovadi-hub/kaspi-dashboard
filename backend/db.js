@@ -28,6 +28,18 @@ async function initDb() {
   // сопоставляем через справочник warehouseMapping.js.
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS origin_city TEXT;`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_id TEXT;`);
+  // Необратимый признак: как только заказ хотя бы раз был выдан покупателю, он больше никогда
+  // не должен возвращать товар в доступный остаток — даже если Kaspi позже сменит status.
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS was_completed BOOLEAN NOT NULL DEFAULT false;`);
+  await pool.query(`
+    UPDATE orders
+    SET was_completed = true
+    WHERE was_completed = false
+      AND (
+        status = 'COMPLETED'
+        OR NULLIF(raw_data->'attributes'->>'completionDate', '') IS NOT NULL
+      )
+  `);
   await pool.query(`UPDATE orders SET pickup_point_id = raw_data->'attributes'->>'pickupPointId' WHERE raw_data IS NOT NULL;`);
 
   const { PICKUP_POINT_WAREHOUSE_MAP } = require('./warehouseMapping');
@@ -398,6 +410,20 @@ async function initDb() {
   // Принят ли заказ складом партнёра Wonder (platform.wonder-fulfillment.kz) — сверяется по
   // номеру заказа со списком refund-order-groups у Wonder. NULL — ещё не проверяли.
   await pool.query(`ALTER TABLE delivery_cancellations ADD COLUMN IF NOT EXISTS wonder_received BOOLEAN;`);
+
+  // У старых покупательских возвратов Kaspi мог уже сменить текущий status с COMPLETED на
+  // RETURNED, а completionDate в старом сыром ответе иногда отсутствует. Если такого заказа
+  // нет среди отмен при доставке, сам факт покупательского возврата доказывает, что товар до
+  // этого был выдан. Бэкфилл идемпотентный и при каждом старте трогает только false.
+  await pool.query(`
+    UPDATE orders o
+    SET was_completed = true
+    WHERE o.was_completed = false
+      AND o.status IN ('KASPI_DELIVERY_RETURN_REQUESTED', 'RETURNED')
+      AND NOT EXISTS (
+        SELECT 1 FROM delivery_cancellations dc WHERE dc.order_number = o.code
+      )
+  `);
 
   // Когда владелец РУКАМИ подтвердила, что вернувшийся товар физически доехал до склада и его
   // можно снова считать остатком (кнопка "Добавить в остаток" на "Проблемных возвратах").
