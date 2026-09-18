@@ -8,6 +8,7 @@ test('RETURNED orders remain deducted from available warehouse stock', async () 
   let soldQueryParams = null;
   let soldQuerySql = null;
   let cancellationQueryParams = null;
+  let cancellationQuerySql = null;
   const query = async (sql, params) => {
     if (sql.includes('FROM product_batches')) {
       return {
@@ -39,6 +40,7 @@ test('RETURNED orders remain deducted from available warehouse stock', async () 
     }
 
     if (sql.includes('FROM delivery_cancellations')) {
+      cancellationQuerySql = sql;
       cancellationQueryParams = params;
       return { rows: [] };
     }
@@ -62,6 +64,7 @@ test('RETURNED orders remain deducted from available warehouse stock', async () 
   assert.match(soldQuerySql, /dc\.order_number IS NULL/);
   assert.match(soldQuerySql, /o\.was_completed = true/);
   assert.ok(!cancellationQueryParams[1].includes('RETURNED'));
+  assert.match(cancellationQuerySql, /dc\.wonder_received = true/);
   assert.equal(products[0].total_sold, 2);
   assert.equal(products[0].in_progress, 1);
   assert.equal(products[0].customer_returns, 1);

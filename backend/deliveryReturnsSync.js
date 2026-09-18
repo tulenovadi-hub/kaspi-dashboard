@@ -278,8 +278,10 @@ async function syncOrderByNumber(code) {
   };
 }
 
-// Сверяет заказы, реально уехавшие в доставку (tracking_status != 'CANCELLED' — тем, что
-// отменили ещё до отправки, сверяться не с чем), со списком refund-order-groups у Wonder.
+// Сверяет ВСЕ отмены со списком refund-order-groups у Wonder. Нельзя исключать
+// tracking_status = 'CANCELLED': Kaspi иногда пишет «Отменён без доставки», хотя возврат уже
+// зарегистрирован у Wonder (заказ 1077487999). В таком случае Wonder — более надёжное
+// подтверждение того, что товар физически находится вне доступного остатка магазина.
 // Если WONDER_EMAIL/WONDER_PASSWORD не заданы (или Wonder вернул ошибку логина) — просто
 // ничего не делает, остальная синхронизация не должна из-за этого падать.
 async function refreshWonderReceived() {
@@ -292,8 +294,7 @@ async function refreshWonderReceived() {
   // на стороне сервера незачем.
   const result = await pool.query(
     `UPDATE delivery_cancellations
-     SET wonder_received = (order_number = ANY($1::text[]))
-     WHERE tracking_status IS DISTINCT FROM 'CANCELLED'`,
+     SET wonder_received = (order_number = ANY($1::text[]))`,
     [[...codes]]
   );
   return result.rowCount;

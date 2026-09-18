@@ -77,9 +77,10 @@ async function computeWarehouseStock(db = pool) {
   // "Возвращается" — товар, который уехал с этого склада и сейчас физически едет обратно после
   // отмены при доставке. На полке его нет, поэтому из остатка он вычитается, как и продажа.
   //
-  // Условие: заказ реально уехал в возврат (tracking_active — последнее событие трекинга это шаг
-  // возврата; либо tracking_status = 'RETURNED' — Kaspi уже отчитался о приёме) И владелец ещё не
-  // подтвердила приём кнопкой "Добавить в остаток" (stock_returned_at IS NULL).
+  // Условие: заказ реально уехал в возврат (по трекингу Kaspi ИЛИ он зарегистрирован у Wonder)
+  // И владелец ещё не подтвердила приём кнопкой "Добавить в остаток"
+  // (stock_returned_at IS NULL). Wonder нужен как отдельное доказательство: Kaspi иногда пишет
+  // CANCELLED даже по заказу, который уже есть у партнёра (например, 1077487999).
   //
   // Именно подтверждение руками, а не трекинг, возвращает товар в остаток: владелец попросила
   // 2026-09-07 добавлять только после того, как сама убедится, что товар доехал — «Вернулся на
@@ -98,7 +99,7 @@ async function computeWarehouseStock(db = pool) {
      JOIN orders o ON o.code = dc.order_number
      JOIN order_items oi ON oi.order_id = o.id
      WHERE dc.stock_returned_at IS NULL
-       AND (dc.tracking_active = true OR dc.tracking_status = 'RETURNED')
+       AND (dc.tracking_active = true OR dc.tracking_status = 'RETURNED' OR dc.wonder_received = true)
        AND o.origin_city IS NOT NULL
        AND o.creation_date >= $1::date
        AND o.was_completed = false

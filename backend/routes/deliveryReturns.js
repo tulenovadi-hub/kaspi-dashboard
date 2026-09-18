@@ -81,7 +81,11 @@ router.get('/', async (req, res) => {
         // полке всё равно нет.
         subtracted_from_stock:
           r.was_completed === true ||
-          (r.stock_returned_at === null && (r.tracking_active === true || r.tracking_status === 'RETURNED')),
+          (r.stock_returned_at === null && (
+            r.tracking_active === true ||
+            r.tracking_status === 'RETURNED' ||
+            r.wonder_received === true
+          )),
         creation_date: r.creation_date,
         days_since: daysSince,
         days_since_last_track: daysSinceLastTrack,

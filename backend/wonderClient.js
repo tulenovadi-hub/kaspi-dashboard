@@ -35,11 +35,26 @@ async function fetchAllWonderOrderCodes() {
 
   const codes = new Set();
   for (const status of STATUSES) {
-    const response = await http.get('/refund-order-groups/seller/', {
-      params: { page: 0, size: 500, status },
-    });
-    for (const item of response.data.content || []) {
-      codes.add(item.order_code);
+    let page = 0;
+    while (true) {
+      const response = await http.get('/refund-order-groups/seller/', {
+        params: { page, size: 500, status },
+      });
+      const content = response.data.content || [];
+      for (const item of content) {
+        if (item.order_code !== null && item.order_code !== undefined) {
+          codes.add(String(item.order_code));
+        }
+      }
+
+      // API Wonder обычно отдаёт last/totalPages. Проверка длины остаётся запасным вариантом,
+      // чтобы не потерять заказы, если формат пагинации изменится.
+      const totalPages = Number(response.data.totalPages);
+      const isLast = response.data.last === true ||
+        (Number.isFinite(totalPages) && page + 1 >= totalPages) ||
+        content.length < 500;
+      if (isLast) break;
+      page += 1;
     }
   }
   return codes;
