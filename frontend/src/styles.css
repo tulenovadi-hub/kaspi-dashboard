@@ -1717,6 +1717,38 @@ input[type="date"] {
   cursor: not-allowed;
 }
 
+/* Номер заказа в любой таблице или мобильной карточке копируется по клику. Пунктирное
+   подчёркивание показывает действие, а галочка после копирования даёт обратную связь и на
+   телефоне, где hover и title не видны. */
+.copy-order-number {
+  border-radius: 4px;
+  cursor: copy;
+  display: inline-block;
+  margin: -2px;
+  padding: 2px;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  touch-action: manipulation;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.copy-order-number:hover,
+.copy-order-number:focus-visible {
+  background: rgba(110, 139, 255, 0.13);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.copy-order-number.is-copied {
+  color: var(--accent-up);
+  text-decoration: none;
+}
+
+.copy-order-number.is-error {
+  color: var(--accent-down);
+}
+
 .secondary-button {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -3791,6 +3823,27 @@ input[type="date"] {
 .ue-save {
   padding: 9px 20px;
   font-size: 13px;
+}
+
+.ue-copy {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 13px;
+  padding: 8px 14px;
+}
+
+.ue-copy:hover:not(:disabled) {
+  border-color: var(--accent-brand);
+  color: var(--text-primary);
+}
+
+.ue-copy:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .ue-add-product {

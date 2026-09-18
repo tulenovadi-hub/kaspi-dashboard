@@ -246,6 +246,7 @@ export default function UnitEconomics({ password, active = true, isOnline = true
   const [productId, setProductId] = useState(() => localStorage.getItem(PRODUCT_KEY) || '');
   const [presets, setPresets] = useState({});
   const [saveState, setSaveState] = useState(''); // '' | 'saving' | 'saved' | текст ошибки
+  const [copying, setCopying] = useState(false);
   // Товары, добавленные вручную: в заказах их ещё нет, поэтому живут только в сохранённых
   // расчётах. Пока расчёт не сохранён — только здесь, в состоянии страницы.
   const [customProducts, setCustomProducts] = useState([]);
@@ -373,10 +374,60 @@ export default function UnitEconomics({ password, active = true, isOnline = true
     setSaveState('saving');
     try {
       const res = await saveUnitEconomicsPreset(password, productId, product ? product.name : null, form);
-      setPresets((prev) => ({ ...prev, [productId]: { form, updatedAt: res.updatedAt } }));
+      // Имя нужно сохранить и в локальном состоянии: у копий и других своих товаров его
+      // нельзя восстановить из продаж до следующей полной загрузки страницы.
+      setPresets((prev) => ({
+        ...prev,
+        [productId]: {
+          form,
+          updatedAt: res.updatedAt,
+          productName: (product && product.name) || (prev[productId] && prev[productId].productName) || null,
+        },
+      }));
       setSaveState('saved');
     } catch (err) {
       setSaveState(err.message);
+    }
+  }
+
+  async function copyPreset() {
+    if (!productId || copying) return;
+
+    const product = allProducts.find((p) => p.productId === productId);
+    const sourceName = (product && product.name) || (presets[productId] && presets[productId].productName) || 'Без названия';
+    // Если копируют уже скопированный расчёт, не наращиваем хвост «копия 1 копия 1».
+    // Берём исходное название и следующий свободный номер среди всех видимых записей.
+    const baseName = sourceName.replace(/\s+копия\s+\d+$/i, '').trim() || 'Без названия';
+    const existingNames = new Set(allProducts.map((p) => String(p.name || '').trim().toLocaleLowerCase('ru-RU')));
+    let copyNumber = 1;
+    while (existingNames.has(`${baseName} копия ${copyNumber}`.toLocaleLowerCase('ru-RU'))) copyNumber += 1;
+
+    const copyName = `${baseName} копия ${copyNumber}`;
+    const copyId = `custom:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // Копируем именно форму на экране, а не последнюю сохранённую версию: так в новую запись
+    // попадут и правки, которые человек успел внести перед нажатием кнопки.
+    const copiedForm = { ...form };
+
+    setCopying(true);
+    setSaveState('');
+    try {
+      const res = await saveUnitEconomicsPreset(password, copyId, copyName, copiedForm);
+      setPresets((prev) => ({
+        ...prev,
+        [copyId]: { form: copiedForm, updatedAt: res.updatedAt, productName: copyName },
+      }));
+      setProductId(copyId);
+      setForm(copiedForm);
+      setSaveState('saved');
+      try {
+        localStorage.setItem(PRODUCT_KEY, copyId);
+      } catch (err) {
+        // приватный режим браузера может запрещать запись
+      }
+    } catch (err) {
+      setSaveState(err.message);
+    } finally {
+      setCopying(false);
     }
   }
 
@@ -524,10 +575,18 @@ export default function UnitEconomics({ password, active = true, isOnline = true
         <button
           className="primary-button ue-save"
           onClick={savePreset}
-          disabled={!productId || saveState === 'saving'}
+          disabled={!productId || saveState === 'saving' || copying}
           title={productId ? '' : 'Сначала выберите товар — расчёт сохраняется для него'}
         >
           {saveState === 'saving' ? 'Сохраняем…' : 'Сохранить'}
+        </button>
+        <button
+          className="ue-copy"
+          onClick={copyPreset}
+          disabled={!productId || saveState === 'saving' || copying}
+          title={productId ? 'Создать отдельную запись со всеми данными этого расчёта' : 'Сначала выберите товар'}
+        >
+          {copying ? 'Создаём копию…' : 'Создать копию'}
         </button>
         <button className="ue-reset" onClick={reset}>Сбросить</button>
         {productId && (presets[productId] || isCustom(productId)) && (

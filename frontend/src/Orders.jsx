@@ -3,6 +3,7 @@ import { fetchOrders, fetchDeliveryAnomalies } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, formatPercent } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
 import OrdersMobile from './OrdersMobile.jsx';
+import CopyableOrderNumber from './CopyableOrderNumber.jsx';
 import { getStatusLabel } from './orderStatus.js';
 import { useIsMobile } from './useIsMobile.js';
 import { useAppRefresh } from './useAppRefresh.js';
@@ -257,7 +258,7 @@ export default function Orders({ password, active = true, isOnline = true }) {
                   {deliveryAnomalies.anomalies.map((a) => (
                     <tr key={`${a.order_number}_${a.product_id}`}>
                       <td>{formatDateDMY(a.date)}</td>
-                      <td className="num">{a.order_number}</td>
+                      <td className="num"><CopyableOrderNumber value={a.order_number} /></td>
                       <td>{a.product_name}</td>
                       <td className="num">{formatNumber(a.quantity)}</td>
                       <td className="num">{formatMoney(a.delivery_cost)}</td>
@@ -428,7 +429,7 @@ export default function Orders({ password, active = true, isOnline = true }) {
                   filtered.map((o) => (
                     <tr key={`${o.order_number}_${o.operation_type}`} className={o.operation_type === 'Возврат' ? 'orders-row-return' : ''}>
                       <td>{formatDateDMY(o.date)}</td>
-                      <td className="num">{o.order_number}</td>
+                      <td className="num"><CopyableOrderNumber value={o.order_number} /></td>
                       <td>{o.product_name}</td>
                       <td>{o.warehouse || '—'}</td>
                       <td className="num">{formatNumber(o.quantity)}</td>

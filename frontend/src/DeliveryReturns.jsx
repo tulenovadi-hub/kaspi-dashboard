@@ -3,6 +3,7 @@ import { fetchDeliveryReturns, syncDeliveryReturns, archiveDeliveryReturn, retur
 import { formatMoney } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
 import DeliveryReturnsMobile from './DeliveryReturnsMobile.jsx';
+import CopyableOrderNumber from './CopyableOrderNumber.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import { useAppRefresh } from './useAppRefresh.js';
 
@@ -220,7 +221,7 @@ function OrdersTable({
           ) : (
             orders.map((o) => (
               <tr key={o.order_number} className={isHighlighted(o) ? 'orders-row-return' : ''}>
-                <td className="num">{o.order_number}</td>
+                <td className="num"><CopyableOrderNumber value={o.order_number} /></td>
                 <td>{formatDate(o.creation_date)}</td>
                 <td>
                   {o.product_names || '—'}

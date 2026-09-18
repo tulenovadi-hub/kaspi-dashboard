@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { formatMoney, formatNumber, formatPercent } from './dateUtils.js';
 import { getStatusLabel } from './orderStatus.js';
+import CopyableOrderNumber from './CopyableOrderNumber.jsx';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
 import { useClosing } from './useClosing.js';
 
@@ -200,7 +201,7 @@ function DeliveryAnomalies({ data, onClose }) {
               0,59× значит, что за доставку списали меньше медианы, и тревожиться не о чем. */}
           <div className={`om-anom-ratio${a.ratio > 1 ? ' om-negative' : ' om-anom-cheap'}`}>{a.ratio.toFixed(2)}×</div>
           <div className="om-anom-meta">
-            {dayTitle(dayKey(a.date)).date} · №&nbsp;{a.order_number} · {formatNumber(a.quantity)} шт
+            {dayTitle(dayKey(a.date)).date} · №&nbsp;<CopyableOrderNumber value={a.order_number} /> · {formatNumber(a.quantity)} шт
           </div>
           <div className="om-anom-meta om-right">
             {formatMoney(a.delivery_cost)} вместо {formatMoney(a.median_per_unit)}
@@ -336,7 +337,7 @@ export default function OrdersMobile({
                     </div>
                     {isOpen && (
                       <div className="om-card-detail">
-                        <div className="om-line"><span>№ заказа</span><span>{o.order_number}</span></div>
+                        <div className="om-line"><span>№ заказа</span><CopyableOrderNumber value={o.order_number} /></div>
                         {/* Ноль в себестоимости — не "бесплатно", а "партия на «Поставках» не найдена",
                             и маржа по такому заказу завышена. Поэтому он подсвечен, а не спрятан. */}
                         <div className="om-line">

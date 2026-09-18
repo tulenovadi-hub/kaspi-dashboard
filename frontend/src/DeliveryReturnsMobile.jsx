@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { formatMoney, formatNumber } from './dateUtils.js';
+import CopyableOrderNumber from './CopyableOrderNumber.jsx';
 
 // Мобильные "Отмены при доставке". На компьютере это таблица на 10 колонок, вторая такая же
 // в архиве и три больших абзаца текста. Владелец выбрала из двух макетов (2026-09-09) вариант
@@ -170,7 +171,7 @@ export default function DeliveryReturnsMobile({
             </div>
 
             <dl className="dm-meta">
-              <dt>№ заказа</dt><dd>{o.order_number}</dd>
+              <dt>№ заказа</dt><dd><CopyableOrderNumber value={o.order_number} /></dd>
               <dt>Создан</dt><dd>{formatDate(o.creation_date)}</dd>
               <dt>Без движения</dt>
               <dd className={o.suspicious ? 'dm-bad' : ''}>
@@ -239,7 +240,7 @@ export default function DeliveryReturnsMobile({
                         <span className="dm-row-name">{o.product_names || 'Товар не указан'}</span>
                         <span className="dm-row-sum">{formatMoney(o.total_price)}</span>
                         <span className="dm-row-meta">
-                          {formatDate(o.creation_date)} · №&nbsp;{o.order_number} ·{' '}
+                          {formatDate(o.creation_date)} · №&nbsp;<CopyableOrderNumber value={o.order_number} /> ·{' '}
                           <i className={isDone(o) ? 'dm-good' : ''}>{statusLabel(o)}</i>
                         </span>
                         <span />
