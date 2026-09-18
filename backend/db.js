@@ -84,6 +84,39 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_batches_product_id ON product_batches(product_id, received_date);`);
 
+  // Контрольные сверки физического остатка с фулфилментом. Это отдельный журнал, а не
+  // «фиктивные поставки»: исходные партии и продажи остаются неизменными, а каждая сверка
+  // хранит расчёт до изменения, фактическое значение партнёра и применённую разницу.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS warehouse_reconciliations (
+      id TEXT PRIMARY KEY,
+      idempotency_key TEXT UNIQUE,
+      source TEXT NOT NULL,
+      source_captured_at TIMESTAMPTZ NOT NULL,
+      note TEXT,
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS warehouse_stock_adjustments (
+      id BIGSERIAL PRIMARY KEY,
+      reconciliation_id TEXT NOT NULL REFERENCES warehouse_reconciliations(id) ON DELETE RESTRICT,
+      product_id TEXT NOT NULL,
+      product_name TEXT,
+      warehouse TEXT NOT NULL,
+      quantity_before INTEGER NOT NULL,
+      target_quantity INTEGER NOT NULL,
+      display_change INTEGER NOT NULL,
+      balance_delta INTEGER NOT NULL,
+      unit_cost NUMERIC,
+      value_delta NUMERIC NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_warehouse_adjustments_product ON warehouse_stock_adjustments(product_id, warehouse, created_at);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_warehouse_adjustments_reconciliation ON warehouse_stock_adjustments(reconciliation_id);`);
+
   // Миграция: раскладываем себестоимость на закупочную цену + логистику, добавляем примечание.
   // Для уже существующих партий закупочная цена = старая себестоимость, логистика = 0.
   await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS purchase_price NUMERIC;`);

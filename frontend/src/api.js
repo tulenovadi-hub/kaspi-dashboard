@@ -315,6 +315,10 @@ export function fetchWarehouse(password) {
   return apiRequest('/api/warehouse', password);
 }
 
+export function fetchWarehouseReconciliations(password) {
+  return apiRequest('/api/warehouse/reconciliations', password);
+}
+
 // "Деньги в товаре": остаток складов по себестоимости + оплаченное по партиям в пути.
 export function fetchInventoryValue(password) {
   return apiRequest('/api/warehouse/inventory-value', password);

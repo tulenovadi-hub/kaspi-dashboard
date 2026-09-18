@@ -1,6 +1,8 @@
 const express = require('express');
+const crypto = require('crypto');
 const { pool } = require('../db');
 const { STOCK_CUTOFF_DATE } = require('../constants');
+const { enqueueKaspiSync } = require('../syncCoordinator');
 
 const router = express.Router();
 
@@ -28,10 +30,10 @@ const { DISPLAY_CITIES: DISPLAY_WAREHOUSES, CITY_ORDER: WAREHOUSE_SORT_ORDER } =
 // remaining здесь — это то, что РЕАЛЬНО ЛЕЖИТ НА ПОЛКЕ: из него вычтено и проданное, и то, что
 // сейчас едет обратно после отмены при доставке (поле returning) — владелец явно попросила
 // 2026-09-07 не показывать в остатке товар, возврат которого ещё не подтверждён.
-async function computeWarehouseStock() {
+async function computeWarehouseStock(db = pool) {
   // Партии со статусом 'in_transit' (заказаны у поставщика, физически ещё не приехали) не входят
   // в реальный остаток склада — они учитываются отдельно на "Закупе" в колонке "В пути".
-  const batchesResult = await pool.query(`
+  const batchesResult = await db.query(`
     SELECT id, product_id, product_name, cost_price, warehouse, quantity, received_date
     FROM product_batches
     WHERE status = 'received'
@@ -41,7 +43,7 @@ async function computeWarehouseStock() {
   // Заказы без origin_city — это самовывоз напрямую у продавца (DELIVERY_PICKUP, не через Kaspi
   // Delivery), Kaspi не присылает по ним точку отгрузки. Владелец подтвердил, что это склад
   // "Юбилейное", который на сайте учитывать не нужно, поэтому такие заказы просто исключаем.
-  const soldResult = await pool.query(
+  const soldResult = await db.query(
     `SELECT oi.product_id, MAX(oi.product_name) AS product_name, o.origin_city AS warehouse,
             SUM(CASE WHEN o.status = ANY($2::text[])
                            OR (o.was_completed = true AND o.status <> ALL($4::text[]))
@@ -89,7 +91,7 @@ async function computeWarehouseStock() {
   // Из выборки исключены заказы, статус которых у нас всё ещё "продажа" (SALE_STATUSES), а
   // также все заказы, которые когда-либо были выданы покупателю. Они уже навсегда списаны
   // выше, и кнопка отмены при доставке не должна суметь вернуть их в доступный остаток.
-  const returningResult = await pool.query(
+  const returningResult = await db.query(
     `SELECT oi.product_id, MAX(oi.product_name) AS product_name, o.origin_city AS warehouse,
             SUM(oi.quantity) AS returning_qty
      FROM delivery_cancellations dc
@@ -197,6 +199,84 @@ async function computeWarehouseStock() {
       oversold_qty: sold.completed + sold.inProgress + sold.customerReturns + returning,
       batches: [],
     });
+  }
+
+  // Отдельный журнал сверок с физическим складом. Корректировки не переписывают партии и
+  // продажи: они сдвигают математический баланс на зафиксированную разницу. Поэтому новый
+  // заказ после сверки по-прежнему уменьшит остаток на одну штуку, а историю можно показать
+  // человеку целиком и при необходимости проверить задним числом.
+  const adjustmentResult = await db.query(`
+    SELECT product_id, product_name, warehouse, balance_delta, value_delta, unit_cost, created_at, id
+    FROM warehouse_stock_adjustments
+    ORDER BY created_at, id
+  `);
+  const adjustments = new Map();
+  for (const row of adjustmentResult.rows) {
+    const key = `${row.product_id}::${row.warehouse}`;
+    const current = adjustments.get(key) || {
+      product_id: row.product_id,
+      product_name: row.product_name,
+      warehouse: row.warehouse,
+      balance: 0,
+      value: 0,
+      latestUnitCost: null,
+    };
+    current.balance += Number(row.balance_delta);
+    current.value += Number(row.value_delta);
+    if (row.product_name) current.product_name = row.product_name;
+    if (row.unit_cost !== null) current.latestUnitCost = Number(row.unit_cost);
+    adjustments.set(key, current);
+  }
+
+  const productByKey = new Map(products.map((p) => [`${p.product_id}::${p.warehouse}`, p]));
+  for (const [key, adjustment] of adjustments) {
+    let product = productByKey.get(key);
+    if (!product) {
+      product = {
+        product_id: adjustment.product_id,
+        product_name: adjustment.product_name || adjustment.product_id,
+        warehouse: adjustment.warehouse,
+        total_supplied: 0,
+        total_sold: 0,
+        in_progress: 0,
+        customer_returns: 0,
+        returning: 0,
+        remaining: 0,
+        remaining_value: 0,
+        current_cost_price: null,
+        oversold_qty: 0,
+        batches: [],
+      };
+      products.push(product);
+      productByKey.set(key, product);
+    }
+
+    // До корректировки отрицательный математический баланс показывался как остаток 0 плюс
+    // предупреждение oversold. Сверка должна обнулить и этот скрытый долг, иначе товар с
+    // фактическим остатком 500 превратился бы в 499 сразу после фиксации.
+    const rawBalance = Number(product.remaining) - Number(product.oversold_qty || 0);
+    const adjustedBalance = rawBalance + adjustment.balance;
+    product.calculated_remaining = Number(product.remaining);
+    product.adjustment_balance = adjustment.balance;
+    product.remaining = Math.max(0, adjustedBalance);
+    product.oversold_qty = Math.max(0, -adjustedBalance);
+
+    if (product.batches.length === 0 && adjustment.latestUnitCost !== null) {
+      // У нового товара партий ещё нет: стоимость контрольного остатка берём из сохранённой
+      // себестоимости самой сверки и дальше уменьшаем вместе с количеством.
+      product.remaining_value = product.remaining * adjustment.latestUnitCost;
+      product.current_cost_price = adjustment.latestUnitCost;
+    } else {
+      product.remaining_value = Math.max(0, Number(product.remaining_value) + adjustment.value);
+      if (product.current_cost_price === null && adjustment.latestUnitCost !== null) {
+        product.current_cost_price = adjustment.latestUnitCost;
+      }
+    }
+  }
+
+  for (const product of products) {
+    if (product.calculated_remaining === undefined) product.calculated_remaining = product.remaining;
+    if (product.adjustment_balance === undefined) product.adjustment_balance = 0;
   }
 
   return products;
@@ -312,6 +392,183 @@ router.get('/inventory-value', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось посчитать стоимость товарных остатков' });
+  }
+});
+
+async function loadReconciliation(id = null, db = pool) {
+  const params = id ? [id] : [];
+  const where = id ? 'WHERE r.id = $1' : '';
+  const result = await db.query(
+    `SELECT r.id, r.idempotency_key, r.source, r.source_captured_at, r.note,
+            r.created_by, r.created_at,
+            a.id AS adjustment_id, a.product_id, a.product_name, a.warehouse,
+            a.quantity_before, a.target_quantity, a.display_change, a.balance_delta,
+            a.unit_cost, a.value_delta
+     FROM warehouse_reconciliations r
+     LEFT JOIN warehouse_stock_adjustments a ON a.reconciliation_id = r.id
+     ${where}
+     ORDER BY r.created_at DESC, a.id`,
+    params
+  );
+
+  const groups = new Map();
+  for (const row of result.rows) {
+    if (!groups.has(row.id)) {
+      groups.set(row.id, {
+        id: row.id,
+        idempotency_key: row.idempotency_key,
+        source: row.source,
+        source_captured_at: row.source_captured_at,
+        note: row.note,
+        created_by: row.created_by,
+        created_at: row.created_at,
+        items: [],
+      });
+    }
+    if (row.adjustment_id !== null) {
+      groups.get(row.id).items.push({
+        id: row.adjustment_id,
+        product_id: row.product_id,
+        product_name: row.product_name,
+        warehouse: row.warehouse,
+        quantity_before: Number(row.quantity_before),
+        target_quantity: Number(row.target_quantity),
+        display_change: Number(row.display_change),
+        balance_delta: Number(row.balance_delta),
+        unit_cost: row.unit_cost === null ? null : Number(row.unit_cost),
+        value_delta: Number(row.value_delta),
+      });
+    }
+  }
+  return [...groups.values()];
+}
+
+// Полная история контрольных точек: что показывал расчёт, что сообщил фулфилмент и какая
+// разница была применена. Доступна на самой странице «Склад» всем вошедшим пользователям.
+router.get('/reconciliations', async (req, res) => {
+  try {
+    res.json({ reconciliations: await loadReconciliation() });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось загрузить историю сверок' });
+  }
+});
+
+// Зафиксировать фактический снимок склада. Выполняется в общей очереди синхронизаций Kaspi:
+// пока считаем «до» и записываем разницу, минутное обновление заказов не сможет вклиниться
+// между этими двумя действиями.
+router.post('/reconcile', async (req, res) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Недостаточно прав для фиксации остатков' });
+  }
+
+  const { source, source_captured_at: capturedAt, note, items, idempotency_key: idempotencyKey } = req.body || {};
+  if (!source || !capturedAt || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Нужны источник, время снимка и список остатков' });
+  }
+  const capturedDate = new Date(capturedAt);
+  if (Number.isNaN(capturedDate.getTime())) {
+    return res.status(400).json({ error: 'Некорректное время снимка' });
+  }
+
+  const seen = new Set();
+  const normalized = [];
+  for (const item of items) {
+    const productId = String(item.product_id || '').trim();
+    const productName = String(item.product_name || productId).trim();
+    const warehouse = String(item.warehouse || '').trim();
+    const target = Number(item.target_quantity);
+    const requestedCost = item.unit_cost === null || item.unit_cost === undefined || item.unit_cost === ''
+      ? null
+      : Number(item.unit_cost);
+    const key = `${productId}::${warehouse}`;
+    if (!productId || !DISPLAY_WAREHOUSES.includes(warehouse) || !Number.isInteger(target) || target < 0) {
+      return res.status(400).json({ error: `Некорректная строка остатка: ${productName || productId}` });
+    }
+    if (requestedCost !== null && (!Number.isFinite(requestedCost) || requestedCost < 0)) {
+      return res.status(400).json({ error: `Некорректная себестоимость: ${productName}` });
+    }
+    if (seen.has(key)) return res.status(400).json({ error: `Товар ${productName} повторяется на складе ${warehouse}` });
+    seen.add(key);
+    normalized.push({ productId, productName, warehouse, target, requestedCost });
+  }
+
+  try {
+    const reconciliation = await enqueueKaspiSync('warehouse-reconciliation', async () => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        if (idempotencyKey) {
+          const existing = await client.query(
+            'SELECT id FROM warehouse_reconciliations WHERE idempotency_key = $1',
+            [String(idempotencyKey)]
+          );
+          if (existing.rowCount > 0) {
+            await client.query('COMMIT');
+            return (await loadReconciliation(existing.rows[0].id))[0];
+          }
+        }
+
+        const currentProducts = await computeWarehouseStock(client);
+        const currentMap = new Map(currentProducts.map((p) => [`${p.product_id}::${p.warehouse}`, p]));
+        const id = crypto.randomUUID();
+        await client.query(
+          `INSERT INTO warehouse_reconciliations
+             (id, idempotency_key, source, source_captured_at, note, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [id, idempotencyKey ? String(idempotencyKey) : null, String(source), capturedDate.toISOString(), note || null, req.user.username || null]
+        );
+
+        for (const item of normalized) {
+          const key = `${item.productId}::${item.warehouse}`;
+          const current = currentMap.get(key);
+          const before = current ? Number(current.remaining) : 0;
+          // remaining уже включает прошлые контрольные точки. oversold_qty хранит скрытую
+          // отрицательную часть математического баланса, которую новая точка тоже сбрасывает.
+          const rawBalance = current ? before - Number(current.oversold_qty || 0) : 0;
+          const displayChange = item.target - before;
+          const balanceDelta = item.target - rawBalance;
+          const unitCost = item.requestedCost !== null
+            ? item.requestedCost
+            : current && current.current_cost_price !== null
+              ? Number(current.current_cost_price)
+              : null;
+          if (item.target > 0 && unitCost === null) {
+            throw new Error(`Для товара «${item.productName}» нужна себестоимость`);
+          }
+          const valueDelta = displayChange * (unitCost || 0);
+
+          await client.query(
+            `INSERT INTO warehouse_stock_adjustments
+               (reconciliation_id, product_id, product_name, warehouse, quantity_before,
+                target_quantity, display_change, balance_delta, unit_cost, value_delta)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [id, item.productId, item.productName, item.warehouse, before, item.target,
+              displayChange, balanceDelta, unitCost, valueDelta]
+          );
+        }
+
+        await client.query('COMMIT');
+        return (await loadReconciliation(id))[0];
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
+
+    res.status(201).json({ ok: true, reconciliation });
+  } catch (err) {
+    console.error(err);
+    if (err.code === '23505' && idempotencyKey) {
+      const existing = await pool.query('SELECT id FROM warehouse_reconciliations WHERE idempotency_key = $1', [String(idempotencyKey)]);
+      if (existing.rowCount > 0) {
+        return res.json({ ok: true, reconciliation: (await loadReconciliation(existing.rows[0].id))[0] });
+      }
+    }
+    res.status(500).json({ error: err.message || 'Не удалось зафиксировать остатки' });
   }
 });
 

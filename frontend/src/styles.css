@@ -2968,6 +2968,74 @@ input[type="date"] {
   background: var(--bg-card-hover);
 }
 
+.warehouse-history {
+  margin-top: 28px;
+}
+
+.warehouse-history-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.warehouse-history-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.warehouse-history-summary::-webkit-details-marker {
+  display: none;
+}
+
+.warehouse-history-summary > span:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.warehouse-history-summary small,
+.warehouse-history-meta,
+.warehouse-history-note {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.warehouse-history-note {
+  padding: 0 20px 14px;
+}
+
+.warehouse-history-table {
+  margin: 0;
+}
+
+.warehouse-history-change.is-up {
+  color: var(--accent-up);
+}
+
+.warehouse-history-change.is-down {
+  color: var(--accent-down);
+}
+
+@media (max-width: 640px) {
+  .warehouse-history-summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .warehouse-history-card .table-scroll {
+    border-top: 1px solid var(--border);
+  }
+
+  .warehouse-history-table {
+    min-width: 650px;
+  }
+}
+
 /* ===== Страница "География" ===== */
 
 /* Ряд переключателей под выбором периода (магазин, режим карты, метрика) — переиспользует

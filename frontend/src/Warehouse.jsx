@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { fetchWarehouse, fetchInventoryValue, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
+import { fetchWarehouse, fetchWarehouseReconciliations, fetchInventoryValue, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
 import WarehouseMobile from './WarehouseMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
@@ -102,6 +102,71 @@ function createEmptyFilters() {
   };
 }
 
+function formatReconciliationTime(value) {
+  if (!value) return '—';
+  return new Date(value).toLocaleString('ru-RU', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function signedQuantity(value) {
+  const number = Number(value) || 0;
+  if (number > 0) return `+${formatNumber(number)}`;
+  if (number < 0) return `−${formatNumber(Math.abs(number))}`;
+  return '0';
+}
+
+function ReconciliationHistory({ reconciliations }) {
+  return (
+    <section className="warehouse-history">
+      <div className="section-title">История сверок остатков</div>
+      {reconciliations.length === 0 ? (
+        <div className="card"><div className="empty-state">Контрольных сверок пока не было</div></div>
+      ) : reconciliations.map((reconciliation, index) => (
+        <details className="card warehouse-history-card" key={reconciliation.id} open={index === 0}>
+          <summary className="warehouse-history-summary">
+            <span>
+              <b>{reconciliation.source}</b>
+              <small>снимок на {formatReconciliationTime(reconciliation.source_captured_at)}</small>
+            </span>
+            <span className="warehouse-history-meta">
+              внесено {formatReconciliationTime(reconciliation.created_at)}
+              {reconciliation.created_by ? ` · ${reconciliation.created_by}` : ''}
+            </span>
+          </summary>
+          {reconciliation.note && <div className="warehouse-history-note">{reconciliation.note}</div>}
+          <div className="table-scroll">
+            <table className="product-table warehouse-history-table">
+              <thead>
+                <tr>
+                  <th>Товар</th>
+                  <th>Склад</th>
+                  <th className="num">Было в расчёте</th>
+                  <th className="num">Факт партнёра</th>
+                  <th className="num">Изменение</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reconciliation.items.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.product_name}</td>
+                    <td>{item.warehouse}</td>
+                    <td className="num">{formatNumber(item.quantity_before)}</td>
+                    <td className="num">{formatNumber(item.target_quantity)}</td>
+                    <td className={`num warehouse-history-change${item.display_change > 0 ? ' is-up' : item.display_change < 0 ? ' is-down' : ''}`}>
+                      {signedQuantity(item.display_change)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ))}
+    </section>
+  );
+}
+
 export default function Warehouse({ password, active = true, isOnline = true }) {
   const [products, setProducts] = useState([]);
   const [images, setImages] = useState({});
@@ -113,6 +178,7 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
   const [filters, setFilters] = useState(createEmptyFilters);
   const [imageBusy, setImageBusy] = useState(null); // product_id, который сейчас загружается/удаляется
   const [inventory, setInventory] = useState(null); // сводка "деньги в товаре" — считается отдельным роутом
+  const [reconciliations, setReconciliations] = useState([]);
 
   // На телефоне вместо широкой таблицы рисуются карточки товаров (WarehouseMobile.jsx):
   // 799px таблицы в 313px экрана не помещаются никаким способом.
@@ -128,6 +194,9 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
     fetchInventoryValue(password)
       .then(setInventory)
       .catch(() => {}); // блок со сводкой — не повод ронять всю страницу
+    fetchWarehouseReconciliations(password)
+      .then((res) => setReconciliations(res.reconciliations || []))
+      .catch(() => {}); // история не должна мешать открыть сам склад
 
     fetchWarehouse(password)
       .then((res) => {
@@ -394,6 +463,8 @@ export default function Warehouse({ password, active = true, isOnline = true }) 
       )}
       </div>
       )}
+
+      <ReconciliationHistory reconciliations={reconciliations} />
 
       <div className="report-note">
         Остаток считается по методу FIFO отдельно для каждого склада, и учитывает только заказы {cutoffDate ? `с ${cutoffDate} и позже` : 'после даты отсечки'} —
