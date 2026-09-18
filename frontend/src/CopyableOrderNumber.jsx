@@ -93,7 +93,7 @@ export default function CopyableOrderNumber({ value, className = '' }) {
       onClick={handleCopy}
       onKeyDown={handleKeyDown}
     >
-      {text}{status === 'copied' ? ' ✓' : status === 'error' ? ' !' : ''}
+      {text}
     </span>
   );
 }
