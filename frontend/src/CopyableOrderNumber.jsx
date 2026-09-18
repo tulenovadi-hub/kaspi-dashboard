@@ -1,26 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-// Сначала используем синхронный copy-event: он не требует выделять текст и поэтому работает
-// даже при глобальном user-select: none. Это важно для установленной на iPhone PWA.
-function copyThroughEvent(value) {
-  let copied = false;
-  const onCopy = (event) => {
-    if (!event.clipboardData) return;
-    event.clipboardData.setData('text/plain', value);
-    event.preventDefault();
-    copied = true;
-  };
-  document.addEventListener('copy', onCopy);
-  try {
-    document.execCommand('copy');
-  } catch (err) {
-    // Если браузер не поддерживает команду без выделения, ниже есть ещё два способа.
-  } finally {
-    document.removeEventListener('copy', onCopy);
-  }
-  return copied;
-}
-
 function copyThroughSelection(value) {
   const previousFocus = document.activeElement;
   const textarea = document.createElement('textarea');
@@ -53,14 +32,28 @@ function copyThroughSelection(value) {
 }
 
 async function copyText(value) {
-  // Оба старых способа вызываются до первого await, пока браузер ещё видит настоящий клик
-  // пользователя. После отклонённого Promise Safari уже может запретить такую попытку.
-  if (copyThroughEvent(value) || copyThroughSelection(value)) return;
-
+  // Вызов Clipboard API и запасной способ запускаем синхронно внутри настоящего клика.
+  // Предыдущий вариант считал один лишь сработавший `copy` event доказательством успеха,
+  // хотя Chrome фактически не менял буфер — поэтому галочка была ложной.
+  let clipboardWrite = null;
   if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
+    try {
+      clipboardWrite = navigator.clipboard.writeText(value);
+    } catch (err) {
+      // В старом браузере остаётся синхронное копирование через временное поле.
+    }
   }
+  const selectionCopied = copyThroughSelection(value);
+
+  if (clipboardWrite) {
+    try {
+      await clipboardWrite;
+      return;
+    } catch (err) {
+      // Если современный API запрещён, принимаем только результат реального execCommand.
+    }
+  }
+  if (selectionCopied) return;
 
   throw new Error('Clipboard copy failed');
 }
