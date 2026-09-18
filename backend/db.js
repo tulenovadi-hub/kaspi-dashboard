@@ -222,6 +222,18 @@ async function initDb() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  await pool.query(`ALTER TABLE quality_return_overrides ADD COLUMN IF NOT EXISTS return_date DATE;`);
+  await pool.query(`ALTER TABLE quality_return_overrides ADD COLUMN IF NOT EXISTS product_name TEXT;`);
+  await pool.query(`ALTER TABLE quality_return_overrides ADD COLUMN IF NOT EXISTS amount NUMERIC;`);
+  await pool.query(`ALTER TABLE quality_return_overrides ADD COLUMN IF NOT EXISTS is_manual BOOLEAN NOT NULL DEFAULT false;`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS quality_metric_snapshot (
+      id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      period_end DATE NOT NULL,
+      issued_orders INTEGER NOT NULL CHECK (issued_orders >= 0),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
 
   // Код товара в общем каталоге Kaspi (не путать с product_id — это код именно вашего
   // предложения). Нужен, чтобы построить ссылку на публичную страницу товара и вытащить оттуда картинку.

@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { fetchQualityReturns, updateQualityReturn } from './api.js';
+import {
+  addQualityReturn,
+  fetchQualityReturns,
+  saveQualityMetricSnapshot,
+  updateQualityReturn,
+} from './api.js';
 import CopyableOrderNumber from './CopyableOrderNumber.jsx';
 import { useAppRefresh } from './useAppRefresh.js';
 
@@ -31,6 +36,13 @@ export default function QualityReturns({ password, active = true, isOnline = tru
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [savingOrder, setSavingOrder] = useState(null);
+  const [showReconcile, setShowReconcile] = useState(false);
+  const [issuedInput, setIssuedInput] = useState('');
+  const [periodEndInput, setPeriodEndInput] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+  const [newReturn, setNewReturn] = useState({
+    order_number: '', return_date: '', product_name: '', amount: '', reason: '',
+  });
   const refreshTick = useAppRefresh(active);
 
   const loadData = useCallback(() => {
@@ -59,6 +71,44 @@ export default function QualityReturns({ password, active = true, isOnline = tru
       .finally(() => setSavingOrder(null));
   }
 
+  function openReconcile() {
+    setIssuedInput(String(data.summary.issued_orders || ''));
+    setPeriodEndInput(data.period.end);
+    setShowReconcile(true);
+  }
+
+  function submitReconcile(event) {
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    saveQualityMetricSnapshot(password, {
+      period_end: periodEndInput,
+      issued_orders: Number(issuedInput),
+    }).then(() => {
+      setShowReconcile(false);
+      loadData();
+    }).catch((err) => {
+      setError(err.message);
+      setLoading(false);
+    });
+  }
+
+  function submitNewReturn(event) {
+    event.preventDefault();
+    setLoading(true);
+    setError('');
+    addQualityReturn(password, { ...newReturn, amount: Number(newReturn.amount || 0) })
+      .then(() => {
+        setShowAdd(false);
+        setNewReturn({ order_number: '', return_date: '', product_name: '', amount: '', reason: '' });
+        loadData();
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }
+
   if (loading && !data) return <div className="empty-state">Считаю возвраты…</div>;
   if (!data) return <div className="error-banner">{error || 'Не удалось загрузить данные'}</div>;
 
@@ -73,12 +123,25 @@ export default function QualityReturns({ password, active = true, isOnline = tru
           <h1 className="app-title">Возвраты</h1>
           <div className="quality-subtitle">Контроль возвратов по качеству по правилам Kaspi</div>
         </div>
-        <button className="sync-button" onClick={loadData} disabled={loading || !isOnline}>
-          {loading ? 'Обновляю…' : 'Обновить'}
-        </button>
+        <div className="quality-header-actions">
+          <button className="sync-button" onClick={openReconcile} disabled={loading || !isOnline}>Сверить с Kaspi</button>
+          <button className="sync-button" onClick={loadData} disabled={loading || !isOnline}>
+            {loading ? 'Обновляю…' : 'Обновить'}
+          </button>
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {showReconcile && (
+        <form className="quality-inline-form" onSubmit={submitReconcile}>
+          <div><label>Последний день периода</label><input type="date" required value={periodEndInput} onChange={(e) => setPeriodEndInput(e.target.value)} /></div>
+          <div><label>Выдано заказов</label><input type="number" min="0" required value={issuedInput} onChange={(e) => setIssuedInput(e.target.value)} /></div>
+          <button className="sync-button" type="submit">Сохранить</button>
+          <button className="sync-button" type="button" onClick={() => setShowReconcile(false)}>Отмена</button>
+          <p>Возьмите дату и число из формулы на странице «Возвраты по качеству» в кабинете Kaspi.</p>
+        </form>
+      )}
 
       {stale && (
         <div className="quality-data-warning">
@@ -148,8 +211,26 @@ export default function QualityReturns({ password, active = true, isOnline = tru
               <h2>Возвраты в расчёте</h2>
               <p>Kaspi Pay не передаёт причину — сверяйте её с кабинетом Kaspi.</p>
             </div>
-            <span>{returns.length}</span>
+            <div className="quality-panel-tools">
+              {data.needs_review > 0 && <em>{data.needs_review} нужно сверить</em>}
+              <button onClick={() => setShowAdd((value) => !value)}>+ Добавить</button>
+              <span>{returns.length}</span>
+            </div>
           </div>
+
+          {showAdd && (
+            <form className="quality-add-form" onSubmit={submitNewReturn}>
+              <input aria-label="Номер заказа" inputMode="numeric" required placeholder="Номер заказа" value={newReturn.order_number} onChange={(e) => setNewReturn((v) => ({ ...v, order_number: e.target.value.replace(/\D/g, '') }))} />
+              <input aria-label="Дата возврата" type="date" required value={newReturn.return_date} onChange={(e) => setNewReturn((v) => ({ ...v, return_date: e.target.value }))} />
+              <input aria-label="Товар" required placeholder="Название товара" value={newReturn.product_name} onChange={(e) => setNewReturn((v) => ({ ...v, product_name: e.target.value }))} />
+              <input aria-label="Сумма возврата" type="number" min="0" placeholder="Сумма, ₸" value={newReturn.amount} onChange={(e) => setNewReturn((v) => ({ ...v, amount: e.target.value }))} />
+              <select aria-label="Причина Kaspi" required value={newReturn.reason} onChange={(e) => setNewReturn((v) => ({ ...v, reason: e.target.value }))}>
+                <option value="">Причина Kaspi</option>
+                {data.rules.reasons.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+              </select>
+              <button className="sync-button" type="submit">Добавить возврат</button>
+            </form>
+          )}
 
           {returns.length === 0 ? (
             <div className="quality-empty">За этот период денежных возвратов нет</div>
@@ -175,11 +256,15 @@ export default function QualityReturns({ password, active = true, isOnline = tru
                       />
                       <span>Учитывается Kaspi</span>
                     </label>
+                    {!item.reviewed && <span className="quality-review-badge">Нужно сверить</span>}
                     <select
                       aria-label={`Причина возврата ${item.order_number}`}
                       value={item.reason || ''}
                       disabled={!item.counts_as_quality || savingOrder === item.order_number}
-                      onChange={(event) => saveReturn(item, { reason: event.target.value || null })}
+                      onChange={(event) => saveReturn(item, {
+                        reason: event.target.value || null,
+                        counts_as_quality: Boolean(event.target.value),
+                      })}
                     >
                       <option value="">Причина не сверена</option>
                       {data.rules.reasons.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
@@ -190,8 +275,8 @@ export default function QualityReturns({ password, active = true, isOnline = tru
             </div>
           )}
           <div className="quality-conservative-note">
-            По умолчанию любой денежный возврат считается влияющим на качество, чтобы не занизить риск.
-            Если в кабинете Kaspi у него другая причина, снимите отметку.
+            Денежный возврат без подтверждённой причины не попадает в показатель. Сверьте его с
+            кабинетом Kaspi и включите только одну из четырёх причин по качеству.
           </div>
         </section>
 
