@@ -14,6 +14,7 @@ import Bonuses from './Bonuses.jsx';
 import { fetchReviewBonusExpenses } from './api.js';
 import Analyst from './Analyst.jsx';
 import DeliveryReturns from './DeliveryReturns.jsx';
+import QualityReturns from './QualityReturns.jsx';
 import Geography from './Geography.jsx';
 import AbcXyz from './AbcXyz.jsx';
 import UnitEconomics from './UnitEconomics.jsx';
@@ -234,6 +235,19 @@ export default function Dashboard({ password, username, role, onLogout }) {
       return (
         <div key={key} className="page-pane" style={style}>
           <DeliveryReturns password={password} active={active} isOnline={isOnline} />
+        </div>
+      );
+    }
+
+    if (key === 'quality_returns') {
+      return (
+        <div key={key} className="page-pane" style={style}>
+          <QualityReturns
+            password={password}
+            active={active}
+            isOnline={isOnline}
+            onOpenReport={() => setView('report')}
+          />
         </div>
       );
     }

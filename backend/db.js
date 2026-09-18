@@ -209,6 +209,20 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_kaspi_pay_date ON kaspi_pay_transactions(operation_date);`);
 
+  // Kaspi Pay показывает факт денежного возврата, но не передаёт через официальный API его
+  // причину. По умолчанию считаем любой возврат влияющим на качество (консервативно, чтобы не
+  // занизить риск), а здесь храним ручную сверку с кабинетом Kaspi: обычный возврат можно
+  // исключить, а для качественного — сохранить точную причину и срок решения.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS quality_return_overrides (
+      order_number TEXT PRIMARY KEY,
+      counts_as_quality BOOLEAN NOT NULL DEFAULT true,
+      reason TEXT,
+      decision_deadline DATE,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
   // Код товара в общем каталоге Kaspi (не путать с product_id — это код именно вашего
   // предложения). Нужен, чтобы построить ссылку на публичную страницу товара и вытащить оттуда картинку.
   await pool.query(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS master_product_code TEXT;`);

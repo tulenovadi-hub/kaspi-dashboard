@@ -73,6 +73,9 @@ const icons = {
   deliveryReturns: (
     <svg viewBox="0 0 20 20" fill="none"><path d="M6 8l-3 2 3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M3 10h8a3 3 0 003-3V6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="14.5" cy="14.5" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M14.5 13v1.5l1 1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
   ),
+  qualityReturns: (
+    <svg viewBox="0 0 20 20" fill="none"><path d="M6.5 5H4a2 2 0 00-2 2v7a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2.5" stroke="currentColor" strokeWidth="1.5"/><path d="M10 2v8m0 0L7 7m3 3l3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.5 13.2l1 1 2-2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+  ),
   // Иконки заголовков разделов
   money: (
     <svg viewBox="0 0 20 20" fill="none"><ellipse cx="10" cy="5.5" rx="6" ry="2.5" stroke="currentColor" strokeWidth="1.5"/><path d="M4 5.5v9c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-9" stroke="currentColor" strokeWidth="1.5"/><path d="M4 10c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5" stroke="currentColor" strokeWidth="1.5"/></svg>
@@ -90,7 +93,7 @@ const icons = {
 
 // Какие пункты меню видит каждая роль
 const ROLE_PAGES = {
-  admin: ['sales', 'report', 'expenses', 'analyst', 'orders', 'selfbuy', 'geography', 'delivery_returns', 'warehouse', 'batches', 'purchasing', 'abc', 'unit_economics', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'settings'],
+  admin: ['sales', 'report', 'expenses', 'analyst', 'orders', 'selfbuy', 'geography', 'delivery_returns', 'quality_returns', 'warehouse', 'batches', 'purchasing', 'abc', 'unit_economics', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews', 'settings'],
   manager: ['sales', 'orders', 'selfbuy', 'warehouse'],
   marketer: ['sales', 'orders', 'selfbuy', 'geography', 'warehouse', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews'],
 };
@@ -121,6 +124,7 @@ const NAV_ITEMS = [
       { key: 'selfbuy', label: 'Самовыкупы', icon: 'selfbuy' },
       { key: 'geography', label: 'География заказов', icon: 'geography' },
       { key: 'delivery_returns', label: 'Отмены при доставке', icon: 'deliveryReturns' },
+      { key: 'quality_returns', label: 'Возвраты', icon: 'qualityReturns' },
     ],
   },
   {

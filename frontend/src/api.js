@@ -281,6 +281,18 @@ export function fetchDeliveryReturns(password) {
   return apiRequest('/api/delivery-returns', password);
 }
 
+export function fetchQualityReturns(password) {
+  return apiRequest('/api/quality-returns', password);
+}
+
+export function updateQualityReturn(password, orderNumber, updates) {
+  return apiRequest(`/api/quality-returns/${encodeURIComponent(orderNumber)}`, password, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+}
+
 // Без номера — полная проверка (минуты). С номером — точечная: заказ достаётся из Kaspi
 // напрямую, минуя окно поиска по дате создания.
 export function syncDeliveryReturns(password, orderNumber) {
