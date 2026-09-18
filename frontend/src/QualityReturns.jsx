@@ -221,7 +221,7 @@ export default function QualityReturns({ password, active = true, isOnline = tru
           {showAdd && (
             <form className="quality-add-form" onSubmit={submitNewReturn}>
               <input aria-label="Номер заказа" inputMode="numeric" required placeholder="Номер заказа" value={newReturn.order_number} onChange={(e) => setNewReturn((v) => ({ ...v, order_number: e.target.value.replace(/\D/g, '') }))} />
-              <input aria-label="Дата возврата" type="date" required value={newReturn.return_date} onChange={(e) => setNewReturn((v) => ({ ...v, return_date: e.target.value }))} />
+              <input aria-label="Дата возврата" type="text" inputMode="numeric" required placeholder="Дата: ГГГГ-ММ-ДД" pattern="\d{4}-\d{2}-\d{2}" value={newReturn.return_date} onChange={(e) => setNewReturn((v) => ({ ...v, return_date: e.target.value }))} />
               <input aria-label="Товар" required placeholder="Название товара" value={newReturn.product_name} onChange={(e) => setNewReturn((v) => ({ ...v, product_name: e.target.value }))} />
               <input aria-label="Сумма возврата" type="number" min="0" placeholder="Сумма, ₸" value={newReturn.amount} onChange={(e) => setNewReturn((v) => ({ ...v, amount: e.target.value }))} />
               <select aria-label="Причина Kaspi" required value={newReturn.reason} onChange={(e) => setNewReturn((v) => ({ ...v, reason: e.target.value }))}>
