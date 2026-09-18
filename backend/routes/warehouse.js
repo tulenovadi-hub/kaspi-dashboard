@@ -231,6 +231,9 @@ async function computeWarehouseStock(db = pool) {
   const productByKey = new Map(products.map((p) => [`${p.product_id}::${p.warehouse}`, p]));
   for (const [key, adjustment] of adjustments) {
     let product = productByKey.get(key);
+    // Нулевая строка нужна в журнале, чтобы снимок был полным (например, Wonder явно показал
+    // 0 в Астане), но отдельную пустую карточку товара на самом «Складе» создавать не надо.
+    if (!product && adjustment.balance === 0 && adjustment.value === 0) continue;
     if (!product) {
       product = {
         product_id: adjustment.product_id,
