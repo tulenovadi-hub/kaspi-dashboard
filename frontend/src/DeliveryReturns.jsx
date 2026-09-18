@@ -75,6 +75,7 @@ function isDone(o) {
 // остатка: так убранная крестиком строка с невернувшимся товаром не остаётся без управления,
 // но 390 архивных строк не покрываются красными кнопками "− из остатка".
 function showStockButton(o, mode) {
+  if (o.was_completed) return false;
   if (!o.in_return_flow) return false;
   return mode === 'archive' ? o.subtracted_from_stock : true;
 }

@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
       `SELECT dc.order_number, dc.creation_date, dc.total_price, dc.cancellation_reason, dc.delivery_mode,
               dc.origin_city, dc.state, dc.status, dc.tracking_status, dc.tracking_active,
               dc.last_track_at, dc.wonder_received, dc.stock_returned_at, dc.archived_at,
-              items.product_names, items.quantity
+              o.was_completed, items.product_names, items.quantity
        FROM delivery_cancellations dc
        LEFT JOIN orders o ON o.code = dc.order_number
        LEFT JOIN LATERAL (
@@ -52,6 +52,7 @@ router.get('/', async (req, res) => {
         product_names: r.product_names,
         quantity: r.quantity === null ? null : Number(r.quantity),
         stock_returned_at: r.stock_returned_at,
+        was_completed: r.was_completed === true,
         archived_at: r.archived_at,
         // Показывать ли заказ в активном списке (иначе он уезжает в "Архив" внизу страницы).
         // Три случая: трекинг говорит, что заказ едет обратно прямо сейчас; Kaspi уже
@@ -76,7 +77,9 @@ router.get('/', async (req, res) => {
         // уехал, товар считается лежащим на складе. От архива это НЕ зависит: если заказ
         // убрали крестиком, не добавив в остаток (например, посылка потерялась), товара на
         // полке всё равно нет.
-        subtracted_from_stock: r.stock_returned_at === null && (r.tracking_active === true || r.tracking_status === 'RETURNED'),
+        subtracted_from_stock:
+          r.was_completed === true ||
+          (r.stock_returned_at === null && (r.tracking_active === true || r.tracking_status === 'RETURNED')),
         creation_date: r.creation_date,
         days_since: daysSince,
         days_since_last_track: daysSinceLastTrack,
@@ -184,6 +187,14 @@ router.post('/sync', async (req, res) => {
 // основной таблице (в архив её убирает только крестик) — чтобы промах можно было тут же отменить.
 router.post('/:orderNumber/return-to-stock', async (req, res) => {
   try {
+    const completed = await pool.query(
+      `SELECT 1 FROM orders WHERE code = $1 AND was_completed = true LIMIT 1`,
+      [req.params.orderNumber]
+    );
+    if (completed.rowCount > 0) {
+      return res.status(409).json({ error: 'Заказ уже был выдан покупателю и не может быть возвращён в доступный остаток' });
+    }
+
     const result = await pool.query(
       `UPDATE delivery_cancellations SET stock_returned_at = now()
        WHERE order_number = $1 AND stock_returned_at IS NULL
