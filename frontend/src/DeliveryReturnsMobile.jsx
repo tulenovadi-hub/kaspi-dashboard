@@ -266,7 +266,7 @@ export default function DeliveryReturnsMobile({
                                 {togglingId === o.order_number ? '…' : '+ в остаток'}
                               </span>
                             )}
-                            {o.archived_at && o.in_return_flow && (
+                            {(
                               <span
                                 className="dm-btn-unarchive"
                                 role="button"

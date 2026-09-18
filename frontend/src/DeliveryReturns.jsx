@@ -88,6 +88,12 @@ function showStockButton(o, mode) {
   return mode === 'archive' ? o.subtracted_from_stock : true;
 }
 
+// Завершённые возвраты сами попадают в архив. Если пользователь явно вернул такой заказ,
+// держим его в основной таблице независимо от технического статуса Kaspi.
+function isInActiveList(o) {
+  return !o.archived_at && (o.in_return_flow || o.restored_from_archive);
+}
+
 function wonderLabel(o) {
   return o.wonder_received === true ? 'Да' : o.wonder_received === false ? 'Нет' : '—';
 }
@@ -262,16 +268,14 @@ function OrdersTable({
                       </button>
                     )}
                     {stockButtonMode === 'archive' ? (
-                      o.archived_at && o.in_return_flow && (
-                        <button
-                          className="dr-unarchive-button"
-                          onClick={() => onUnarchive(o.order_number)}
-                          disabled={unarchivingId === o.order_number}
-                          title="Вернуть заказ из архива в основной список"
-                        >
-                          {unarchivingId === o.order_number ? 'Возвращаю…' : 'Вернуть из архива'}
-                        </button>
-                      )
+                      <button
+                        className="dr-unarchive-button"
+                        onClick={() => onUnarchive(o.order_number)}
+                        disabled={unarchivingId === o.order_number}
+                        title="Вернуть заказ из архива в основной список"
+                      >
+                        {unarchivingId === o.order_number ? 'Возвращаю…' : 'Вернуть из архива'}
+                      </button>
                     ) : (
                       <button
                         className="batch-delete"
@@ -456,8 +460,8 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   // в остаток строку отсюда НЕ убирает (владелец попросила 2026-09-07: "не нужно отправлять из
   // этой таблицы ничего в архив после добавления в остаток") — уводит её только крестик. Всё
   // остальное, включая сотни разрешившихся отмен за всю историю, — в свёрнутом архиве внизу.
-  const activeReturns = useMemo(() => filteredOrders.filter((o) => !o.archived_at && o.in_return_flow), [filteredOrders]);
-  const archivedOrders = useMemo(() => filteredOrders.filter((o) => o.archived_at || !o.in_return_flow), [filteredOrders]);
+  const activeReturns = useMemo(() => filteredOrders.filter(isInActiveList), [filteredOrders]);
+  const archivedOrders = useMemo(() => filteredOrders.filter((o) => !isInActiveList(o)), [filteredOrders]);
 
   const suspiciousCount = orders.filter((o) => o.suspicious).length;
 
@@ -467,7 +471,7 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   // Список активных берётся из orders, а не из filteredOrders: поиск на телефоне относится
   // к архиву, и сужать им карточки "в возврате" нельзя.
   const activeUnfiltered = useMemo(
-    () => orders.filter((o) => !o.archived_at && o.in_return_flow),
+    () => orders.filter(isInActiveList),
     [orders],
   );
   const mobileSubtracted = activeUnfiltered.filter((o) => o.subtracted_from_stock);
@@ -479,7 +483,7 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   // вычтены со "Склада", и это должно быть видно.
   const subtractedOrders = orders.filter((o) => o.subtracted_from_stock);
   const subtractedUnits = subtractedOrders.reduce((sum, o) => sum + Number(o.quantity || 0), 0);
-  const subtractedInArchive = subtractedOrders.filter((o) => o.archived_at).length;
+  const subtractedInArchive = subtractedOrders.filter((o) => !isInActiveList(o)).length;
 
   const tableProps = {
     filters, updateFilter, toggleSetValue, selectAll, selectNone, statusOptions, cityOptions,
