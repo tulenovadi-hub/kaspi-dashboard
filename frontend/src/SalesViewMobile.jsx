@@ -483,8 +483,13 @@ export default function SalesViewMobile({
                     Kaspi Pay подтверждает <b>{forecastBreakdown?.confirmedOrders || 0} из{' '}
                     {forecastBreakdown?.totalOrders || 0} заказов</b> ({Math.round(Number(forecastBreakdown?.coveragePercent) || 0)}%).
                     {Number(forecastBreakdown?.estimatedOrders) > 0 && (
-                      <> Для остальных уже точно учтены себестоимость FIFO, налог и доставка из заказа;
-                        оценивается только комиссия Kaspi. Прибыль подтверждённых заказов до общих
+                      <> Для остальных точно учтены налог и доставка из заказа, себестоимость берётся
+                        по FIFO, а комиссия Kaspi оценивается по истории товара.
+                        {Number(forecastBreakdown?.fallbackCostItems) > 0 && (
+                          <> Для {forecastBreakdown.fallbackCostItems} позиций без связанной партии
+                            себестоимость тоже оценена по истории.</>
+                        )}
+                        {' '}Прибыль подтверждённых заказов до общих
                         расходов: <b>{formatMoney(forecastBreakdown.confirmedOrderProfit)}</b>, оценка
                         остальных: <b>{formatMoney(forecastBreakdown.estimatedOrderProfit)}</b>.</>
                     )}

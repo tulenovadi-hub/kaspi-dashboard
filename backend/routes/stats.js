@@ -276,7 +276,7 @@ function returnProfitImpact({ amount, commissionTotal, deliveryCost }) {
 // Kaspi и редкий запасной вариант для доставки, если API заказа не прислал точную сумму.
 // Медиана защищает от единичных аномальных строк, а маленькая выборка товара плавно
 // подтягивается к среднему магазина, вместо скачка после каждой новой операции.
-async function computeHistoricalExpenseModel(from, to, mode, kptByOrder) {
+async function computeHistoricalExpenseModel(from, to, mode, kptByOrder, costData) {
   const itemsResult = await pool.query(
     `SELECT oi.product_id, oi.quantity, oi.total_price, o.code AS order_number, o.id AS order_id
      FROM order_items oi
@@ -295,6 +295,7 @@ async function computeHistoricalExpenseModel(from, to, mode, kptByOrder) {
 
   const commissionSamples = [];
   const deliverySamples = [];
+  const costRateSamples = [];
   const byProduct = new Map();
 
   for (const it of itemsResult.rows) {
@@ -318,12 +319,19 @@ async function computeHistoricalExpenseModel(from, to, mode, kptByOrder) {
     const commissionRate = clamp(commission / purchaseAmount, 0, 0.5);
     const quantity = Math.max(1, Number(it.quantity) || 1);
     const deliveryPerUnit = clamp(delivery / quantity, 0, 10000);
+    const costKey = `${it.order_number}::${it.product_id}`;
+    const hasKnownCost = Object.prototype.hasOwnProperty.call(costData.costByOrderItem, costKey);
+    const costRate = hasKnownCost
+      ? clamp(Number(costData.costByOrderItem[costKey]) / purchaseAmount, 0, 0.95)
+      : null;
     commissionSamples.push(commissionRate);
     deliverySamples.push(deliveryPerUnit);
+    if (costRate !== null) costRateSamples.push(costRate);
 
-    const stat = byProduct.get(it.product_id) || { commission: [], delivery: [] };
+    const stat = byProduct.get(it.product_id) || { commission: [], delivery: [], costRate: [] };
     stat.commission.push(commissionRate);
     stat.delivery.push(deliveryPerUnit);
+    if (costRate !== null) stat.costRate.push(costRate);
     byProduct.set(it.product_id, stat);
   }
 
@@ -331,6 +339,7 @@ async function computeHistoricalExpenseModel(from, to, mode, kptByOrder) {
   const overallCommissionLow = percentile(commissionSamples, 0.1) ?? overallCommissionRate;
   const overallCommissionHigh = percentile(commissionSamples, 0.9) ?? overallCommissionRate;
   const overallDeliveryPerUnit = median(deliverySamples) || 0;
+  const overallCostRate = median(costRateSamples) || 0;
   const byProductModel = new Map();
   for (const [productId, stat] of byProduct) {
     const sampleSize = stat.commission.length;
@@ -340,6 +349,7 @@ async function computeHistoricalExpenseModel(from, to, mode, kptByOrder) {
     const ownCommissionLow = percentile(stat.commission, 0.1);
     const ownCommissionHigh = percentile(stat.commission, 0.9);
     const ownDelivery = median(stat.delivery);
+    const ownCostRate = median(stat.costRate);
     byProductModel.set(productId, {
       commissionRate:
         (ownCommission === null ? overallCommissionRate : ownCommission * ownWeight + overallCommissionRate * (1 - ownWeight)),
@@ -349,6 +359,8 @@ async function computeHistoricalExpenseModel(from, to, mode, kptByOrder) {
         (ownCommissionHigh === null ? overallCommissionHigh : ownCommissionHigh * ownWeight + overallCommissionHigh * (1 - ownWeight)),
       deliveryPerUnit:
         (ownDelivery === null ? overallDeliveryPerUnit : ownDelivery * ownWeight + overallDeliveryPerUnit * (1 - ownWeight)),
+      costRate:
+        (ownCostRate === null ? overallCostRate : ownCostRate * ownWeight + overallCostRate * (1 - ownWeight)),
       sampleSize,
     });
   }
@@ -358,6 +370,7 @@ async function computeHistoricalExpenseModel(from, to, mode, kptByOrder) {
     overallCommissionLow,
     overallCommissionHigh,
     overallDeliveryPerUnit,
+    overallCostRate,
     byProduct: byProductModel,
   };
 }
@@ -760,7 +773,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   }
 
   const [expenseModel, returnReserveModel] = await Promise.all([
-    computeHistoricalExpenseModel(addDays(to, -90), to, mode, kptByOrder),
+    computeHistoricalExpenseModel(addDays(to, -90), to, mode, kptByOrder, costData),
     computeReturnReserveModel(mode, kptByOrder),
   ]);
 
@@ -819,6 +832,7 @@ async function computeSummaryNetProfit(from, to, mode) {
       commissionLow: expenseModel.overallCommissionLow,
       commissionHigh: expenseModel.overallCommissionHigh,
       deliveryPerUnit: expenseModel.overallDeliveryPerUnit,
+      costRate: expenseModel.overallCostRate,
       sampleSize: 0,
     };
   }
@@ -828,6 +842,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   let commissionDownside = 0;
   let apiDeliveryOrders = 0;
   let fallbackDeliveryOrders = 0;
+  let fallbackCostItems = 0;
   // Прибыль по каждому товару до общих расходов. Ниже маркетинг, операционные расходы и
   // подтверждённые возвраты распределяются пропорционально выручке товара. Резерв будущих
   // возвратов, наоборот, считается непосредственно по ставке каждого товара.
@@ -840,7 +855,10 @@ async function computeSummaryNetProfit(from, to, mode) {
     const orderRevenue = orderRevenueMap.get(it.order_id) || 0;
     const share = orderRevenue > 0 ? revenue / orderRevenue : 0;
     const model = forecastModelForProduct(it.product_id);
-    const cost = costData.costByOrderItem[`${it.order_number}::${it.product_id}`] || 0;
+    const costKey = `${it.order_number}::${it.product_id}`;
+    const hasExactCost = Object.prototype.hasOwnProperty.call(costData.costByOrderItem, costKey);
+    const cost = hasExactCost ? Number(costData.costByOrderItem[costKey]) : revenue * model.costRate;
+    if (!hasExactCost) fallbackCostItems += 1;
     const forecast = forecastUnknownItemProfit({
       revenue,
       cost,
@@ -950,6 +968,7 @@ async function computeSummaryNetProfit(from, to, mode) {
       operatingExpenses: opExpenses,
       apiDeliveryItems: apiDeliveryOrders,
       fallbackDeliveryItems: fallbackDeliveryOrders,
+      fallbackCostItems,
       historicalCommissionRate: expenseModel.overallCommissionRate,
       historicalReturnLossRate: returnReserveModel.overallRate,
     },
