@@ -469,16 +469,19 @@ async function initDb() {
 
   // Исправление 18.09.2026: completionDate у Kaspi есть и у отменённых заказов, поэтому
   // первая версия was_completed ошибочно пометила часть delivery_cancellations как выданные.
-  // Заказ из реестра отмен при доставке, который сейчас не COMPLETED, покупателю не выдавался.
-  // Сбрасываем только эту доказанную группу; обычные покупательские возвраты в реестр отмен не
-  // входят и сохраняют необратимый признак ниже.
+  // Заказ из реестра отмен при доставке со статусом отмены покупателю не выдавался. Проверяем
+  // статус именно в delivery_cancellations: в orders у некоторых таких заказов остался старый
+  // COMPLETED (1077487999), из-за чего скрывалась кнопка «+ в остаток» и искажался склад.
+  // Обычные покупательские возвраты в реестр отмен не входят и сохраняют признак ниже.
   await pool.query(`
     UPDATE orders o
     SET was_completed = false
     WHERE o.was_completed = true
-      AND o.status IS DISTINCT FROM 'COMPLETED'
       AND EXISTS (
-        SELECT 1 FROM delivery_cancellations dc WHERE dc.order_number = o.code
+        SELECT 1
+        FROM delivery_cancellations dc
+        WHERE dc.order_number = o.code
+          AND dc.status IN ('CANCELLING', 'CANCELLED')
       )
   `);
 

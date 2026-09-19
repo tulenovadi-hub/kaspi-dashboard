@@ -53,7 +53,12 @@ router.get('/', async (req, res) => {
         product_names: r.product_names,
         quantity: r.quantity === null ? null : Number(r.quantity),
         stock_returned_at: r.stock_returned_at,
-        was_completed: r.was_completed === true,
+        // Статус отмены в специализированной таблице надёжнее старого was_completed из orders:
+        // 1077487999 был отменён, но в orders сохранился прежний COMPLETED.
+        was_completed:
+          r.was_completed === true &&
+          r.status !== 'CANCELLING' &&
+          r.status !== 'CANCELLED',
         archived_at: r.archived_at,
         restored_from_archive: r.restored_from_archive === true,
         // Показывать ли заказ в активном списке (иначе он уезжает в "Архив" внизу страницы).
@@ -194,7 +199,17 @@ router.post('/sync', async (req, res) => {
 router.post('/:orderNumber/return-to-stock', async (req, res) => {
   try {
     const completed = await pool.query(
-      `SELECT 1 FROM orders WHERE code = $1 AND was_completed = true LIMIT 1`,
+      `SELECT 1
+       FROM orders o
+       WHERE o.code = $1
+         AND o.was_completed = true
+         AND NOT EXISTS (
+           SELECT 1
+           FROM delivery_cancellations dc
+           WHERE dc.order_number = o.code
+             AND dc.status IN ('CANCELLING', 'CANCELLED')
+         )
+       LIMIT 1`,
       [req.params.orderNumber]
     );
     if (completed.rowCount > 0) {

@@ -11,6 +11,7 @@ const SALE_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK'];
 const COMPLETED_STATUSES = ['COMPLETED'];
 const IN_PROGRESS_STATUSES = ['ACCEPTED_BY_MERCHANT', 'APPROVED_BY_BANK'];
 const CUSTOMER_RETURN_STATUSES = ['KASPI_DELIVERY_RETURN_REQUESTED', 'RETURNED'];
+const DELIVERY_CANCELLATION_STATUSES = ['CANCELLING', 'CANCELLED'];
 
 // На "Складе" показываем только склады с display: true в справочнике — самовыкупные
 // (Юбилейное, Талдыкорган, Атырау) сюда не входят, они отслеживаются на других страницах.
@@ -59,8 +60,16 @@ async function computeWarehouseStock(db = pool) {
             OR (o.status = ANY($4::text[]) AND dc.order_number IS NULL))
        AND o.origin_city IS NOT NULL
        AND o.creation_date >= $5::date
+       AND (dc.order_number IS NULL OR dc.status IS NULL OR dc.status <> ALL($6::text[]))
      GROUP BY oi.product_id, o.origin_city`,
-    [SALE_STATUSES, COMPLETED_STATUSES, IN_PROGRESS_STATUSES, CUSTOMER_RETURN_STATUSES, STOCK_CUTOFF_DATE]
+    [
+      SALE_STATUSES,
+      COMPLETED_STATUSES,
+      IN_PROGRESS_STATUSES,
+      CUSTOMER_RETURN_STATUSES,
+      STOCK_CUTOFF_DATE,
+      DELIVERY_CANCELLATION_STATUSES,
+    ]
   );
   const soldMap = new Map(
     soldResult.rows.map((r) => [
@@ -102,10 +111,10 @@ async function computeWarehouseStock(db = pool) {
        AND (dc.tracking_active = true OR dc.tracking_status = 'RETURNED' OR dc.wonder_received = true)
        AND o.origin_city IS NOT NULL
        AND o.creation_date >= $1::date
-       AND o.was_completed = false
-       AND o.status <> ALL($2::text[])
+       AND (o.was_completed = false OR dc.status = ANY($3::text[]))
+       AND (o.status <> ALL($2::text[]) OR dc.status = ANY($3::text[]))
      GROUP BY oi.product_id, o.origin_city`,
-    [STOCK_CUTOFF_DATE, SALE_STATUSES]
+    [STOCK_CUTOFF_DATE, SALE_STATUSES, DELIVERY_CANCELLATION_STATUSES]
   );
   const returningMap = new Map(
     returningResult.rows.map((r) => [`${r.product_id}::${r.warehouse}`, Number(r.returning_qty)])
