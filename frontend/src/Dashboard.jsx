@@ -41,7 +41,7 @@ function readSavedView() {
   }
 }
 
-export default function Dashboard({ password, username, role, onLogout }) {
+export default function Dashboard({ password, username, role, onLogout, onInitialReady }) {
   const allowedPages = ROLE_PAGES[role] || ROLE_PAGES.manager;
   const [view, setView] = useState(readSavedView); // 'sales' | 'report' | 'selfbuy' | 'expenses' | 'batches' | 'warehouse' | 'marketing_ads' | 'marketing_bonuses' | 'marketing_reviews' | 'settings'
   const [collapsed, setCollapsed] = useState(() => sessionStorage.getItem('sidebar_collapsed') === '1');
@@ -54,6 +54,12 @@ export default function Dashboard({ password, username, role, onLogout }) {
   // Защита на случай, если роль не даёт доступа к текущему разделу (например, роль сменили
   // прямо во время работы, или view остался от предыдущей роли) — просто откатываемся на Главную.
   const safeView = allowedPages.includes(view) ? view : 'sales';
+
+  // Если сессия восстановилась на другом разделе, глобальную стартовую заставку не держим:
+  // требование дождаться всех показателей и графиков относится к старту Главной.
+  useEffect(() => {
+    if (safeView !== 'sales') onInitialReady?.();
+  }, [safeView, onInitialReady]);
 
   // Раньше renderContent() каждый раз возвращал только ТЕКУЩИЙ раздел — при переходе на другую
   // страницу и возврате обратно React видел в этом месте дерева совсем другой компонент и полностью
@@ -287,6 +293,7 @@ export default function Dashboard({ password, username, role, onLogout }) {
           showSync
           active={active}
           isOnline={isOnline}
+          onInitialReady={onInitialReady}
         />
       </div>
     );

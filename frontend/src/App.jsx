@@ -11,9 +11,22 @@ function loadSession() {
   return null;
 }
 
+function BootLoader() {
+  return (
+    <div className="boot-loader-fallback" role="status" aria-live="polite">
+      <div className="boot-spinner" />
+      <div>
+        <div className="boot-label">Sabr🤌🏻</div>
+        <div className="boot-sublabel">Идёт загрузка...</div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState(loadSession);
   const [checking, setChecking] = useState(Boolean(loadSession()));
+  const [dashboardReady, setDashboardReady] = useState(false);
 
   useEffect(() => {
     const existing = loadSession();
@@ -50,6 +63,7 @@ export default function App() {
     localStorage.setItem('auth_token', token);
     localStorage.setItem('auth_username', username);
     localStorage.setItem('auth_role', role);
+    setDashboardReady(false);
     setSession({ token, username, role });
   }
 
@@ -58,6 +72,7 @@ export default function App() {
       apiLogout(session.token).catch(() => {});
     }
     clearSession();
+    setDashboardReady(false);
     setSession(null);
   }
 
@@ -66,15 +81,7 @@ export default function App() {
     // долгой паузы просыпается по 10-30 секунд) это превращалось в пустой тёмный экран без
     // всякой обратной связи. Показываем тот же спиннер, что и на самом первом экране загрузки
     // (до подключения React), чтобы не было ощущения, что сайт завис.
-    return (
-      <div className="boot-loader-fallback">
-        <div className="boot-spinner" />
-        <div>
-          <div className="boot-label">Sabr🤌🏻</div>
-          <div className="boot-sublabel">Идёт загрузка...</div>
-        </div>
-      </div>
-    );
+    return <BootLoader />;
   }
 
   if (!session) {
@@ -82,11 +89,15 @@ export default function App() {
   }
 
   return (
-    <Dashboard
-      password={session.token}
-      username={session.username}
-      role={session.role}
-      onLogout={handleLogout}
-    />
+    <>
+      <Dashboard
+        password={session.token}
+        username={session.username}
+        role={session.role}
+        onLogout={handleLogout}
+        onInitialReady={() => setDashboardReady(true)}
+      />
+      {!dashboardReady && <BootLoader />}
+    </>
   );
 }

@@ -10,7 +10,9 @@ import { useIsMobile } from './useIsMobile.js';
 import { useAppRefresh } from './useAppRefresh.js';
 import Odometer from './Odometer.jsx';
 
-export default function SalesView({ password, onLogout, mode, title, showSync, active = true, isOnline = true }) {
+export default function SalesView({
+  password, onLogout, mode, title, showSync, active = true, isOnline = true, onInitialReady,
+}) {
   const [from, setFrom] = useState(toISODate(startOfMonth()));
   const [to, setTo] = useState(toISODate(daysAgo(0)));
   const [presetKey, setPresetKey] = useState('month');
@@ -58,6 +60,8 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   // Те же деньги в разбивке по товарам (сумма равна total) — набор товаров тут свой: не те,
   // что продавались в периоде, а те, в которых сейчас лежат деньги.
   const [inventoryProducts, setInventoryProducts] = useState([]);
+  const [inventoryLoaded, setInventoryLoaded] = useState(mode === 'selfbuy');
+  const initialReadySentRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -162,14 +166,38 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   }
 
   function loadInventory() {
-    if (mode === 'selfbuy') return Promise.resolve();
+    if (mode === 'selfbuy') {
+      setInventoryLoaded(true);
+      return Promise.resolve();
+    }
+    setInventoryLoaded(false);
     return fetchInventoryValue(password)
       .then((res) => {
         setInventoryTotal(res.total);
         setInventoryProducts(Array.isArray(res.by_product) ? res.by_product : []);
       })
-      .catch(() => {}); // плитка необязательная — молча прячем, если не посчиталось
+      .catch(() => {}) // плитка необязательная — молча прячем, если не посчиталось
+      .finally(() => setInventoryLoaded(true));
   }
+
+  // Заставка приложения остаётся поверх Dashboard до завершения обоих стартовых запросов.
+  // Два кадра дают React применить данные, а SVG-графикам — получить окончательные размеры.
+  // При ошибке loading тоже станет false: тогда заставка уйдёт и будет виден баннер ошибки,
+  // а не бесконечный спиннер.
+  useEffect(() => {
+    if (!active || loading || !inventoryLoaded || initialReadySentRef.current) return undefined;
+    let secondFrame = null;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        initialReadySentRef.current = true;
+        onInitialReady?.();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+    };
+  }, [active, loading, inventoryLoaded, onInitialReady]);
 
   // active в зависимостях — не только реагируем на смену периода, но и перепроверяем данные
   // каждый раз, когда пользователь возвращается на этот раздел (страницы не размонтируются
@@ -343,7 +371,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
       <>
         {error && <div className="error-banner">{error}</div>}
         {loading && summaryDays.length === 0 && products.length === 0 ? (
-          <div className="empty-state">Загрузка данных...</div>
+          null
         ) : (
           <div style={{
             opacity: loading || !isOnline ? 0.55 : 1,
@@ -427,8 +455,7 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
       {error && <div className="error-banner">{error}</div>}
 
       {loading && summaryDays.length === 0 && products.length === 0 ? (
-        // Самая первая загрузка страницы — данных ещё вообще никаких нет, показать нечего
-        <div className="empty-state">Загрузка данных...</div>
+        null
       ) : (
         <div
           style={{
