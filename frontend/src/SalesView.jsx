@@ -487,7 +487,9 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
                 <> Для остальных точно учтены налог и доставка из заказа, себестоимость берётся по FIFO,
                   а комиссия Kaspi оценивается по истории товара.
                   {Number(forecastBreakdown?.fallbackCostItems) > 0 && (
-                    <> Для {forecastBreakdown.fallbackCostItems} позиций без связанной партии себестоимость тоже оценена по истории.</>
+                    <> Для {forecastBreakdown.fallbackCostItems}{' '}
+                      {Number(forecastBreakdown.fallbackCostItems) === 1 ? 'позиции' : 'позиций'} без связанной партии
+                      себестоимость тоже оценена по истории.</>
                   )}
                   {' '}Прибыль подтверждённых заказов до общих расходов:{' '}
                   {formatMoney(forecastBreakdown.confirmedOrderProfit)}, оценка остальных:{' '}
