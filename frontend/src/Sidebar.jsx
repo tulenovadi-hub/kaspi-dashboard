@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useClosing } from './useClosing.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
 
@@ -170,6 +170,12 @@ for (const item of NAV_ITEMS) {
 // меню руками — бессмысленно). В хранилище лежит только то, что явно свернули;
 // отсутствие ключа = раздел раскрыт.
 const GROUPS_KEY = 'sidebar_groups';
+// Мобильное меню открывается жестом от левого края. Узкая стартовая зона важна: на страницах
+// есть горизонтальные графики, таблицы и полосы фильтров, и обычный свайп по ним не должен
+// внезапно показывать меню. Само открытие запускаем после достаточно явного движения вправо.
+const MENU_SWIPE_EDGE = 36;
+const MENU_SWIPE_SLOP = 10;
+const MENU_SWIPE_DISTANCE = 56;
 
 function readOpenGroups() {
   try {
@@ -281,6 +287,7 @@ function NavList({ view, onSelect, collapsed, role, openGroups, onToggleGroup })
 export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, onLogout, role }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState(readOpenGroups);
+  const menuSwipe = useRef(null);
 
   // Если активная страница оказалась внутри свёрнутого раздела (например, переход
   // «Закуп → Поставки» кнопкой на самой странице), раскрываем раздел, чтобы было видно,
@@ -308,6 +315,80 @@ export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, o
   // Меню уезжает влево, а не исчезает мгновенно (см. .mobile-menu-overlay.is-closing).
   // Выбор пункта закрывает его так же: страница успевает смениться, пока панель уходит.
   const { closing: menuClosing, close: closeMenu } = useClosing(() => setMobileOpen(false), 200);
+
+  // Свайп вправо от левого края открывает меню на любой странице мобильной версии.
+  // Сначала определяем направление и только после этого гасим нативный жест браузера:
+  // вертикальная прокрутка и «потяни вниз, чтобы обновить» продолжают работать как раньше.
+  useEffect(() => {
+    function resetSwipe() {
+      menuSwipe.current = null;
+    }
+
+    function onTouchStart(event) {
+      const touch = event.touches[0];
+      const mobile = window.matchMedia('(max-width: 780px)').matches;
+      const pageLocked = document.body.style.position === 'fixed';
+      const booting = Boolean(document.querySelector('.boot-loader-fallback'));
+
+      if (
+        mobileOpen
+        || menuClosing
+        || !mobile
+        || pageLocked
+        || booting
+        || event.touches.length !== 1
+        || !touch
+        || touch.clientX > MENU_SWIPE_EDGE
+      ) {
+        resetSwipe();
+        return;
+      }
+
+      menuSwipe.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        horizontal: false,
+      };
+    }
+
+    function onTouchMove(event) {
+      const gesture = menuSwipe.current;
+      const touch = event.touches[0];
+      if (!gesture || event.touches.length !== 1 || !touch) return;
+
+      const dx = touch.clientX - gesture.x;
+      const dy = touch.clientY - gesture.y;
+
+      if (!gesture.horizontal) {
+        if (Math.abs(dx) < MENU_SWIPE_SLOP && Math.abs(dy) < MENU_SWIPE_SLOP) return;
+
+        // Влево или преимущественно по вертикали — это не жест меню. После такого решения
+        // текущую последовательность касаний уже не перехватываем.
+        if (dx <= 0 || Math.abs(dx) <= Math.abs(dy) * 1.15) {
+          resetSwipe();
+          return;
+        }
+        gesture.horizontal = true;
+      }
+
+      if (event.cancelable) event.preventDefault();
+      if (dx >= MENU_SWIPE_DISTANCE) {
+        resetSwipe();
+        setMobileOpen(true);
+      }
+    }
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', resetSwipe, { passive: true });
+    window.addEventListener('touchcancel', resetSwipe, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', resetSwipe);
+      window.removeEventListener('touchcancel', resetSwipe);
+    };
+  }, [mobileOpen, menuClosing]);
 
   // Под открытым меню страница не прокручивается — и, главное, не срабатывает «потяни вниз,
   // чтобы обновить»: владелец 2026-09-10 показала скриншот, где поверх открытого меню висит
@@ -348,7 +429,12 @@ export default function Sidebar({ view, onSelect, collapsed, onToggleCollapse, o
 
       {/* ===== Мобильный: верхняя панель с гамбургером ===== */}
       <div className="mobile-topbar">
-        <button className="mobile-menu-btn" onClick={() => setMobileOpen(true)} aria-label="Открыть меню">
+        <button
+          className="mobile-menu-btn"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Открыть меню"
+          aria-expanded={mobileOpen}
+        >
           {icons.burger}
         </button>
         <div className="mobile-topbar-title">{PAGE_LABELS[view] || 'Kaspi Dashboard'}</div>
