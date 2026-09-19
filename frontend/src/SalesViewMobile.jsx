@@ -236,7 +236,8 @@ export function SalesPeriodControls({ from, to, presetKey, onPeriodChange, onCus
 export default function SalesViewMobile({
   days, profitDays, products, todayRevenue, yesterdayRevenue, prevTotals,
   totalRevenue, totalOrders, avgOrder, avgOrdersPerDay, periodNetProfit, profitProducts,
-  inventoryTotal, inventoryProducts, usedEstimate, usedMarketingEstimate, confirmedReturns, showMarketingNote,
+  inventoryTotal, inventoryProducts, usedEstimate, usedMarketingEstimate, confirmedReturns,
+  confirmedReturnImpact, forecastBreakdown, showMarketingNote,
   from, to, presetKey, onPeriodChange, onCustomDates,
   showSync, syncing, onSync, syncResult, onSelectProduct,
 }) {
@@ -479,8 +480,20 @@ export default function SalesViewMobile({
               <div className="svm-notes">
                 {usedEstimate && (
                   <p>
-                    По части заказов ещё не загружен свежий Excel-отчёт Kaspi Pay — их чистая прибыль
-                    оценена примерно, по среднему проценту прибыли уже посчитанных заказов с тем же товаром.
+                    Kaspi Pay подтверждает <b>{forecastBreakdown?.confirmedOrders || 0} из{' '}
+                    {forecastBreakdown?.totalOrders || 0} заказов</b> ({Math.round(Number(forecastBreakdown?.coveragePercent) || 0)}%).
+                    {Number(forecastBreakdown?.estimatedOrders) > 0 && (
+                      <> Для остальных уже точно учтены себестоимость FIFO, налог и доставка из заказа;
+                        оценивается только комиссия Kaspi. Прибыль подтверждённых заказов до общих
+                        расходов: <b>{formatMoney(forecastBreakdown.confirmedOrderProfit)}</b>, оценка
+                        остальных: <b>{formatMoney(forecastBreakdown.estimatedOrderProfit)}</b>.</>
+                    )}
+                    {Number(forecastBreakdown?.expectedReturnReserve) > 0 && (
+                      <> Резерв возможных возвратов: <b>{formatMoney(forecastBreakdown.expectedReturnReserve)}</b>.</>
+                    )}
+                    {Number(forecastBreakdown?.forecastHigh) > Number(forecastBreakdown?.forecastLow) && (
+                      <> Ожидаемый диапазон итоговой прибыли: <b>{formatMoney(forecastBreakdown.forecastLow)}–{formatMoney(forecastBreakdown.forecastHigh)}</b>.</>
+                    )}
                   </p>
                 )}
                 {usedMarketingEstimate && (
@@ -492,9 +505,9 @@ export default function SalesViewMobile({
                 )}
                 {confirmedReturns > 0 && (
                   <p>
-                    Из чистой прибыли вычтены подтверждённые возвраты из загруженного отчёта
-                    Kaspi Pay: {formatMoney(confirmedReturns)}. Будущие возвраты по заказам в пути
-                    не прогнозируются.
+                    Подтверждённые возвраты Kaspi Pay: {formatMoney(confirmedReturns)}. Их чистое
+                    влияние после возврата комиссии, корректировки доставки и налога:{' '}
+                    <b>−{formatMoney(confirmedReturnImpact)}</b>.
                   </p>
                 )}
                 {showMarketingNote && (

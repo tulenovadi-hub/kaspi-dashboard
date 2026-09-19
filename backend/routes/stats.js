@@ -145,30 +145,40 @@ async function computeCostsByOrderItem(mode) {
   }
 
   const soldResult = await pool.query(
-    `WITH kpt_agg AS (
-       SELECT order_number, operation_type, MIN(operation_date) AS operation_date
-       FROM kaspi_pay_transactions
-       WHERE operation_type IN ('Покупка', 'Возврат')
-       GROUP BY order_number, operation_type
+    `WITH relevant_orders AS (
+       -- Сохраняем прежнюю FIFO-историю по всем покупкам Kaspi Pay, включая заказы,
+       -- которые позднее стали возвратами. Плюс добавляем свежие активные заказы, которых
+       -- ещё нет в Excel: их себестоимость уже известна и не должна прогнозироваться маржой.
+       SELECT o.id, o.code AS order_number, o.origin_city AS warehouse, o.creation_date,
+              CASE WHEN EXISTS (
+                SELECT 1 FROM kaspi_pay_transactions kpt
+                WHERE kpt.order_number = o.code AND kpt.operation_type = 'Покупка'
+              ) THEN true ELSE false END AS has_purchase
+       FROM orders o
+       WHERE o.origin_city = ANY($1::text[])
+         AND (
+           o.status IN ('ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK')
+           OR EXISTS (
+             SELECT 1 FROM kaspi_pay_transactions kpt
+             WHERE kpt.order_number = o.code AND kpt.operation_type = 'Покупка'
+           )
+         )
      )
-     SELECT oi.product_id, o.origin_city AS warehouse, oi.quantity, ka.order_number, ka.operation_type,
-            o.creation_date
-     FROM kpt_agg ka
-     JOIN orders o ON o.code = ka.order_number
-     JOIN order_items oi ON oi.order_id = o.id
-     WHERE o.origin_city = ANY($1::text[])
-     ORDER BY o.origin_city, o.creation_date ASC`,
+     SELECT oi.product_id, ro.warehouse, oi.quantity, ro.order_number, ro.has_purchase,
+            ro.creation_date
+     FROM relevant_orders ro
+     JOIN order_items oi ON oi.order_id = ro.id
+     ORDER BY ro.warehouse, ro.creation_date ASC`,
     [citiesFor(mode)]
   );
 
   // "order_number::product_id" -> себестоимость (только по операциям "Покупка" —
   // себестоимость возврата, как и везде в приложении, не вычитается из прибыли).
   const costByOrderItem = {};
-  const knownOrders = new Set(); // заказы, по которым вообще есть хоть какие-то данные из Excel-отчёта
+  const knownOrders = new Set(); // заказы, по которым есть покупка в Excel-отчёте
 
   for (const row of soldResult.rows) {
-    knownOrders.add(row.order_number);
-    if (row.operation_type === 'Возврат') continue;
+    if (row.has_purchase) knownOrders.add(row.order_number);
 
     const key = `${row.product_id}::${row.warehouse}`;
     const itemKey = `${row.order_number}::${row.product_id}`;
@@ -210,15 +220,65 @@ function addDays(dateStr, days) {
   return d.toISOString().slice(0, 10);
 }
 
-// Считает % чистой прибыли от выручки по уже известным (есть в Excel-отчёте) продажам за
-// произвольное окно дат: и общий по магазину, и ОТДЕЛЬНО ПО КАЖДОМУ ТОВАРУ. Используется как
-// запасной вариант, когда в самом запрошенном периоде известных продаж по товару нет
-// (см. computeSummaryNetProfit). kptByOrder и costData переиспользуются из основного расчёта —
-// они и так покрывают всю историю, а не только период, так что дополнительно запрашивать их
-// снова не нужно, только order_items за новое окно дат.
-async function computeKnownProfitRatio(from, to, mode, kptByOrder, costData) {
+function median(values) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+}
+
+function percentile(values, fraction) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = (sorted.length - 1) * fraction;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function parseOptionalMoney(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(String(value).replace(/\s/g, '').replace(',', '.'));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function forecastUnknownItemProfit({
+  revenue, cost, commissionRate, apiDeliveryCost, orderShare, deliveryPerUnit, quantity,
+}) {
+  const exactDelivery = parseOptionalMoney(apiDeliveryCost);
+  const commission = revenue * commissionRate;
+  const delivery = exactDelivery === null
+    ? deliveryPerUnit * Math.max(1, Number(quantity) || 1)
+    : exactDelivery * orderShare;
+  const taxes = revenue > 0 ? revenue * TAX_RATE : 0;
+  return {
+    profit: revenue - cost - commission - delivery - taxes,
+    commission,
+    delivery,
+    usedApiDelivery: exactDelivery !== null,
+  };
+}
+
+function returnProfitImpact({ amount, commissionTotal, deliveryCost }) {
+  const profitDelta = amount + commissionTotal + deliveryCost + (-amount * TAX_RATE);
+  return Math.max(0, -profitDelta);
+}
+
+// Устойчивый прогноз расходов свежего заказа. Не прогнозируем всю прибыль одной средней
+// маржой: себестоимость, налог и доставка уже известны. Из истории нужны только комиссия
+// Kaspi и редкий запасной вариант для доставки, если API заказа не прислал точную сумму.
+// Медиана защищает от единичных аномальных строк, а маленькая выборка товара плавно
+// подтягивается к среднему магазина, вместо скачка после каждой новой операции.
+async function computeHistoricalExpenseModel(from, to, mode, kptByOrder) {
   const itemsResult = await pool.query(
-    `SELECT oi.product_id, oi.total_price, o.code AS order_number, o.id AS order_id
+    `SELECT oi.product_id, oi.quantity, oi.total_price, o.code AS order_number, o.id AS order_id
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
      WHERE oi.creation_date >= $1::timestamp - interval '5 hours'
@@ -233,54 +293,138 @@ async function computeKnownProfitRatio(from, to, mode, kptByOrder, costData) {
     orderRevenueMap.set(it.order_id, (orderRevenueMap.get(it.order_id) || 0) + Number(it.total_price));
   }
 
-  let knownNetProfit = 0;
-  let knownNetRevenue = 0;
-  const byProduct = new Map(); // product_id -> { revenue, profit }
+  const commissionSamples = [];
+  const deliverySamples = [];
+  const byProduct = new Map();
 
   for (const it of itemsResult.rows) {
     const kptRows = kptByOrder.get(it.order_number);
-    const hasPurchase = kptRows && kptRows.some((r) => r.operation_type === 'Покупка');
-    if (!hasPurchase) continue;
+    const purchases = (kptRows || []).filter((r) => r.operation_type === 'Покупка');
+    if (purchases.length === 0) continue;
 
     const orderRevenue = orderRevenueMap.get(it.order_id) || 0;
     const share = orderRevenue > 0 ? Number(it.total_price) / orderRevenue : 0;
-
-    let purchases = 0;
+    let purchaseAmount = 0;
     let commission = 0;
     let delivery = 0;
-    for (const row of kptRows) {
-      // Возвраты не включаем в коэффициент для будущих заказов: владелец решила не
-      // прогнозировать их вероятность. Уже подтверждённые возвраты вычитаются отдельно
-      // по фактическим строкам Excel в fetchConfirmedReturnsByDay().
-      if (row.operation_type === 'Возврат') continue;
+    for (const row of purchases) {
       const allocatedAmount = Number(row.amount) * share;
       commission += -Number(row.commission_total) * share;
       delivery += -Number(row.delivery_cost) * share;
-      purchases += allocatedAmount;
+      purchaseAmount += allocatedAmount;
     }
+    if (purchaseAmount <= 0) continue;
 
-    const netRevenueItem = purchases;
-    const cost = costData.costByOrderItem[`${it.order_number}::${it.product_id}`] || 0;
-    const taxes = netRevenueItem > 0 ? netRevenueItem * TAX_RATE : 0;
-    const profitItem = netRevenueItem - cost - commission - delivery - taxes;
-    knownNetProfit += profitItem;
-    knownNetRevenue += netRevenueItem;
+    const commissionRate = clamp(commission / purchaseAmount, 0, 0.5);
+    const quantity = Math.max(1, Number(it.quantity) || 1);
+    const deliveryPerUnit = clamp(delivery / quantity, 0, 10000);
+    commissionSamples.push(commissionRate);
+    deliverySamples.push(deliveryPerUnit);
 
-    const stat = byProduct.get(it.product_id) || { revenue: 0, profit: 0 };
-    stat.revenue += netRevenueItem;
-    stat.profit += profitItem;
+    const stat = byProduct.get(it.product_id) || { commission: [], delivery: [] };
+    stat.commission.push(commissionRate);
+    stat.delivery.push(deliveryPerUnit);
     byProduct.set(it.product_id, stat);
   }
 
-  const ratioByProduct = new Map();
+  const overallCommissionRate = median(commissionSamples) || 0;
+  const overallCommissionLow = percentile(commissionSamples, 0.1) ?? overallCommissionRate;
+  const overallCommissionHigh = percentile(commissionSamples, 0.9) ?? overallCommissionRate;
+  const overallDeliveryPerUnit = median(deliverySamples) || 0;
+  const byProductModel = new Map();
   for (const [productId, stat] of byProduct) {
-    if (stat.revenue > 0) ratioByProduct.set(productId, stat.profit / stat.revenue);
+    const sampleSize = stat.commission.length;
+    // До 12 наблюдений собственную медиану считаем ещё шумной и смешиваем с магазином.
+    const ownWeight = Math.min(1, sampleSize / 12);
+    const ownCommission = median(stat.commission);
+    const ownCommissionLow = percentile(stat.commission, 0.1);
+    const ownCommissionHigh = percentile(stat.commission, 0.9);
+    const ownDelivery = median(stat.delivery);
+    byProductModel.set(productId, {
+      commissionRate:
+        (ownCommission === null ? overallCommissionRate : ownCommission * ownWeight + overallCommissionRate * (1 - ownWeight)),
+      commissionLow:
+        (ownCommissionLow === null ? overallCommissionLow : ownCommissionLow * ownWeight + overallCommissionLow * (1 - ownWeight)),
+      commissionHigh:
+        (ownCommissionHigh === null ? overallCommissionHigh : ownCommissionHigh * ownWeight + overallCommissionHigh * (1 - ownWeight)),
+      deliveryPerUnit:
+        (ownDelivery === null ? overallDeliveryPerUnit : ownDelivery * ownWeight + overallDeliveryPerUnit * (1 - ownWeight)),
+      sampleSize,
+    });
   }
 
   return {
-    ratio: knownNetRevenue > 0 ? knownNetProfit / knownNetRevenue : null,
-    ratioByProduct,
+    overallCommissionRate,
+    overallCommissionLow,
+    overallCommissionHigh,
+    overallDeliveryPerUnit,
+    byProduct: byProductModel,
   };
+}
+
+// Оценка будущих возвратов по "созревшим" заказам: берём продажи 45–180 дней назад, чтобы у
+// покупателя уже было время оформить возврат. Считается не просто сумма возврата, а его чистое
+// влияние на прибыль с учётом возврата комиссии/доставки и уменьшения налога. Товарная ставка
+// сглаживается к общей по магазину, поэтому один возврат не делает редкий SKU убыточным навсегда.
+async function computeReturnReserveModel(mode, kptByOrder) {
+  const today = todayAlmaty();
+  const historyFrom = addDays(today, -180);
+  const historyTo = addDays(today, -45);
+  const itemsResult = await pool.query(
+    `SELECT oi.product_id, oi.total_price, o.code AS order_number, o.id AS order_id
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     WHERE oi.creation_date >= $1::timestamp - interval '5 hours'
+       AND oi.creation_date < $2::timestamp - interval '5 hours' + interval '1 day'
+       AND o.origin_city = ANY($3::text[])`,
+    [historyFrom, historyTo, citiesFor(mode)]
+  );
+
+  const orderRevenue = new Map();
+  for (const it of itemsResult.rows) {
+    orderRevenue.set(it.order_id, (orderRevenue.get(it.order_id) || 0) + Number(it.total_price));
+  }
+
+  let overallRevenue = 0;
+  let overallLoss = 0;
+  const byProduct = new Map();
+  for (const it of itemsResult.rows) {
+    const rows = kptByOrder.get(it.order_number) || [];
+    const purchases = rows.filter((r) => r.operation_type === 'Покупка');
+    if (purchases.length === 0) continue;
+    const total = orderRevenue.get(it.order_id) || 0;
+    const share = total > 0 ? Number(it.total_price) / total : 0;
+    const purchaseRevenue = purchases.reduce((sum, row) => sum + Number(row.amount) * share, 0);
+    if (purchaseRevenue <= 0) continue;
+
+    let returnImpact = 0;
+    for (const row of rows) {
+      if (row.operation_type !== 'Возврат') continue;
+      const amount = Number(row.amount) * share; // отрицательная сумма возврата
+      returnImpact += returnProfitImpact({
+        amount,
+        commissionTotal: Number(row.commission_total) * share,
+        deliveryCost: Number(row.delivery_cost) * share,
+      });
+    }
+
+    overallRevenue += purchaseRevenue;
+    overallLoss += returnImpact;
+    const stat = byProduct.get(it.product_id) || { revenue: 0, loss: 0, orders: new Set() };
+    stat.revenue += purchaseRevenue;
+    stat.loss += returnImpact;
+    stat.orders.add(it.order_number);
+    byProduct.set(it.product_id, stat);
+  }
+
+  const overallRate = overallRevenue > 0 ? clamp(overallLoss / overallRevenue, 0, 0.25) : 0;
+  const rateByProduct = new Map();
+  for (const [productId, stat] of byProduct) {
+    const ownRate = stat.revenue > 0 ? clamp(stat.loss / stat.revenue, 0, 0.25) : overallRate;
+    const ownWeight = Math.min(1, stat.orders.size / 30);
+    rateByProduct.set(productId, ownRate * ownWeight + overallRate * (1 - ownWeight));
+  }
+  return { overallRate, rateByProduct, historyFrom, historyTo };
 }
 
 // Фактический маркетинг по дням и историческая доля каждого из трёх источников в выручке.
@@ -400,7 +544,15 @@ const PROFIT_EXPENSE_CATEGORIES = ['Прочие затраты', 'Упаков�
 async function fetchConfirmedReturnsByDay(from, to, mode) {
   const result = await pool.query(
     `SELECT to_char(kpt.operation_date::date, 'YYYY-MM-DD') AS day,
-            COALESCE(SUM(-kpt.amount), 0) AS total
+            COALESCE(SUM(-kpt.amount), 0) AS gross_amount,
+            COALESCE(SUM(
+              -(
+                kpt.amount
+                + kpt.commission_total
+                + kpt.delivery_cost
+                + (-kpt.amount * $4::numeric)
+              )
+            ), 0) AS profit_impact
      FROM kaspi_pay_transactions kpt
      JOIN orders o ON o.code = kpt.order_number
      WHERE kpt.operation_type = 'Возврат'
@@ -409,10 +561,13 @@ async function fetchConfirmedReturnsByDay(from, to, mode) {
        AND o.origin_city = ANY($3::text[])
      GROUP BY kpt.operation_date::date
      ORDER BY kpt.operation_date::date`,
-    [from, to, citiesFor(mode)]
+    [from, to, citiesFor(mode), TAX_RATE]
   );
 
-  return new Map(result.rows.map((row) => [row.day, Number(row.total) || 0]));
+  return new Map(result.rows.map((row) => [row.day, {
+    grossAmount: Number(row.gross_amount) || 0,
+    profitImpact: Math.max(0, Number(row.profit_impact) || 0),
+  }]));
 }
 
 // Сегодняшняя дата по Алматы (UTC+5) — тот же сдвиг, что у выручки в SQL выше.
@@ -485,12 +640,10 @@ async function fetchOpExpensesByDay(from, to) {
 
 // Считает суммарную чистую прибыль по ВСЕМ товарам за период (для карточки на Главной).
 //
-// Ключевое отличие от расчёта по одному товару: если по какому-то заказу ещё не загружен
-// Excel-отчёт Kaspi Pay (нет данных о комиссии/доставке), мы не пропускаем его молча, а
-// ОЦЕНИВАЕМ его чистую прибыль — берём средний % чистой прибыли от выручки по уже посчитанным
-// ("известным") продажам ТОГО ЖЕ товара за тот же период, и применяем этот процент к выручке
-// неизвестного заказа. Если по этому товару вообще нет ни одной известной продажи в периоде —
-// используем общий средний % прибыли по всем товарам за период как более грубый запасной вариант.
+// Если по заказу ещё не загружен Excel Kaspi Pay, считаем его не одной средней маржой, а по
+// компонентам: точные выручка, FIFO-себестоимость, налог и доставка из Kaspi API; исторически
+// оценивается только комиссия (и доставка как редкий fallback). Для свежих заказов дополнительно
+// удерживается резерв возвратов по созревшей истории — это сглаживает скачок после импорта Excel.
 async function computeSummaryNetProfit(from, to, mode) {
   // Маркетинг не привязан к городу отгрузки, поэтому вычитаем его только на "Главной" (mode
   // !== 'selfbuy') — так же, как колонка "Маркетинг" в "Отчёте" есть только в "Основном отчёте"
@@ -500,6 +653,7 @@ async function computeSummaryNetProfit(from, to, mode) {
       // day — та же "казахстанская" дата, что и в /summary (сдвиг +5 часов), иначе выручка и
       // прибыль одного заказа попадали бы на разные дни графика.
       `SELECT oi.product_id, oi.quantity, oi.total_price, o.code AS order_number, o.id AS order_id,
+              o.raw_data->'attributes'->>'deliveryCostForSeller' AS api_delivery_cost,
               to_char((oi.creation_date + interval '5 hours')::date, 'YYYY-MM-DD') AS day
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
@@ -540,7 +694,10 @@ async function computeSummaryNetProfit(from, to, mode) {
   // Итог за период — сумма тех же дневных долей, что уходят в график, а не отдельный запрос:
   // так число в карточке и сумма точек графика не могут разъехаться в принципе.
   const opExpenses = [...opExpensesByDay.values()].reduce((sum, value) => sum + value, 0);
-  const confirmedReturns = [...confirmedReturnsByDay.values()].reduce((sum, value) => sum + value, 0);
+  const confirmedReturns = [...confirmedReturnsByDay.values()]
+    .reduce((sum, value) => sum + value.grossAmount, 0);
+  const confirmedReturnImpact = [...confirmedReturnsByDay.values()]
+    .reduce((sum, value) => sum + value.profitImpact, 0);
 
   // Прибыль по дням — для графика на телефоне. Собирается тем же проходом, что и итог, поэтому
   // сумма дней сходится с числом в карточке: маркетинг вычитается по своим датам (они у него
@@ -548,7 +705,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   const profitByDay = new Map();
   const estimatedDays = new Set(marketingForecast.estimatedDays);
   const addDayProfit = (day, value) => profitByDay.set(day, (profitByDay.get(day) || 0) + value);
-  for (const [day, amount] of confirmedReturnsByDay) addDayProfit(day, -amount);
+  for (const [day, value] of confirmedReturnsByDay) addDayProfit(day, -value.profitImpact);
   function buildDays() {
     const days = [];
     for (let d = from; d <= to; d = addDays(d, 1)) {
@@ -566,10 +723,24 @@ async function computeSummaryNetProfit(from, to, mode) {
 
   if (itemsResult.rows.length === 0) {
     return {
-      netProfit: -marketing - opExpenses - confirmedReturns,
+      netProfit: -marketing - opExpenses - confirmedReturnImpact,
       usedEstimate: false,
       usedMarketingEstimate: false,
       confirmedReturns,
+      confirmedReturnImpact,
+      forecastBreakdown: {
+        totalOrders: 0,
+        confirmedOrders: 0,
+        estimatedOrders: 0,
+        coveragePercent: 100,
+        confirmedOrderProfit: 0,
+        estimatedOrderProfit: 0,
+        expectedReturnReserve: 0,
+        forecastLow: -marketing - opExpenses - confirmedReturnImpact,
+        forecastHigh: -marketing - opExpenses - confirmedReturnImpact,
+        marketing,
+        operatingExpenses: opExpenses,
+      },
       days: buildDays(),
       products: [],
     };
@@ -588,18 +759,27 @@ async function computeSummaryNetProfit(from, to, mode) {
     kptByOrder.get(row.order_number).push(row);
   }
 
+  const [expenseModel, returnReserveModel] = await Promise.all([
+    computeHistoricalExpenseModel(addDays(to, -90), to, mode, kptByOrder),
+    computeReturnReserveModel(mode, kptByOrder),
+  ]);
+
   let knownNetProfit = 0;
   let knownNetRevenue = 0;
   const perProductKnown = new Map(); // product_id -> { revenue, profit } — только по "известным" продажам
   const unknownItems = [];
+  const allOrderIds = new Set();
+  const confirmedOrderIds = new Set();
 
   for (const it of itemsResult.rows) {
+    allOrderIds.add(it.order_id);
     const kptRows = kptByOrder.get(it.order_number);
     const hasPurchase = kptRows && kptRows.some((r) => r.operation_type === 'Покупка');
     if (!hasPurchase) {
       unknownItems.push(it);
       continue;
     }
+    confirmedOrderIds.add(it.order_id);
 
     const orderRevenue = orderRevenueMap.get(it.order_id) || 0;
     const share = orderRevenue > 0 ? Number(it.total_price) / orderRevenue : 0;
@@ -633,55 +813,82 @@ async function computeSummaryNetProfit(from, to, mode) {
     perProductKnown.set(it.product_id, stat);
   }
 
-  // Общий % прибыли по всем известным продажам за период — самый грубый запасной вариант.
-  let overallRatio = knownNetRevenue > 0 ? knownNetProfit / knownNetRevenue : null;
-
-  // Окно пошире — последние 60 дней перед концом периода. Нужно в двух случаях:
-  //
-  // 1) Известных продаж нет вообще ЗА ВЕСЬ ПЕРИОД (типичный случай — "Сегодня"/"Вчера":
-  //    Excel-отчёт по свежим дням физически ещё не мог быть загружен). Без этого вся оценка
-  //    молча превратилась бы в 0, хотя реальная выручка есть.
-  // 2) У КОНКРЕТНОГО товара нет известных продаж в периоде — тогда его прибыль оценивается
-  //    по ЕГО ЖЕ проценту за это окно, а не по среднему по магазину. Иначе в начале месяца,
-  //    когда Excel-отчёта ещё нет ни по одному заказу, все товары получали один и тот же
-  //    средний процент — и в разбивке по товарам маржа у всех выходила одинаковой (владелец
-  //    заметила ровно это: "подозрительно, что маржа 28% у всех"). Тот же принцип уже
-  //    работает в /api/stats/product/:productId — там прогноз тоже по истории этого товара.
-  const fallbackFrom = addDays(to, -60);
-  const fallback = await computeKnownProfitRatio(fallbackFrom, to, mode, kptByOrder, costData);
-  if (overallRatio === null) overallRatio = fallback.ratio;
-  if (overallRatio === null) overallRatio = 0;
-
-  // Цепочка запасных вариантов для одного товара: свои известные продажи в периоде →
-  // свой процент за 60 дней → средний по магазину.
-  function ratioForProduct(productId) {
-    const known = perProductKnown.get(productId);
-    if (known && known.revenue > 0) return known.profit / known.revenue;
-    const historical = fallback.ratioByProduct.get(productId);
-    if (historical !== undefined) return historical;
-    return overallRatio;
+  function forecastModelForProduct(productId) {
+    return expenseModel.byProduct.get(productId) || {
+      commissionRate: expenseModel.overallCommissionRate,
+      commissionLow: expenseModel.overallCommissionLow,
+      commissionHigh: expenseModel.overallCommissionHigh,
+      deliveryPerUnit: expenseModel.overallDeliveryPerUnit,
+      sampleSize: 0,
+    };
   }
 
   let estimatedNetProfit = 0;
+  let commissionUpside = 0;
+  let commissionDownside = 0;
+  let apiDeliveryOrders = 0;
+  let fallbackDeliveryOrders = 0;
   // Прибыль по каждому товару до общих расходов. Ниже маркетинг, операционные расходы и
-  // подтверждённые возвраты распределяются пропорционально выручке товара. Для этих сумм
-  // нет полной надёжной привязки к конкретному SKU (часть кампаний общая, операционные
-  // расходы относятся ко всему магазину), а такое правило прозрачно и гарантирует сверку:
-  // сумма чистой прибыли всех товаров равна карточке сверху.
+  // подтверждённые возвраты распределяются пропорционально выручке товара. Резерв будущих
+  // возвратов, наоборот, считается непосредственно по ставке каждого товара.
   const profitByProduct = new Map();
   for (const [productId, stat] of perProductKnown) {
     profitByProduct.set(productId, stat.profit);
   }
   for (const it of unknownItems) {
     const revenue = Number(it.total_price);
-    const ratio = ratioForProduct(it.product_id);
-    estimatedNetProfit += revenue * ratio;
-    addDayProfit(it.day, revenue * ratio);
+    const orderRevenue = orderRevenueMap.get(it.order_id) || 0;
+    const share = orderRevenue > 0 ? revenue / orderRevenue : 0;
+    const model = forecastModelForProduct(it.product_id);
+    const cost = costData.costByOrderItem[`${it.order_number}::${it.product_id}`] || 0;
+    const forecast = forecastUnknownItemProfit({
+      revenue,
+      cost,
+      commissionRate: model.commissionRate,
+      apiDeliveryCost: it.api_delivery_cost,
+      orderShare: share,
+      deliveryPerUnit: model.deliveryPerUnit,
+      quantity: it.quantity,
+    });
+    commissionUpside += revenue * Math.max(0, model.commissionRate - model.commissionLow);
+    commissionDownside += revenue * Math.max(0, model.commissionHigh - model.commissionRate);
+    if (forecast.usedApiDelivery) apiDeliveryOrders += 1;
+    else fallbackDeliveryOrders += 1;
+
+    estimatedNetProfit += forecast.profit;
+    addDayProfit(it.day, forecast.profit);
     estimatedDays.add(it.day); // в этом дне есть заказы без Excel-отчёта — прибыль дня оценочная
-    profitByProduct.set(it.product_id, (profitByProduct.get(it.product_id) || 0) + revenue * ratio);
+    profitByProduct.set(it.product_id, (profitByProduct.get(it.product_id) || 0) + forecast.profit);
   }
 
-  const totalNetProfit = knownNetProfit + estimatedNetProfit - marketing - opExpenses - confirmedReturns;
+  // Резерв держим у свежих (до 45 дней) заказов до появления фактического возврата. Благодаря
+  // этому загрузка очередного Excel не обрушает прибыль внезапно: ожидаемая доля возвратов уже
+  // была вычтена, а подтверждённый возврат лишь заменяет оценку конкретного заказа фактом.
+  const reserveByProduct = new Map();
+  let expectedReturnReserve = 0;
+  const reserveFrom = addDays(todayAlmaty(), -44);
+  for (const it of itemsResult.rows) {
+    if (it.day < reserveFrom || it.day > todayAlmaty()) continue;
+    const rows = kptByOrder.get(it.order_number) || [];
+    if (rows.some((row) => row.operation_type === 'Возврат')) continue;
+    const reserveRate = returnReserveModel.rateByProduct.get(it.product_id)
+      ?? returnReserveModel.overallRate;
+    const reserve = Number(it.total_price) * reserveRate;
+    if (reserve <= 0) continue;
+    expectedReturnReserve += reserve;
+    reserveByProduct.set(it.product_id, (reserveByProduct.get(it.product_id) || 0) + reserve);
+    addDayProfit(it.day, -reserve);
+    estimatedDays.add(it.day);
+  }
+
+  const totalNetProfit =
+    knownNetProfit + estimatedNetProfit - marketing - opExpenses - confirmedReturnImpact - expectedReturnReserve;
+  // Диапазон — честное отображение оставшейся неопределённости, а не декоративные ±10%:
+  // границы комиссии берутся из 10/90 процентилей реальных ставок, резерв возвратов может
+  // реализоваться от нуля до удвоенного ожидания, прогноз маркетинга — ±25%.
+  const marketingUncertainty = marketingForecast.estimatedTotal * 0.25;
+  const forecastLow = totalNetProfit - commissionDownside - expectedReturnReserve - marketingUncertainty;
+  const forecastHigh = totalNetProfit + commissionUpside + expectedReturnReserve + marketingUncertainty;
   const totalProductRevenue = [...revenueByProduct.values()].reduce((sum, value) => sum + value, 0);
   const productEntries = [...profitByProduct.entries()];
   let allocatedMarketing = 0;
@@ -698,12 +905,15 @@ async function computeSummaryNetProfit(from, to, mode) {
     // сходятся с общими точно, а не только приблизительно.
     const productMarketing = isLast ? marketing - allocatedMarketing : marketing * share;
     const productOpExpenses = isLast ? opExpenses - allocatedOpExpenses : opExpenses * share;
-    const productReturns = isLast ? confirmedReturns - allocatedReturns : confirmedReturns * share;
+    const productReturns = isLast
+      ? confirmedReturnImpact - allocatedReturns
+      : confirmedReturnImpact * share;
     allocatedMarketing += productMarketing;
     allocatedOpExpenses += productOpExpenses;
     allocatedReturns += productReturns;
 
-    const exactProfit = contributionProfit - productMarketing - productOpExpenses - productReturns;
+    const productReserve = reserveByProduct.get(productId) || 0;
+    const exactProfit = contributionProfit - productMarketing - productOpExpenses - productReturns - productReserve;
     // В интерфейсе деньги показываются целыми тенге. Последней строке отдаём остаток округления,
     // чтобы пользователь мог сложить видимые числа и получить ровно видимый общий итог.
     const netProfit = isLast ? Math.round(totalNetProfit) - roundedProfitAssigned : Math.round(exactProfit);
@@ -716,14 +926,33 @@ async function computeSummaryNetProfit(from, to, mode) {
       allocated_marketing: productMarketing,
       allocated_operating_expenses: productOpExpenses,
       allocated_returns: productReturns,
+      expected_return_reserve: productReserve,
     };
   }).sort((a, b) => b.net_profit - a.net_profit);
 
   return {
     netProfit: totalNetProfit,
-    usedEstimate: unknownItems.length > 0,
+    usedEstimate: unknownItems.length > 0 || expectedReturnReserve > 0,
     usedMarketingEstimate: marketingForecast.estimatedTotal > 0,
     confirmedReturns,
+    confirmedReturnImpact,
+    forecastBreakdown: {
+      totalOrders: allOrderIds.size,
+      confirmedOrders: confirmedOrderIds.size,
+      estimatedOrders: allOrderIds.size - confirmedOrderIds.size,
+      coveragePercent: allOrderIds.size > 0 ? (confirmedOrderIds.size / allOrderIds.size) * 100 : 100,
+      confirmedOrderProfit: knownNetProfit,
+      estimatedOrderProfit: estimatedNetProfit,
+      expectedReturnReserve,
+      forecastLow,
+      forecastHigh,
+      marketing,
+      operatingExpenses: opExpenses,
+      apiDeliveryItems: apiDeliveryOrders,
+      fallbackDeliveryItems: fallbackDeliveryOrders,
+      historicalCommissionRate: expenseModel.overallCommissionRate,
+      historicalReturnLossRate: returnReserveModel.overallRate,
+    },
     days: buildDays(),
     products,
   };
@@ -736,12 +965,17 @@ router.get('/summary-profit', async (req, res) => {
   }
 
   try {
-    const { netProfit, usedEstimate, usedMarketingEstimate, confirmedReturns, days, products } = await computeSummaryNetProfit(from, to, mode);
+    const {
+      netProfit, usedEstimate, usedMarketingEstimate, confirmedReturns, confirmedReturnImpact,
+      forecastBreakdown, days, products,
+    } = await computeSummaryNetProfit(from, to, mode);
     res.json({
       net_profit: netProfit,
       used_estimate: usedEstimate,
       used_marketing_estimate: usedMarketingEstimate,
       confirmed_returns: confirmedReturns,
+      confirmed_return_impact: confirmedReturnImpact,
+      forecast_breakdown: forecastBreakdown,
       days,
       products,
     });
@@ -996,3 +1230,5 @@ module.exports = router;
 // дублировать FIFO по партиям нельзя, иначе прибыль на двух страницах разъедется.
 module.exports.computeCostsByOrderItem = computeCostsByOrderItem;
 module.exports.TAX_RATE = TAX_RATE;
+module.exports.forecastUnknownItemProfit = forecastUnknownItemProfit;
+module.exports.returnProfitImpact = returnProfitImpact;

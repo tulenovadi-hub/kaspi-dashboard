@@ -24,6 +24,8 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
   const [usedEstimate, setUsedEstimate] = useState(false);
   const [usedMarketingEstimate, setUsedMarketingEstimate] = useState(false);
   const [confirmedReturns, setConfirmedReturns] = useState(0);
+  const [confirmedReturnImpact, setConfirmedReturnImpact] = useState(0);
+  const [forecastBreakdown, setForecastBreakdown] = useState(null);
   // Чистая прибыль по дням — для переключаемого графика на телефоне и компьютере.
   // Приходит из того же /summary-profit, что и итоговая цифра.
   const [profitDays, setProfitDays] = useState([]);
@@ -128,6 +130,8 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
         setUsedEstimate(!!profitRes.used_estimate);
         setUsedMarketingEstimate(!!profitRes.used_marketing_estimate);
         setConfirmedReturns(Number(profitRes.confirmed_returns) || 0);
+        setConfirmedReturnImpact(Number(profitRes.confirmed_return_impact) || 0);
+        setForecastBreakdown(profitRes.forecast_breakdown || null);
         setProfitDays(Array.isArray(profitRes.days) ? profitRes.days : []);
         setProfitProducts(Array.isArray(profitRes.products) ? profitRes.products : []);
 
@@ -375,6 +379,8 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
                 usedEstimate={usedEstimate}
                 usedMarketingEstimate={usedMarketingEstimate}
                 confirmedReturns={confirmedReturns}
+                confirmedReturnImpact={confirmedReturnImpact}
+                forecastBreakdown={forecastBreakdown}
                 showMarketingNote={mode !== 'selfbuy'}
                 from={from}
                 to={to}
@@ -475,8 +481,20 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
 
           {usedEstimate && (
             <div style={{ color: '#6b7690', fontSize: 12, marginTop: -12, marginBottom: 16 }}>
-              Примечание: по части заказов ещё не загружен свежий Excel-отчёт Kaspi Pay — их чистая прибыль оценена
-              примерно, по среднему проценту прибыли уже посчитанных заказов с тем же товаром.
+              Kaspi Pay подтверждает {forecastBreakdown?.confirmedOrders || 0} из {forecastBreakdown?.totalOrders || 0} заказов
+              {' '}({Math.round(Number(forecastBreakdown?.coveragePercent) || 0)}%).
+              {Number(forecastBreakdown?.estimatedOrders) > 0 && (
+                <> Для остальных уже точно учтены себестоимость FIFO, налог и доставка из заказа;
+                  оценивается только комиссия Kaspi. Прибыль подтверждённых заказов до общих расходов:{' '}
+                  {formatMoney(forecastBreakdown.confirmedOrderProfit)}, оценка остальных:{' '}
+                  {formatMoney(forecastBreakdown.estimatedOrderProfit)}.</>
+              )}
+              {Number(forecastBreakdown?.expectedReturnReserve) > 0 && (
+                <> Резерв возможных возвратов: {formatMoney(forecastBreakdown.expectedReturnReserve)}.</>
+              )}
+              {Number(forecastBreakdown?.forecastHigh) > Number(forecastBreakdown?.forecastLow) && (
+                <> Ожидаемый диапазон итоговой прибыли: {formatMoney(forecastBreakdown.forecastLow)}–{formatMoney(forecastBreakdown.forecastHigh)}.</>
+              )}
             </div>
           )}
 
@@ -490,8 +508,8 @@ export default function SalesView({ password, onLogout, mode, title, showSync, a
 
           {confirmedReturns > 0 && (
             <div style={{ color: '#6b7690', fontSize: 12, marginTop: usedEstimate || usedMarketingEstimate ? -4 : -12, marginBottom: 16 }}>
-              Из чистой прибыли вычтены подтверждённые возвраты из загруженного отчёта Kaspi Pay: {formatMoney(confirmedReturns)}.
-              Будущие возвраты по заказам в пути не прогнозируются.
+              Подтверждённые возвраты Kaspi Pay: {formatMoney(confirmedReturns)}. Их чистое влияние после
+              возврата комиссии, корректировки доставки и налога: −{formatMoney(confirmedReturnImpact)}.
             </div>
           )}
 
