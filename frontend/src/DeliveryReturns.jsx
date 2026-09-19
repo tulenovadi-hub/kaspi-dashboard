@@ -78,16 +78,12 @@ function isDone(o) {
   return o.tracking_status === 'RETURNED';
 }
 
-// Кнопка "+ / − в остаток" имеет смысл только у заказов, которые реально уехали в возврат.
-// Wonder считается таким же подтверждением, как трекинг Kaspi: у заказа 1077487999 Kaspi
-// ошибочно показывал «Отменён без доставки», хотя возврат уже зарегистрирован у партнёра.
-// В основной таблице показываем её всегда, в архиве — только если заказ всё ещё вычтен из
-// остатка: так убранная крестиком строка с невернувшимся товаром не остаётся без управления,
-// но 390 архивных строк не покрываются красными кнопками "− из остатка".
+// В основном списке каждая незавершённая продажа — потенциальное пополнение склада, поэтому
+// у неё всегда есть "+ / − в остаток". Архив в колонку "Возвращается" не входит: сначала
+// заказ нужно вернуть из архива, после чего кнопка снова становится доступной.
 function showStockButton(o, mode) {
   if (o.was_completed) return false;
-  if (!o.in_return_flow && o.wonder_received !== true) return false;
-  return mode === 'archive' ? o.subtracted_from_stock : true;
+  return mode !== 'archive';
 }
 
 // Завершённые возвраты сами попадают в архив. Если пользователь явно вернул такой заказ,
@@ -480,12 +476,10 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
   const mobileSubtractedUnits = mobileSubtracted.reduce((sum, o) => sum + Number(o.quantity || 0), 0);
   const mobileSuspicious = activeUnfiltered.filter((o) => o.suspicious).length;
   const mobileWaiting = activeUnfiltered.filter((o) => o.tracking_status === 'WAITING_IN_PICKUP_POINT').length;
-  // Считаем по ВСЕМ заказам, а не только по видимым в основной таблице: если строку убрали
-  // крестиком, не добавив товар в остаток (например, посылка потерялась), штуки всё равно
-  // вычтены со "Склада", и это должно быть видно.
-  const subtractedOrders = orders.filter((o) => o.subtracted_from_stock);
+  // Колонка "Возвращается" считается только по основному списку страницы: это позиции,
+  // которые ещё можно добавить обратно кнопкой "+ в остаток". Архив не участвует.
+  const subtractedOrders = activeUnfiltered.filter((o) => o.subtracted_from_stock);
   const subtractedUnits = subtractedOrders.reduce((sum, o) => sum + Number(o.quantity || 0), 0);
-  const subtractedInArchive = subtractedOrders.filter((o) => !isInActiveList(o)).length;
 
   const tableProps = {
     filters, updateFilter, toggleSetValue, selectAll, selectNone, statusOptions, cityOptions,
@@ -508,7 +502,6 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
             totalCount={orders.length}
             thresholdDays={thresholdDays}
             subtractedUnits={mobileSubtractedUnits}
-            subtractedInArchive={subtractedInArchive}
             suspiciousCount={mobileSuspicious}
             waitingCount={mobileWaiting}
             search={filters.search}
@@ -611,8 +604,7 @@ export default function DeliveryReturns({ password, active = true, isOnline = tr
 
       {!loading && orders.length > 0 && (
         <div className="report-note">
-          Вычтено из остатка на «Складе»: {subtractedOrders.length} заказ(ов), {subtractedUnits} шт
-          {subtractedInArchive > 0 && ` (из них ${subtractedInArchive} уже убрано в архив)`}.
+          Вычтено из остатка на «Складе»: {subtractedOrders.length} заказ(ов), {subtractedUnits} шт.
           Подозрительных (без движения {thresholdDays}+ дней): {suspiciousCount}.
           Всего отслеживается за всю историю: {orders.length}.
         </div>

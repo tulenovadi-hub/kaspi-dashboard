@@ -627,7 +627,7 @@ export default function Warehouse({ password, role, active = true, isOnline = tr
                               <td className="num" title="Оформленные покупательские возвраты остаются списанными и не возвращаются в доступный остаток автоматически">
                                 {p.customer_returns > 0 ? formatNumber(p.customer_returns) : '—'}
                               </td>
-                              <td className="num" title={p.returning > 0 ? 'Отменено при доставке и едет обратно на склад. Из остатка вычтено — вернётся в остаток, когда трекинг Kaspi подтвердит приём на складе' : undefined}>
+                              <td className="num" title={p.returning > 0 ? 'Потенциальное пополнение из основного списка «Отмены при доставке». После нажатия «+ в остаток» эти штуки перейдут в доступный остаток' : undefined}>
                                 {p.returning > 0 ? formatNumber(p.returning) : '—'}
                               </td>
                               <td className="num">{p.current_cost_price !== null ? formatMoney(p.current_cost_price) : '—'}</td>

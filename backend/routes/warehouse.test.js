@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-test('RETURNED orders remain deducted from available warehouse stock', async () => {
+test('active delivery cancellations remain deducted from available warehouse stock', async () => {
   const dbPath = require.resolve('../db');
   const warehousePath = require.resolve('./warehouse');
 
@@ -67,7 +67,10 @@ test('RETURNED orders remain deducted from available warehouse stock', async () 
   assert.ok(!cancellationQueryParams[1].includes('RETURNED'));
   assert.deepEqual(cancellationQueryParams[2], ['CANCELLING', 'CANCELLED']);
   assert.match(cancellationQuerySql, /o\.was_completed = false OR dc\.status/);
-  assert.match(cancellationQuerySql, /dc\.wonder_received = true/);
+  assert.match(cancellationQuerySql, /dc\.archived_at IS NULL/);
+  assert.match(cancellationQuerySql, /dc\.restored_from_archive = true/);
+  assert.match(cancellationQuerySql, /dc\.status = 'CANCELLING'/);
+  assert.doesNotMatch(cancellationQuerySql, /dc\.wonder_received/);
   assert.equal(products[0].total_sold, 2);
   assert.equal(products[0].in_progress, 1);
   assert.equal(products[0].customer_returns, 1);

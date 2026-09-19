@@ -48,6 +48,16 @@ router.get('/', async (req, res) => {
         suspicious = daysSinceLastTrack >= SUSPICIOUS_DAYS_THRESHOLD;
       }
 
+      const wasCompleted =
+        r.was_completed === true &&
+        r.status !== 'CANCELLING' &&
+        r.status !== 'CANCELLED';
+      const inReturnFlow =
+        r.tracking_active === true ||
+        r.tracking_status === 'RETURNED' ||
+        (r.status === 'CANCELLING' && r.tracking_status !== 'CANCELLED');
+      const isInActiveList = !r.archived_at && (inReturnFlow || r.restored_from_archive === true);
+
       return {
         order_number: r.order_number,
         product_names: r.product_names,
@@ -55,10 +65,7 @@ router.get('/', async (req, res) => {
         stock_returned_at: r.stock_returned_at,
         // Статус отмены в специализированной таблице надёжнее старого was_completed из orders:
         // 1077487999 был отменён, но в orders сохранился прежний COMPLETED.
-        was_completed:
-          r.was_completed === true &&
-          r.status !== 'CANCELLING' &&
-          r.status !== 'CANCELLED',
+        was_completed: wasCompleted,
         archived_at: r.archived_at,
         restored_from_archive: r.restored_from_archive === true,
         // Показывать ли заказ в активном списке (иначе он уезжает в "Архив" внизу страницы).
@@ -70,27 +77,15 @@ router.get('/', async (req, res) => {
         // семь часов после передачи курьеру, событий возврата в трекинге ещё не было — и
         // свежая, самая горячая отмена сразу оказывалась в архиве, где владелец её не искала.
         //
-        // ВНИМАНИЕ: это НЕ то же самое, что subtracted_from_stock ниже. Там условие строже и
-        // совпадает с SQL в routes/warehouse.js: со склада вычитается только то, что реально
-        // уехало. Заказ, отменённый до отгрузки, physически лежит на полке, и вычитать его
-        // нельзя — а в списке показать надо.
-        in_return_flow:
-          r.tracking_active === true ||
-          r.tracking_status === 'RETURNED' ||
-          (r.status === 'CANCELLING' && r.tracking_status !== 'CANCELLED'),
-        // Вычтен ли заказ прямо сейчас из остатка на "Складе" — то же условие, что в SQL
-        // computeWarehouseStock (routes/warehouse.js), и менять его надо в обоих местах разом.
-        // Оно намеренно строже in_return_flow выше: пока трекинг не подтвердил, что заказ
-        // уехал, товар считается лежащим на складе. От архива это НЕ зависит: если заказ
-        // убрали крестиком, не добавив в остаток (например, посылка потерялась), товара на
-        // полке всё равно нет.
+        // Это же правило участвует в subtracted_from_stock ниже: основной список и есть
+        // перечень потенциальных пополнений, который показывает колонка "Возвращается".
+        in_return_flow: inReturnFlow,
+        // "Возвращается" на странице "Склад" — это ровно потенциальное пополнение из
+        // ОСНОВНОГО списка "Отмены при доставке": строка ещё не добавлена в остаток кнопкой
+        // и не является завершённой продажей. Архив в эту цифру не входит; если заказ нужен
+        // снова, его сначала возвращают из архива, и тогда он опять становится кандидатом.
         subtracted_from_stock:
-          r.was_completed === true ||
-          (r.stock_returned_at === null && (
-            r.tracking_active === true ||
-            r.tracking_status === 'RETURNED' ||
-            r.wonder_received === true
-          )),
+          !wasCompleted && isInActiveList && r.stock_returned_at === null,
         creation_date: r.creation_date,
         days_since: daysSince,
         days_since_last_track: daysSinceLastTrack,

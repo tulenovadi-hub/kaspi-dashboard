@@ -43,7 +43,7 @@ function formatDate(value) {
 
 export default function DeliveryReturnsMobile({
   activeReturns, archivedOrders, totalCount, thresholdDays,
-  subtractedUnits, subtractedInArchive, suspiciousCount, waitingCount,
+  subtractedUnits, suspiciousCount, waitingCount,
   search, onSearch,
   statusLabel, reasonLabel, wonderLabel, isHighlighted, isDone, showStockButton,
   onToggleStock, togglingId, onArchive, archivingId, onUnarchive, unarchivingId,
@@ -75,14 +75,6 @@ export default function DeliveryReturnsMobile({
           <span className="dm-tile-label">ждут в пункте выдачи</span>
         </div>
       </div>
-
-      {/* Заказ могли убрать крестиком, не вернув товар в остаток: тогда штуки со "Склада"
-          вычтены, а в плитке выше их нет — она считает активные. Молчать об этом нельзя. */}
-      {subtractedInArchive > 0 && (
-        <div className="dm-warn-line">
-          Ещё {plural(subtractedInArchive, 'заказ', 'заказа', 'заказов')} вычтены со «Склада», но убраны в архив
-        </div>
-      )}
 
       <button
         className="dm-note-toggle"
@@ -253,19 +245,6 @@ export default function DeliveryReturnsMobile({
                               <span>Остаток на «Складе»</span>
                               <span>{o.subtracted_from_stock ? 'вычтено' : 'в остатке'}</span>
                             </span>
-                            {/* Убрали крестиком, а товар так и не вернули в остаток — кнопка
-                                должна быть доступна и здесь, иначе штуки застрянут вычтенными. */}
-                            {showStockButton(o, 'archive') && (
-                              <span
-                                className="dm-btn-main dm-btn-inline"
-                                role="button"
-                                tabIndex={0}
-                                onClick={(e) => { e.stopPropagation(); onToggleStock(o); }}
-                                onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onToggleStock(o); } }}
-                              >
-                                {togglingId === o.order_number ? '…' : '+ в остаток'}
-                              </span>
-                            )}
                             {(
                               <span
                                 className="dm-btn-unarchive"
