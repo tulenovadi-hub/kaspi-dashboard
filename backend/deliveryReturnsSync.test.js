@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-test('Wonder reconciliation includes orders marked CANCELLED by Kaspi', async () => {
+test('Wonder cancellation reconciliation includes orders marked CANCELLED by Kaspi', async () => {
   const dbPath = require.resolve('./db');
   const kaspiPath = require.resolve('./kaspiClient');
   const logisticsPath = require.resolve('./kaspiLogistics');
@@ -40,7 +40,7 @@ test('Wonder reconciliation includes orders marked CANCELLED by Kaspi', async ()
     id: wonderPath,
     filename: wonderPath,
     loaded: true,
-    exports: { fetchAllWonderOrderCodes: async () => new Set(['1077487999']) },
+    exports: { fetchWonderCancellationCodes: async () => new Set(['1077487999']) },
   };
 
   delete require.cache[syncPath];
@@ -109,7 +109,7 @@ test('point lookup marks a cancelled order found in Wonder immediately', async (
     id: wonderPath,
     filename: wonderPath,
     loaded: true,
-    exports: { fetchAllWonderOrderCodes: async () => new Set(['1080573013']) },
+    exports: { fetchWonderCancellationCodes: async () => new Set(['1080573013']) },
   };
 
   delete require.cache[syncPath];

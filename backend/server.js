@@ -158,12 +158,21 @@ async function syncOrdersAndRecentCancellations(days) {
   // даты отсечки. Очередь Kaspi гарантирует, что этот запрос не наложится на live-синхронизацию.
   const returnedOrders = await syncReturnedOrders();
   const cancellations = await trySyncRecentDeliveryCancellations();
+  let wonderChecked = 0;
+  try {
+    // Заодно очищает ошибочные старые отметки: в Wonder обычные возвраты (REFUND) и отмены
+    // (CANCELED) находятся в одном разделе, но для этого списка учитываются только отмены.
+    wonderChecked = await refreshWonderReceived();
+  } catch (err) {
+    console.error('Ошибка сверки отмен с Wonder:', err.message);
+  }
   return {
     ...orders,
     active_orders_checked: activeOrders.checked,
     active_orders_failed: activeOrders.failed,
     returned_orders: returnedOrders.orders,
     delivery_cancellations: cancellations,
+    wonder_checked: wonderChecked,
   };
 }
 

@@ -21,9 +21,10 @@ async function login() {
   return response.data.access;
 }
 
-// Возвращает Set номеров заказов (order_code), которые есть у Wonder в любом из статусов —
-// значит, склад партнёра их так или иначе зарегистрировал/принял.
-async function fetchAllWonderOrderCodes() {
+// Раздел Wonder «Отмена / Возврат» содержит два разных типа записей. Для страницы
+// «Отмены при доставке» нужны только CANCELED: REFUND — это обычный возврат покупателя,
+// и его нельзя учитывать как потенциальное возвращение отменённого заказа в остаток.
+async function fetchWonderCancellationCodes() {
   const token = await login();
   if (!token) return null;
 
@@ -42,7 +43,7 @@ async function fetchAllWonderOrderCodes() {
       });
       const content = response.data.content || [];
       for (const item of content) {
-        if (item.order_code !== null && item.order_code !== undefined) {
+        if (item.type === 'CANCELED' && item.order_code !== null && item.order_code !== undefined) {
           codes.add(String(item.order_code));
         }
       }
@@ -60,4 +61,4 @@ async function fetchAllWonderOrderCodes() {
   return codes;
 }
 
-module.exports = { fetchAllWonderOrderCodes };
+module.exports = { fetchWonderCancellationCodes };

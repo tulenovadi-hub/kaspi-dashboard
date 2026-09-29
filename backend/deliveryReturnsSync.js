@@ -5,7 +5,7 @@
 const { pool } = require('./db');
 const { fetchOrdersByStatus, fetchOrderByCode } = require('./kaspiClient');
 const { fetchTrackingStatus } = require('./kaspiLogistics');
-const { fetchAllWonderOrderCodes } = require('./wonderClient');
+const { fetchWonderCancellationCodes } = require('./wonderClient');
 
 // За сколько дней назад искать НОВЫЕ отмены (и в кнопке "Проверить сейчас", и в ночном cron).
 // Окно считается по дате СОЗДАНИЯ заказа, а не по дате отмены — так фильтрует Kaspi. Раньше было
@@ -291,7 +291,7 @@ async function syncOrderByNumber(code) {
 }
 
 async function refreshWonderReceivedForOrder(orderNumber) {
-  const codes = await fetchAllWonderOrderCodes();
+  const codes = await fetchWonderCancellationCodes();
   if (!codes) return null;
 
   const received = codes.has(String(orderNumber));
@@ -304,14 +304,14 @@ async function refreshWonderReceivedForOrder(orderNumber) {
   return received;
 }
 
-// Сверяет ВСЕ отмены со списком refund-order-groups у Wonder. Нельзя исключать
-// tracking_status = 'CANCELLED': Kaspi иногда пишет «Отменён без доставки», хотя возврат уже
-// зарегистрирован у Wonder (заказ 1077487999). В таком случае Wonder — более надёжное
-// подтверждение того, что товар физически находится вне доступного остатка магазина.
+// Сверяет ВСЕ отмены с записями типа CANCELED в refund-order-groups у Wonder. Нельзя
+// исключать tracking_status = 'CANCELLED': Kaspi иногда пишет «Отменён без доставки», хотя
+// отмена уже зарегистрирована у Wonder. Записи типа REFUND здесь намеренно игнорируются —
+// это обычные возвраты покупателей, а не отмены при доставке.
 // Если WONDER_EMAIL/WONDER_PASSWORD не заданы (или Wonder вернул ошибку логина) — просто
 // ничего не делает, остальная синхронизация не должна из-за этого падать.
 async function refreshWonderReceived() {
-  const codes = await fetchAllWonderOrderCodes();
+  const codes = await fetchWonderCancellationCodes();
   if (!codes) return 0;
 
   // Один запрос на всё, а не UPDATE на каждую строку. База в другом дата-центре, и на паре
