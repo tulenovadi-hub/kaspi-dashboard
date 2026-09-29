@@ -3,13 +3,15 @@
 
 require('dotenv').config();
 const { pool, initDb } = require('./db');
-const { fetchOrders, fetchOrderEntries, fetchOrdersByStatus } = require('./kaspiClient');
+const { fetchOrders, fetchOrderEntries, fetchOrdersByStatus, fetchOrderByCode } = require('./kaspiClient');
 const { resolveWarehouse } = require('./warehouseMapping');
 const { STOCK_CUTOFF_DATE } = require('./constants');
 
 const CUSTOMER_RETURN_STATUSES = ['KASPI_DELIVERY_RETURN_REQUESTED', 'RETURNED'];
 const MEANINGFUL_STATUSES = ['ACCEPTED_BY_MERCHANT', 'COMPLETED', 'APPROVED_BY_BANK', ...CUSTOMER_RETURN_STATUSES];
 const ORDER_STATES = ['NEW', 'SIGN_REQUIRED', 'PICKUP', 'DELIVERY', 'KASPI_DELIVERY', 'ARCHIVE'];
+const ACTIVE_ORDER_STATUSES = ['APPROVED_BY_BANK', 'ACCEPTED_BY_MERCHANT', 'CANCELLING', 'KASPI_DELIVERY_RETURN_REQUESTED'];
+const ACTIVE_STATUS_CONCURRENCY = 4;
 
 function hasCompletedEvidence(attrs) {
   // completionDate у Kaspi означает завершение жизненного цикла заказа и заполняется не
@@ -153,17 +155,70 @@ async function syncLatestOrders(minutesBack = 10) {
   return result;
 }
 
-// Раз в 10 минут повторно читаем заказы за последние сутки. Так обновляются не только новые
-// заказы, но и более поздние изменения уже известных: отмена, завершение и другие статусы.
-// Состав заказа повторно скачивается только если заказ новый или позиции ещё не сохранены.
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+// creationDate в Kaspi — дата создания, а не последнего изменения. Поэтому один широкий
+// запрос за сутки не замечает заказ, созданный раньше и завершённый/отменённый сегодня.
+// Перепроверяем по официальному фильтру `code` все сохранённые незавершённые заказы, которые
+// старше уже загруженного окна. Ошибка одного заказа после повторных попыток не отменяет
+// обновление остальных; он будет проверен ещё раз в следующем цикле.
+async function syncActiveOrderStatuses(olderThanMs = Date.now()) {
+  const activeResult = await pool.query(
+    `SELECT DISTINCT code
+     FROM orders
+     WHERE code IS NOT NULL
+       AND creation_date < to_timestamp($1 / 1000.0)
+       AND status = ANY($2::text[])
+     ORDER BY code`,
+    [olderThanMs, ACTIVE_ORDER_STATUSES]
+  );
+
+  let failed = 0;
+  const checked = await mapWithConcurrency(activeResult.rows, ACTIVE_STATUS_CONCURRENCY, async (row) => {
+    try {
+      return await fetchOrderByCode(row.code);
+    } catch (err) {
+      failed += 1;
+      console.error(`Не удалось обновить статус заказа ${row.code}:`, err.message);
+      return null;
+    }
+  });
+  const orders = checked.filter(Boolean);
+  const saved = await saveOrders(orders, { onlyMissingEntries: true });
+  return { ...saved, checked: activeResult.rows.length, failed };
+}
+
+// Раз в 10 минут читаем все заказы, созданные за последние сутки, и отдельно точечно
+// перепроверяем более старые незавершённые заказы. Так долгие доставки и предзаказы не
+// остаются навсегда в старом статусе.
 async function syncOrderStatuses(hoursBack = 24) {
   const safeHours = Math.max(1, Math.min(72, Number(hoursBack) || 24));
   const now = Date.now();
   const dateFrom = now - safeHours * 60 * 60 * 1000;
   console.log(`Сверка статусов заказов за последние ${safeHours} ч.`);
-  const orders = await fetchOrders(dateFrom, now);
-  const result = await saveOrders(orders, { onlyMissingEntries: true });
-  console.log(`Сверка статусов завершена. Проверено: ${result.orders}, новых: ${result.new_orders}`);
+  const recentOrders = await fetchOrders(dateFrom, now);
+  const recentResult = await saveOrders(recentOrders, { onlyMissingEntries: true });
+  const activeResult = await syncActiveOrderStatuses(dateFrom);
+  const result = {
+    orders: recentResult.orders + activeResult.orders,
+    items: recentResult.items + activeResult.items,
+    new_orders: recentResult.new_orders + activeResult.new_orders,
+    active_checked: activeResult.checked,
+    active_failed: activeResult.failed,
+  };
+  console.log(`Сверка статусов завершена. Заказов из свежего окна: ${recentResult.orders}, старых активных: ${activeResult.checked}, ошибок: ${activeResult.failed}`);
   return result;
 }
 
@@ -228,4 +283,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { syncRecentOrders, syncLatestOrders, syncOrderStatuses, syncReturnedOrders, hasCompletedEvidence };
+module.exports = { syncRecentOrders, syncLatestOrders, syncOrderStatuses, syncActiveOrderStatuses, syncReturnedOrders, hasCompletedEvidence };

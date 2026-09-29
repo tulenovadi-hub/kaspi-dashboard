@@ -1,6 +1,85 @@
 const axios = require('axios');
 
 const BASE_URL = 'https://kaspi.kz/shop/api/v2';
+const MAX_CONCURRENT_REQUESTS = 4;
+const MAX_REQUEST_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 500;
+const MAX_RETRY_DELAY_MS = 30000;
+
+let activeRequests = 0;
+const requestQueue = [];
+
+function acquireRequestSlot() {
+  if (activeRequests < MAX_CONCURRENT_REQUESTS) {
+    activeRequests += 1;
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => requestQueue.push(resolve));
+}
+
+function releaseRequestSlot() {
+  const next = requestQueue.shift();
+  if (next) {
+    next();
+    return;
+  }
+  activeRequests -= 1;
+}
+
+async function withRequestSlot(fn) {
+  await acquireRequestSlot();
+  try {
+    return await fn();
+  } finally {
+    releaseRequestSlot();
+  }
+}
+
+function isRetryableError(err) {
+  const status = err && err.response ? Number(err.response.status) : null;
+  return !status || status === 429 || status >= 500;
+}
+
+function retryDelayMs(err, attempt) {
+  const retryAfter = err && err.response && err.response.headers
+    ? err.response.headers['retry-after']
+    : null;
+  if (retryAfter !== undefined && retryAfter !== null && retryAfter !== '') {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(seconds * 1000, MAX_RETRY_DELAY_MS);
+    }
+
+    const retryAt = Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) {
+      return Math.min(Math.max(0, retryAt - Date.now()), MAX_RETRY_DELAY_MS);
+    }
+  }
+
+  return Math.min(RETRY_BASE_DELAY_MS * (2 ** (attempt - 1)), MAX_RETRY_DELAY_MS);
+}
+
+function wait(ms) {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function kaspiGet(http, path, config) {
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_REQUEST_ATTEMPTS; attempt += 1) {
+    try {
+      return await withRequestSlot(() => http.get(path, config));
+    } catch (err) {
+      lastError = err;
+      if (!isRetryableError(err) || attempt === MAX_REQUEST_ATTEMPTS) throw err;
+      const delay = retryDelayMs(err, attempt);
+      console.warn(`Kaspi API: повтор GET ${path}, попытка ${attempt + 1}/${MAX_REQUEST_ATTEMPTS} через ${delay} мс`);
+      await wait(delay);
+    }
+  }
+  throw lastError;
+}
 
 function getHeaders() {
   return {
@@ -25,7 +104,7 @@ async function fetchOrders(dateFromMs, dateToMs) {
   const pageSize = 100;
 
   while (true) {
-    const response = await http.get('/orders', {
+    const response = await kaspiGet(http, '/orders', {
       params: {
         'page[number]': page,
         'page[size]': pageSize,
@@ -51,9 +130,9 @@ async function fetchOrders(dateFromMs, dateToMs) {
 // CANCELLING) за широкое окно дат. В отличие от fetchOrders, Kaspi ограничивает диапазон
 // creationDate максимум 14 днями за один запрос, поэтому идём чанками (по умолчанию 10 дней,
 // как и обычная синхронизация заказов в syncJob.js).
-// Сколько запросов к Kaspi держим одновременно внутри одного поиска. Замер 11.09.2026:
-// поиск отмен за 20 дней занимал 48 секунд, потому что и куски дат, и страницы внутри куска
-// шли строго по очереди — а Kaspi отвечает медленно, и всё время уходило в ожидание.
+// Число параллельных задач поиска. Реальные HTTP-запросы дополнительно проходят через общий
+// лимитер выше, поэтому даже вложенная параллельность периодов и страниц не превысит четыре
+// одновременных обращения к Kaspi во всём процессе.
 const SEARCH_CONCURRENCY = 4;
 
 async function mapLimit(items, limit, fn) {
@@ -74,7 +153,7 @@ async function mapLimit(items, limit, fn) {
 // известно, сколько всего страниц, — зато остальные после этого качаются параллельно, а не
 // по одной, как было.
 async function fetchOrdersChunk(http, params, pageSize) {
-  const firstResponse = await http.get('/orders', { params: { ...params, 'page[number]': 0, 'page[size]': pageSize } });
+  const firstResponse = await kaspiGet(http, '/orders', { params: { ...params, 'page[number]': 0, 'page[size]': pageSize } });
   const first = firstResponse.data.data || [];
   const totalCount = firstResponse.data.meta ? firstResponse.data.meta.totalCount : first.length;
 
@@ -83,7 +162,7 @@ async function fetchOrdersChunk(http, params, pageSize) {
 
   const restPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 1);
   const rest = await mapLimit(restPages, SEARCH_CONCURRENCY, async (page) => {
-    const response = await http.get('/orders', { params: { ...params, 'page[number]': page, 'page[size]': pageSize } });
+    const response = await kaspiGet(http, '/orders', { params: { ...params, 'page[number]': page, 'page[size]': pageSize } });
     return response.data.data || [];
   });
 
@@ -120,18 +199,20 @@ async function fetchOrdersByStatus(state, status, dateFromMs, dateToMs, chunkDay
   return perChunk.flat();
 }
 
-// Внутренний id заказа у Kaspi — это просто base64 от номера заказа (code), который видит
-// продавец: "915440447" -> "OTE1NDQwNDQ3". Позволяет получить live-статус КОНКРЕТНОГО заказа
-// по номеру, без обхода по датам — нужно, чтобы перепроверять уже отслеживаемые отмены
-// (например, перешёл ли заказ из "отменяется" в архив, и вернулся ли на склад).
-function encodeOrderId(code) {
-  return Buffer.from(String(code), 'utf-8').toString('base64');
-}
-
+// Официальный поиск конкретного заказа выполняется фильтром по видимому номеру `code`.
+// Нельзя вычислять внутренний JSON:API id через base64: формат id не является частью
+// контракта Kaspi и для некоторых заказов такая догадка возвращала ложное "не найдено".
 async function fetchOrderByCode(code) {
   const http = client();
-  const response = await http.get(`/orders/${encodeOrderId(code)}`);
-  return response.data.data;
+  const response = await kaspiGet(http, '/orders', {
+    params: {
+      'filter[orders][code]': String(code),
+      'page[number]': 0,
+      'page[size]': 1,
+    },
+  });
+  const orders = response.data.data || [];
+  return orders[0] || null;
 }
 
 // Kaspi кодирует id ресурса в base64: "MTM2NTE3NjA2" -> "136517606".
@@ -148,7 +229,7 @@ function decodeMasterProductCode(relationshipId) {
 
 async function fetchOrderEntries(orderId) {
   const http = client();
-  const response = await http.get(`/orders/${orderId}/entries`);
+  const response = await kaspiGet(http, `/orders/${orderId}/entries`);
   const entries = response.data.data || [];
 
   return entries.map((entry) => {

@@ -5,7 +5,7 @@ const cors = require('cors');
 const cron = require('node-cron');
 
 const { initDb, pool } = require('./db');
-const { syncRecentOrders, syncLatestOrders, syncOrderStatuses, syncReturnedOrders } = require('./syncJob');
+const { syncRecentOrders, syncLatestOrders, syncOrderStatuses, syncActiveOrderStatuses, syncReturnedOrders } = require('./syncJob');
 const { syncDeliveryCancellations, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS } = require('./deliveryReturnsSync');
 const { enqueueKaspiSync, getKaspiSyncState } = require('./syncCoordinator');
 const authRoutes = require('./routes/auth');
@@ -151,13 +151,20 @@ async function trySyncRecentDeliveryCancellations() {
 
 async function syncOrdersAndRecentCancellations(days) {
   const orders = await syncRecentOrders(days);
+  const activeOrders = await syncActiveOrderStatuses(Date.now() - days * 24 * 60 * 60 * 1000);
   if (days >= 1) lastOrderStatusSyncAt = Date.now();
   // Возвраты покупателей могут быть оформлены спустя много дней после создания заказа,
   // поэтому окно days для них неприменимо: каждый полный проход сверяет RETURNED со складской
   // даты отсечки. Очередь Kaspi гарантирует, что этот запрос не наложится на live-синхронизацию.
   const returnedOrders = await syncReturnedOrders();
   const cancellations = await trySyncRecentDeliveryCancellations();
-  return { ...orders, returned_orders: returnedOrders.orders, delivery_cancellations: cancellations };
+  return {
+    ...orders,
+    active_orders_checked: activeOrders.checked,
+    active_orders_failed: activeOrders.failed,
+    returned_orders: returnedOrders.orders,
+    delivery_cancellations: cancellations,
+  };
 }
 
 async function runLiveSyncCycle() {
@@ -183,6 +190,7 @@ async function runLiveSyncCycle() {
 
 async function runNightlySync() {
   const orders = await syncRecentOrders();
+  const activeOrders = await syncActiveOrderStatuses(Date.now() - 3 * 24 * 60 * 60 * 1000);
   lastOrderStatusSyncAt = Date.now();
   const returnedOrders = await syncReturnedOrders();
 
@@ -195,7 +203,7 @@ async function runNightlySync() {
   const refreshed = await refreshTrackedOrders();
   const trackingChecked = await refreshTrackingStatuses();
   const wonderChecked = await refreshWonderReceived();
-  return { orders, returnedOrders, cancellations, refreshed, trackingChecked, wonderChecked };
+  return { orders, activeOrders, returnedOrders, cancellations, refreshed, trackingChecked, wonderChecked };
 }
 
 // Отдельная лёгкая ручка для внешнего минутного cron на Oracle. Один запуск может затянуться

@@ -78,3 +78,72 @@ test('returned-order sync scans from the stock cutoff and stores RETURNED status
   assert.equal(inferredWasCompleted, true);
   assert.equal(result.orders, 1);
 });
+
+test('old active orders are refreshed individually without aborting on one failed order', async () => {
+  const dbPath = require.resolve('./db');
+  const kaspiPath = require.resolve('./kaspiClient');
+  const syncPath = require.resolve('./syncJob');
+
+  const lookedUpCodes = [];
+  let savedStatus = null;
+  const query = async (sql, params) => {
+    if (sql.includes('SELECT DISTINCT code')) {
+      assert.deepEqual(params[1], [
+        'APPROVED_BY_BANK',
+        'ACCEPTED_BY_MERCHANT',
+        'CANCELLING',
+        'KASPI_DELIVERY_RETURN_REQUESTED',
+      ]);
+      return { rows: [{ code: 'old-success' }, { code: 'old-failure' }] };
+    }
+    if (sql.includes('SELECT id FROM orders')) return { rows: [{ id: 'order-old-success' }] };
+    if (sql.includes('SELECT DISTINCT order_id')) return { rows: [{ order_id: 'order-old-success' }] };
+    if (sql.includes('INSERT INTO orders')) {
+      savedStatus = params[5];
+      return { rows: [] };
+    }
+    throw new Error(`Unexpected query: ${sql}`);
+  };
+
+  require.cache[dbPath] = {
+    id: dbPath,
+    filename: dbPath,
+    loaded: true,
+    exports: { pool: { query }, initDb: async () => {} },
+  };
+  require.cache[kaspiPath] = {
+    id: kaspiPath,
+    filename: kaspiPath,
+    loaded: true,
+    exports: {
+      fetchOrders: async () => [],
+      fetchOrderEntries: async () => { throw new Error('entries should not be reloaded'); },
+      fetchOrdersByStatus: async () => [],
+      fetchOrderByCode: async (code) => {
+        lookedUpCodes.push(code);
+        if (code === 'old-failure') throw new Error('temporary failure');
+        return {
+          id: 'order-old-success',
+          attributes: {
+            code,
+            creationDate: Date.UTC(2026, 7, 1),
+            totalPrice: 39900,
+            state: 'ARCHIVE',
+            status: 'COMPLETED',
+            pickupPointId: '18619047_PP2',
+          },
+        };
+      },
+    },
+  };
+  delete require.cache[syncPath];
+
+  const { syncActiveOrderStatuses } = require('./syncJob');
+  const result = await syncActiveOrderStatuses(Date.UTC(2026, 8, 1));
+
+  assert.deepEqual(lookedUpCodes.sort(), ['old-failure', 'old-success']);
+  assert.equal(savedStatus, 'COMPLETED');
+  assert.equal(result.checked, 2);
+  assert.equal(result.orders, 1);
+  assert.equal(result.failed, 1);
+});
