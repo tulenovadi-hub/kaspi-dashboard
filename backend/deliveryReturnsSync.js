@@ -250,6 +250,16 @@ async function syncOrderByNumber(code) {
   const tracking = await fetchTrackingStatus(code).catch(() => null);
   const diagnostics = { order: attrs, tracking };
 
+  // Сверяем Wonder даже если Kaspi уже считает заказ обычным возвратом (RETURNED).
+  // Это сразу снимает ошибочную старую отметку wonder_received после точечного поиска и
+  // убирает такой заказ из списка отмен, не дожидаясь полного фонового прохода.
+  let wonderReceived = null;
+  try {
+    wonderReceived = await refreshWonderReceivedForOrder(code);
+  } catch (err) {
+    console.error(`Не удалось проверить заказ ${code} в Wonder:`, err.message);
+  }
+
   const isCancellation = attrs.status === 'CANCELLED' || attrs.status === 'CANCELLING';
   if (!isCancellation) {
     return {
@@ -257,6 +267,7 @@ async function syncOrderByNumber(code) {
       added: false,
       state: attrs.state,
       status: attrs.status,
+      wonder_received: wonderReceived,
       diagnostics,
       message: `Заказ ${code} не отменён (${attrs.state} / ${attrs.status})`,
     };
@@ -268,13 +279,6 @@ async function syncOrderByNumber(code) {
   // хотя фулфилмент уже зарегистрировал передачу и ожидает возврат. Точечный поиск должен
   // сразу сверить этот же номер с Wonder, иначе новая строка до ночной проверки незаметно
   // уезжает в архив и не попадает в колонку «Возвращается».
-  let wonderReceived = null;
-  try {
-    wonderReceived = await refreshWonderReceivedForOrder(code);
-  } catch (err) {
-    console.error(`Не удалось проверить заказ ${code} в Wonder:`, err.message);
-  }
-
   const tracks = tracking && Array.isArray(tracking.tracks) ? tracking.tracks : [];
   const lastCode = tracks.length ? tracks[tracks.length - 1].code : null;
   return {
