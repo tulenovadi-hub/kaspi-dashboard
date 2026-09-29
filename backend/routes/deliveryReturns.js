@@ -125,10 +125,10 @@ router.post('/sync', async (req, res) => {
       if (!/^\d+$/.test(orderNumber)) {
         return res.status(400).json({ error: 'Номер заказа — это только цифры' });
       }
-      const result = await enqueueKaspiSync(
-        'delivery-order-lookup',
-        () => syncOrderByNumber(orderNumber)
-      );
+      // Точечный поиск не должен ждать за ночной/стартовой синхронизацией несколько минут.
+      // kaspiClient уже ограничивает общую параллельность и повторяет временно упавшие запросы,
+      // а UPSERT этого заказа безопасен при одновременном полном проходе.
+      const result = await syncOrderByNumber(orderNumber);
       return res.json({ ok: true, order: orderNumber, ...result });
     }
 

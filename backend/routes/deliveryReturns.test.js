@@ -208,3 +208,68 @@ test('only main-list orders awaiting the stock button are marked as subtracted',
   assert.equal(payload.orders[1].subtracted_from_stock, true, 'восстановленный заказ снова входит в основной список');
   assert.equal(payload.orders[2].subtracted_from_stock, false, 'уже добавленный товар больше не ожидает кнопку');
 });
+
+test('point order lookup does not wait for the long Kaspi synchronization queue', async () => {
+  const dbPath = require.resolve('../db');
+  const syncPath = require.resolve('../deliveryReturnsSync');
+  const coordinatorPath = require.resolve('../syncCoordinator');
+  const routePath = require.resolve('./deliveryReturns');
+
+  let lookupCode = null;
+  let queueUsed = false;
+  require.cache[dbPath] = {
+    id: dbPath,
+    filename: dbPath,
+    loaded: true,
+    exports: { pool: { query: async () => ({ rows: [] }) } },
+  };
+  require.cache[syncPath] = {
+    id: syncPath,
+    filename: syncPath,
+    loaded: true,
+    exports: {
+      syncDeliveryCancellations: async () => 0,
+      syncOrderByNumber: async (code) => {
+        lookupCode = code;
+        return { found: true, added: true, message: `Заказ ${code} найден` };
+      },
+      refreshTrackedOrders: async () => 0,
+      refreshTrackingStatuses: async () => 0,
+      refreshWonderReceived: async () => 0,
+      SEARCH_WINDOW_DAYS: 20,
+      lastSearchStats: {},
+    },
+  };
+  require.cache[coordinatorPath] = {
+    id: coordinatorPath,
+    filename: coordinatorPath,
+    loaded: true,
+    exports: {
+      enqueueKaspiSync: async () => {
+        queueUsed = true;
+        throw new Error('point lookup must not enter the long queue');
+      },
+    },
+  };
+  delete require.cache[routePath];
+
+  const router = require('./deliveryReturns');
+  const layer = router.stack.find((entry) => (
+    entry.route && entry.route.path === '/sync' && entry.route.methods.post
+  ));
+  const handler = layer.route.stack[0].handle;
+  let statusCode = 200;
+  let payload = null;
+  const res = {
+    status(code) { statusCode = code; return this; },
+    json(body) { payload = body; return this; },
+  };
+
+  await handler({ body: { order: '1077487999' } }, res);
+
+  assert.equal(statusCode, 200);
+  assert.equal(queueUsed, false);
+  assert.equal(lookupCode, '1077487999');
+  assert.equal(payload.found, true);
+  assert.match(payload.message, /1077487999 найден/);
+});
