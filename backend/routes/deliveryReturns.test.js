@@ -170,6 +170,15 @@ test('only main-list orders awaiting the stock button are marked as subtracted',
             { ...baseRow, order_number: '1000000002', wonder_received: false, restored_from_archive: true },
             { ...baseRow, order_number: '1000000003', tracking_status: 'RETURNED', stock_returned_at: '2026-09-11T00:00:00Z' },
             { ...baseRow, order_number: '1080573013', tracking_status: 'CANCELLED', wonder_received: true },
+            {
+              ...baseRow,
+              order_number: '1009123835',
+              status: 'RETURNED',
+              tracking_status: 'RETURNING',
+              tracking_active: true,
+              wonder_received: false,
+              restored_from_archive: true,
+            },
           ],
         }),
       },
@@ -210,6 +219,8 @@ test('only main-list orders awaiting the stock button are marked as subtracted',
   assert.equal(payload.orders[2].subtracted_from_stock, false, 'уже добавленный товар больше не ожидает кнопку');
   assert.equal(payload.orders[3].in_return_flow, true, 'заказ, зарегистрированный Wonder, остаётся в основном списке');
   assert.equal(payload.orders[3].subtracted_from_stock, true, 'заказ Wonder считается потенциальным пополнением');
+  assert.equal(payload.orders[4].in_return_flow, false, 'обычный возврат исключён даже при старом активном трекинге');
+  assert.equal(payload.orders[4].subtracted_from_stock, false, 'обычный возврат не уменьшает остаток');
 });
 
 test('point order lookup does not wait for the long Kaspi synchronization queue', async () => {

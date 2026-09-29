@@ -71,6 +71,7 @@ test('active delivery cancellations remain deducted from available warehouse sto
   assert.match(cancellationQuerySql, /dc\.restored_from_archive = true/);
   assert.match(cancellationQuerySql, /dc\.status = 'CANCELLING'/);
   assert.match(cancellationQuerySql, /dc\.wonder_received = true/);
+  assert.match(cancellationQuerySql, /dc\.status = ANY\(\$3::text\[\]\) OR dc\.wonder_received = true/);
   assert.equal(products[0].total_sold, 2);
   assert.equal(products[0].in_progress, 1);
   assert.equal(products[0].customer_returns, 1);

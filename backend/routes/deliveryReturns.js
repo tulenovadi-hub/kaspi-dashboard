@@ -52,12 +52,24 @@ router.get('/', async (req, res) => {
         r.was_completed === true &&
         r.status !== 'CANCELLING' &&
         r.status !== 'CANCELLED';
-      const inReturnFlow =
+      // Строка относится к этой странице, только если Kaspi по-прежнему считает её отменой
+      // либо Wonder независимо подтвердил тип CANCELED. Статусы RETURNED/RETURNING сами по
+      // себе этого не доказывают: они бывают и у обычных покупательских возвратов. Раньше
+      // старый активный трекинг удерживал такие заказы (например, 1009123835) в отменах.
+      const isDeliveryCancellation =
+        r.status === 'CANCELLING' ||
+        r.status === 'CANCELLED' ||
+        r.wonder_received === true;
+      const inReturnFlow = isDeliveryCancellation && (
         r.tracking_active === true ||
         r.tracking_status === 'RETURNED' ||
         r.wonder_received === true ||
-        (r.status === 'CANCELLING' && r.tracking_status !== 'CANCELLED');
-      const isInActiveList = !r.archived_at && (inReturnFlow || r.restored_from_archive === true);
+        (r.status === 'CANCELLING' && r.tracking_status !== 'CANCELLED')
+      );
+      const isInActiveList =
+        isDeliveryCancellation &&
+        !r.archived_at &&
+        (inReturnFlow || r.restored_from_archive === true);
 
       return {
         order_number: r.order_number,

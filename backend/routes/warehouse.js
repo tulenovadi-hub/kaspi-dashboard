@@ -99,6 +99,7 @@ async function computeWarehouseStock(db = pool) {
      JOIN order_items oi ON oi.order_id = o.id
      WHERE dc.stock_returned_at IS NULL
        AND dc.archived_at IS NULL
+       AND (dc.status = ANY($3::text[]) OR dc.wonder_received = true)
        AND (
          dc.tracking_active = true
          OR dc.tracking_status = 'RETURNED'
