@@ -55,6 +55,7 @@ router.get('/', async (req, res) => {
       const inReturnFlow =
         r.tracking_active === true ||
         r.tracking_status === 'RETURNED' ||
+        r.wonder_received === true ||
         (r.status === 'CANCELLING' && r.tracking_status !== 'CANCELLED');
       const isInActiveList = !r.archived_at && (inReturnFlow || r.restored_from_archive === true);
 
@@ -69,9 +70,10 @@ router.get('/', async (req, res) => {
         archived_at: r.archived_at,
         restored_from_archive: r.restored_from_archive === true,
         // Показывать ли заказ в активном списке (иначе он уезжает в "Архив" внизу страницы).
-        // Три случая: трекинг говорит, что заказ едет обратно прямо сейчас; Kaspi уже
-        // отчитался о приёме; отмена ещё не закрыта ("Ожидает отмены" = CANCELLING) и трекинг
-        // не сказал, что заказ вообще не отправляли.
+        // Четыре случая: трекинг говорит, что заказ едет обратно прямо сейчас; Kaspi уже
+        // отчитался о приёме; Wonder подтверждает, что фулфилмент зарегистрировал отмену;
+        // отмена ещё не закрыта ("Ожидает отмены" = CANCELLING) и трекинг не сказал, что
+        // заказ вообще не отправляли.
         //
         // Последнее добавлено 11.09.2026 из-за заказа 1069743154: покупатель отменил его через
         // семь часов после передачи курьеру, событий возврата в трекинге ещё не было — и

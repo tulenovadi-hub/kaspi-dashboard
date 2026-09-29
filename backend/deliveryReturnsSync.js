@@ -264,6 +264,16 @@ async function syncOrderByNumber(code) {
 
   await upsertFromAttrs(pool, attrs);
   await refreshTrackingForOrder(code);
+  // Заказ может быть помечен трекингом Kaspi как CANCELLED (будто его не отправляли),
+  // хотя фулфилмент уже зарегистрировал передачу и ожидает возврат. Точечный поиск должен
+  // сразу сверить этот же номер с Wonder, иначе новая строка до ночной проверки незаметно
+  // уезжает в архив и не попадает в колонку «Возвращается».
+  let wonderReceived = null;
+  try {
+    wonderReceived = await refreshWonderReceivedForOrder(code);
+  } catch (err) {
+    console.error(`Не удалось проверить заказ ${code} в Wonder:`, err.message);
+  }
 
   const tracks = tracking && Array.isArray(tracking.tracks) ? tracking.tracks : [];
   const lastCode = tracks.length ? tracks[tracks.length - 1].code : null;
@@ -272,10 +282,26 @@ async function syncOrderByNumber(code) {
     added: true,
     state: attrs.state,
     status: attrs.status,
+    wonder_received: wonderReceived,
     diagnostics,
     message: `Заказ ${code} добавлен: ${attrs.state} / ${attrs.status}` +
-      (tracks.length ? `, трек: ${lastCode}, событий ${tracks.length}` : ', трекинга нет'),
+      (tracks.length ? `, трек: ${lastCode}, событий ${tracks.length}` : ', трекинга нет') +
+      (wonderReceived === true ? ', найден в Wonder' : ''),
   };
+}
+
+async function refreshWonderReceivedForOrder(orderNumber) {
+  const codes = await fetchAllWonderOrderCodes();
+  if (!codes) return null;
+
+  const received = codes.has(String(orderNumber));
+  await pool.query(
+    `UPDATE delivery_cancellations
+     SET wonder_received = $2
+     WHERE order_number = $1`,
+    [String(orderNumber), received]
+  );
+  return received;
 }
 
 // Сверяет ВСЕ отмены со списком refund-order-groups у Wonder. Нельзя исключать
@@ -300,4 +326,4 @@ async function refreshWonderReceived() {
   return result.rowCount;
 }
 
-module.exports = { syncDeliveryCancellations, syncOrderByNumber, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, SEARCH_WINDOW_DAYS, lastSearchStats };
+module.exports = { syncDeliveryCancellations, syncOrderByNumber, refreshTrackedOrders, refreshTrackingStatuses, refreshWonderReceived, refreshWonderReceivedForOrder, SEARCH_WINDOW_DAYS, lastSearchStats };

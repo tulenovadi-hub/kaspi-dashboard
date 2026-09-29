@@ -84,8 +84,8 @@ async function computeWarehouseStock(db = pool) {
 
   // "Возвращается" — количество товара из ОСНОВНОГО списка страницы "Отмены при доставке",
   // которое ещё может быть добавлено обратно кнопкой "+ в остаток". Поэтому источник истины
-  // здесь не Wonder и не отдельный статус трекинга, а те же правила, по которым строка попадает
-  // в основной список: активный возврат либо ручное восстановление из архива, без archived_at.
+  // здесь те же правила, по которым строка попадает в основной список: активный возврат,
+  // подтверждение фулфилмента Wonder либо ручное восстановление из архива, без archived_at.
   // После нажатия кнопки stock_returned_at заполняется и позиция перестаёт входить в колонку.
   //
   // Из выборки исключены заказы, статус которых у нас всё ещё "продажа" (SALE_STATUSES), а
@@ -102,6 +102,7 @@ async function computeWarehouseStock(db = pool) {
        AND (
          dc.tracking_active = true
          OR dc.tracking_status = 'RETURNED'
+         OR dc.wonder_received = true
          OR (dc.status = 'CANCELLING' AND dc.tracking_status IS DISTINCT FROM 'CANCELLED')
          OR dc.restored_from_archive = true
        )
