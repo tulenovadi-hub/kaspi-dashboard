@@ -95,3 +95,32 @@ test('product breakdown uses monthly operations and allocates shared costs by is
   assert.equal(sum('net_profit'), -191);
   assert.equal(byId.get('a').margin, (-179 / 600) * 100, 'margin must use gross revenue before returns');
 });
+
+test('latest Excel period comes only from the most recent upload batch', async () => {
+  const reportsPath = require.resolve('./reports');
+  const { fetchLatestUploadPeriod } = require(reportsPath);
+  let querySql = '';
+  const db = {
+    query: async (sql) => {
+      querySql = sql;
+      return {
+        rows: [{
+          period_from: '2026-09-15',
+          period_to: '2026-09-18',
+          uploaded_at: '2026-09-19T03:09:00.000Z',
+          operations_count: 37,
+        }],
+      };
+    },
+  };
+
+  const period = await fetchLatestUploadPeriod(db);
+
+  assert.match(querySql, /uploaded_at = \(SELECT MAX\(uploaded_at\)/);
+  assert.deepEqual(period, {
+    period_from: '2026-09-15',
+    period_to: '2026-09-18',
+    uploaded_at: '2026-09-19T03:09:00.000Z',
+    operations_count: 37,
+  });
+});

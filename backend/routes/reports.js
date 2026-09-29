@@ -44,6 +44,26 @@ function findHeaderRowIndex(rows) {
   return -1;
 }
 
+async function fetchLatestUploadPeriod(db = pool) {
+  const result = await db.query(
+    `SELECT MIN(operation_date)::text AS period_from,
+            MAX(operation_date)::text AS period_to,
+            MAX(uploaded_at) AS uploaded_at,
+            COUNT(*)::int AS operations_count
+     FROM kaspi_pay_transactions
+     WHERE uploaded_at = (SELECT MAX(uploaded_at) FROM kaspi_pay_transactions)
+     HAVING COUNT(*) > 0`
+  );
+  const row = result.rows[0];
+  if (!row || !row.period_from || !row.period_to) return null;
+  return {
+    period_from: row.period_from,
+    period_to: row.period_to,
+    uploaded_at: row.uploaded_at,
+    operations_count: Number(row.operations_count),
+  };
+}
+
 router.post('/upload', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Файл не загружен' });
@@ -143,7 +163,16 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     client.release();
   }
 
-  res.json({ ok: true, processed: records.length });
+  const dates = records.map((record) => record.date).sort();
+  res.json({
+    ok: true,
+    processed: records.length,
+    latestUpload: {
+      period_from: dates[0],
+      period_to: dates[dates.length - 1],
+      operations_count: records.length,
+    },
+  });
 });
 
 const TAX_RATE = 0.03; // 3% с оборота (упрощённый режим ИП)
@@ -624,13 +653,14 @@ function withStoreWideExpenses(rows, otherExpensesByMonth, marketingByMonth, pac
 
 router.get('/monthly', async (req, res) => {
   try {
-    const [months, monthsMainCities, monthsSelfBuyCities, otherExpensesByMonth, marketingByMonth, packagingByMonth] = await Promise.all([
+    const [months, monthsMainCities, monthsSelfBuyCities, otherExpensesByMonth, marketingByMonth, packagingByMonth, latestUpload] = await Promise.all([
       aggregateKaspiPayMonthly(),
       aggregateKaspiPayMonthly(MAIN_CITIES),
       aggregateKaspiPayMonthly(SELF_BUY_CITIES),
       fetchOtherExpensesByMonth(),
       fetchMarketingByMonth(),
       fetchPackagingExpensesByMonth(),
+      fetchLatestUploadPeriod(),
     ]);
 
     // monthsAll — тот же расчёт, что и в основном отчёте, но БЕЗ фильтра по городу отгрузки:
@@ -640,7 +670,7 @@ router.get('/monthly', async (req, res) => {
     const monthsAll = withStoreWideExpenses(months, otherExpensesByMonth, marketingByMonth, packagingByMonth);
     const monthsMainCitiesWithExpenses = withStoreWideExpenses(monthsMainCities, otherExpensesByMonth, marketingByMonth, packagingByMonth);
 
-    res.json({ months, monthsAll, monthsMainCities: monthsMainCitiesWithExpenses, monthsSelfBuyCities });
+    res.json({ months, monthsAll, monthsMainCities: monthsMainCitiesWithExpenses, monthsSelfBuyCities, latestUpload });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить отчёт' });
@@ -739,5 +769,6 @@ module.exports.fetchOtherExpensesByMonth = fetchOtherExpensesByMonth;
 module.exports.fetchMarketingByMonth = fetchMarketingByMonth;
 module.exports.fetchPackagingExpensesByMonth = fetchPackagingExpensesByMonth;
 module.exports.getProductBreakdownForMonth = getProductBreakdownForMonth;
+module.exports.fetchLatestUploadPeriod = fetchLatestUploadPeriod;
 module.exports.MAIN_CITIES = MAIN_CITIES;
 module.exports.SELF_BUY_CITIES = SELF_BUY_CITIES;

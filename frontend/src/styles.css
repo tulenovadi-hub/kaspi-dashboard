@@ -3329,6 +3329,30 @@ input[type="date"] {
   line-height: 1.5;
 }
 
+.report-upload-period {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.report-upload-period strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .report-upload-period {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+}
+
 .report-upload-btn {
   cursor: pointer;
   white-space: nowrap;

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { uploadKaspiPayReport, fetchMonthlyReport, fetchMonthProductBreakdown } from './api.js';
-import { formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
+import { formatDateDMY, formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
 import ReportMobile from './ReportMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import {
@@ -192,6 +192,7 @@ export default function Report({ password, active = true, isOnline = true }) {
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState('');
+  const [latestUpload, setLatestUpload] = useState(undefined);
   const fileInputRef = useRef(null);
 
   // Разворачивать месяцы можно в обеих полных таблицах независимо друг от друга, поэтому
@@ -236,6 +237,7 @@ export default function Report({ password, active = true, isOnline = true }) {
         setMonthsAll(res.monthsAll || []);
         setMonthsMainCities(res.monthsMainCities);
         setMonthsSelfBuyCities(res.monthsSelfBuyCities);
+        setLatestUpload(res.latestUpload || null);
       })
       .catch((err) => setError(err.message))
       .finally(() => {
@@ -263,7 +265,11 @@ export default function Report({ password, active = true, isOnline = true }) {
 
     uploadKaspiPayReport(password, file)
       .then((res) => {
-        setUploadMessage(`Загружено операций: ${res.processed}`);
+        const period = res.latestUpload;
+        setUploadMessage(
+          `Загружено операций: ${res.processed}` +
+          (period ? `. Период: ${formatDateDMY(period.period_from)}–${formatDateDMY(period.period_to)}` : '')
+        );
         loadReport();
       })
       .catch((err) => setError(err.message))
@@ -287,6 +293,14 @@ export default function Report({ password, active = true, isOnline = true }) {
               Личный кабинет продавца → Аналитика/Отчёты → выгрузите «Детальная информация по операциям» в .xlsx и загрузите сюда.
               Комиссии и стоимость доставки подтянутся автоматически.
             </div>
+            {latestUpload && (
+              <div className="report-upload-period">
+                <span>Последний загруженный Excel</span>
+                <strong>
+                  {formatDateDMY(latestUpload.period_from)}–{formatDateDMY(latestUpload.period_to)}
+                </strong>
+              </div>
+            )}
           </div>
           <label className={`primary-button report-upload-btn${uploading ? ' disabled' : ''}`}>
             {uploading ? 'Загружаем...' : 'Выбрать файл .xlsx'}
