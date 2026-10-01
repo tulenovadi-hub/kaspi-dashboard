@@ -1893,6 +1893,14 @@ button,
   grid-column: 1 / -1;
 }
 
+.batch-warehouse-list {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
 @media (max-width: 640px) {
   .batch-form-row,
   .batch-form-row-2 {
@@ -1933,6 +1941,11 @@ button,
   flex-direction: column;
   gap: 10px;
   margin-top: 12px;
+}
+
+.batch-declared-quantity {
+  max-width: 240px;
+  margin-top: 14px;
 }
 
 .batch-allocation-row {
@@ -2004,7 +2017,20 @@ button,
   font-family: var(--font-mono);
 }
 
+.batch-allocation-total.is-complete {
+  color: var(--accent-up);
+}
+
+.batch-allocation-total.is-mismatch,
+.batch-allocation-difference {
+  color: var(--accent-warn);
+}
+
 @media (max-width: 640px) {
+  .batch-declared-quantity {
+    max-width: none;
+  }
+
   .batch-allocation-row {
     grid-template-columns: minmax(0, 1fr) 44px;
     grid-template-areas:

@@ -33,6 +33,7 @@ function EtaLabel({ date }) {
 function BatchCard({ batch, onOpen, onAskReceive }) {
   const inTransit = batch.status === 'in_transit';
   const noLogistics = !batch.logistics_cost || Number(batch.logistics_cost) === 0;
+  const warehouseLabel = (batch.warehouses || [batch.warehouse]).filter(Boolean).join(' · ');
 
   return (
     <div className={`bm-card${inTransit ? ' bm-card-transit' : ''}`}>
@@ -40,7 +41,7 @@ function BatchCard({ batch, onOpen, onAskReceive }) {
         <div className="bm-card-top">
           <div>
             <div className="bm-name">{batch.product_name}</div>
-            <div className="bm-id">#{batch.id} · {batch.warehouse}</div>
+            <div className="bm-id">#{batch.id} · {warehouseLabel}</div>
           </div>
           <div className={`bm-status${inTransit ? ' in-transit' : ''}`}>{inTransit ? 'В пути' : 'Прибыло'}</div>
         </div>
@@ -75,6 +76,7 @@ function BatchCard({ batch, onOpen, onAskReceive }) {
 // Подтверждение прибытия отдельным окном: без него кнопка стоит прямо в ленте, и случайный
 // тап молча переводил бы товар в остаток склада (владелец попросила спросить).
 export function ReceiveConfirm({ batch, onConfirm, onCancel, busy }) {
+  const warehouseLabel = (batch.warehouses || [batch.warehouse]).filter(Boolean).join(' · ');
   return (
     <div className="bm-dialog-overlay" onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
       <div className="bm-dialog" role="dialog" aria-modal="true">
@@ -86,7 +88,7 @@ export function ReceiveConfirm({ batch, onConfirm, onCancel, busy }) {
         <div className="bm-dialog-facts">
           <div><b>#{batch.id}</b> · {batch.product_name}</div>
           <div className="bm-id">
-            {batch.warehouse} · {formatNumber(batch.quantity)} шт · {formatMoney(batch.cost_price)} за штуку
+            {warehouseLabel} · {formatNumber(batch.quantity)} шт · {formatMoney(batch.cost_price)} за штуку
           </div>
         </div>
         <div className="bm-dialog-actions">

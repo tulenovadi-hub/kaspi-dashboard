@@ -1,4 +1,5 @@
 const express = require('express');
+const { randomUUID } = require('crypto');
 const { pool } = require('../db');
 
 const router = express.Router();
@@ -82,12 +83,75 @@ function normalizeAllocations(value, fallbackWarehouse, fallbackQuantity) {
       return { error: `Город «${warehouse}» указан в поставке дважды` };
     }
     seen.add(warehouse);
-    allocations.push({ warehouse, quantity });
+    const rowId = Number(item?.id);
+    allocations.push({
+      id: Number.isInteger(rowId) && rowId > 0 ? rowId : null,
+      warehouse,
+      quantity,
+    });
   }
 
   return {
     allocations,
     totalQuantity: allocations.reduce((sum, item) => sum + item.quantity, 0),
+  };
+}
+
+function sumOptional(rows, field) {
+  const values = rows.map((row) => optionalNumber(row[field])).filter((value) => value !== null);
+  return values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0);
+}
+
+function weightedValue(rows, field) {
+  const totalQuantity = rows.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+  if (!totalQuantity) return Number(rows[0]?.[field] || 0);
+  return rows.reduce(
+    (sum, row) => sum + Number(row[field] || 0) * Number(row.quantity || 0),
+    0
+  ) / totalQuantity;
+}
+
+function combineExtraExpenses(rows) {
+  const combined = new Map();
+  for (const row of rows) {
+    const expenses = Array.isArray(row.extra_expenses) ? row.extra_expenses : [];
+    for (const expense of expenses) {
+      const key = `${expense.name}\u0000${expense.currency}\u0000${expense.rate}`;
+      const current = combined.get(key) || { ...expense, amount: 0 };
+      current.amount += Number(expense.amount || 0);
+      combined.set(key, current);
+    }
+  }
+  return [...combined.values()];
+}
+
+// Собирает городские строки обратно в одну запись для интерфейса. Финансовые суммы,
+// распределённые по строкам пропорционально количеству, здесь складываются обратно.
+function groupBatchRows(rows) {
+  if (!rows.length) return null;
+  const sorted = rows.slice().sort((a, b) => Number(a.id) - Number(b.id));
+  const first = sorted[0];
+  const warehouses = [...new Set(sorted.map((row) => row.warehouse))];
+  return {
+    ...first,
+    id: Number(first.id),
+    supply_group_id: first.supply_group_id,
+    cost_price: weightedValue(sorted, 'cost_price'),
+    purchase_price: weightedValue(sorted, 'purchase_price'),
+    logistics_cost: weightedValue(sorted, 'logistics_cost'),
+    quantity: sorted.reduce((sum, row) => sum + Number(row.quantity || 0), 0),
+    remaining_quantity: sorted.reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0),
+    purchase_amount_foreign: sumOptional(sorted, 'purchase_amount_foreign'),
+    logistics_amount_foreign: sumOptional(sorted, 'logistics_amount_foreign'),
+    extra_expenses: combineExtraExpenses(sorted),
+    warehouse: warehouses[0],
+    warehouses,
+    allocations: sorted.map((row) => ({
+      id: Number(row.id),
+      warehouse: row.warehouse,
+      quantity: Number(row.quantity),
+      remaining_quantity: Number(row.remaining_quantity),
+    })),
   };
 }
 
@@ -145,13 +209,21 @@ router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-              purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses
+              purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses,
+              COALESCE(supply_group_id, 'batch-' || id) AS supply_group_id
        FROM product_batches
        ORDER BY product_name, received_date, id`
     );
+    const groups = new Map();
+    for (const row of result.rows) {
+      const groupId = row.supply_group_id || `batch-${row.id}`;
+      if (!groups.has(groupId)) groups.set(groupId, []);
+      groups.get(groupId).push(row);
+    }
+    const batches = [...groups.values()].map(groupBatchRows);
     // Список складов отдаём вместе с партиями, чтобы фронтенду не приходилось держать
     // собственную копию — источник правды один, backend/warehouseMapping.js.
-    res.json({ batches: result.rows, warehouses: VALID_WAREHOUSES });
+    res.json({ batches, warehouses: VALID_WAREHOUSES });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить список партий' });
@@ -163,7 +235,7 @@ router.post('/', async (req, res) => {
   const {
     product_id, product_name, purchase_price, logistics_cost, note, warehouse, quantity, received_date, status,
     purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate,
-    extra_expenses, allocations: requestedAllocations,
+    extra_expenses, allocations: requestedAllocations, declared_quantity,
   } = req.body;
 
   // product_id/product_name могут прийти как из выпадающего списка, так и набранными вручную
@@ -177,7 +249,16 @@ router.post('/', async (req, res) => {
   if (normalizedAllocations.error) {
     return res.status(400).json({ error: normalizedAllocations.error });
   }
-  const { allocations, totalQuantity: qty } = normalizedAllocations;
+  const { allocations, totalQuantity: allocatedQuantity } = normalizedAllocations;
+  const qty = Number(declared_quantity ?? quantity ?? allocatedQuantity);
+  if (!Number.isInteger(qty) || qty <= 0) {
+    return res.status(400).json({ error: 'Общее количество должно быть целым числом больше нуля' });
+  }
+  if (allocatedQuantity !== qty) {
+    return res.status(400).json({
+      error: `По городам распределено ${allocatedQuantity} шт., а заявлено всего ${qty} шт.`,
+    });
+  }
   const purchasePrice = Number(purchase_price);
   const logisticsCost = Number(logistics_cost || 0);
   const batchStatus = VALID_STATUSES.includes(status) ? status : 'received';
@@ -211,6 +292,7 @@ router.post('/', async (req, res) => {
   try {
     await client.query('BEGIN');
     const batches = [];
+    const supplyGroupId = randomUUID();
     for (const allocation of allocations) {
       // Справочные суммы в валюте и статьи расходов заданы за всю поставку. Храним в
       // городской строке только её долю: тогда открытие/редактирование строки не покажет
@@ -220,19 +302,19 @@ router.post('/', async (req, res) => {
       const rowExpenses = proportionalExpenses(extraExpenses, allocation.quantity, qty);
       const result = await client.query(
         `INSERT INTO product_batches (product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status,
-                                       purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                                       purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses, supply_group_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
          RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-                   purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses`,
+                   purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses, supply_group_id`,
         [productId, productName, costPrice, purchasePrice, logisticsCost, note || null,
           allocation.warehouse, allocation.quantity, received_date, batchStatus,
           purchaseCurrency, rowPurchaseAmount, purchaseRate, logisticsCurrency, rowLogisticsAmount, logisticsRate,
-          JSON.stringify(rowExpenses)]
+          JSON.stringify(rowExpenses), supplyGroupId]
       );
       batches.push(result.rows[0]);
     }
     await client.query('COMMIT');
-    res.status(201).json({ batch: batches[0], batches });
+    res.status(201).json({ batch: groupBatchRows(batches), rows: batches });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error(err);
@@ -242,22 +324,30 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Редактирование существующей партии. Текущая строка становится первой городской частью,
-// дополнительные города — новыми строками; уже проданные единицы при этом не возвращаются
-// в остаток. Все изменения проходят одной транзакцией.
+// Редактирование существующей поставки целиком. Связанные городские строки загружаются и
+// сохраняются одной транзакцией; уже проданные единицы при этом не возвращаются в остаток.
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const {
     warehouse, purchase_price, logistics_cost, note, quantity, received_date, status,
     purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate,
-    extra_expenses, allocations: requestedAllocations,
+    extra_expenses, allocations: requestedAllocations, declared_quantity,
   } = req.body;
 
   const normalizedAllocations = normalizeAllocations(requestedAllocations, warehouse, quantity);
   if (normalizedAllocations.error) {
     return res.status(400).json({ error: normalizedAllocations.error });
   }
-  const { allocations, totalQuantity: qty } = normalizedAllocations;
+  const { allocations, totalQuantity: allocatedQuantity } = normalizedAllocations;
+  const qty = Number(declared_quantity ?? quantity);
+  if (!Number.isInteger(qty) || qty <= 0) {
+    return res.status(400).json({ error: 'Общее количество должно быть целым числом больше нуля' });
+  }
+  if (allocatedQuantity !== qty) {
+    return res.status(400).json({
+      error: `По городам распределено ${allocatedQuantity} шт., а заявлено всего ${qty} шт.`,
+    });
+  }
   const purchasePrice = Number(purchase_price);
   const logisticsCost = Number(logistics_cost || 0);
   const batchStatus = VALID_STATUSES.includes(status) ? status : 'received';
@@ -293,16 +383,28 @@ router.put('/:id', async (req, res) => {
   try {
     await client.query('BEGIN');
     const existing = await client.query(
-      `SELECT product_id, product_name, quantity, remaining_quantity
-       FROM product_batches WHERE id = $1 FOR UPDATE`,
+      `SELECT pb.id, pb.product_id, pb.product_name, pb.quantity, pb.remaining_quantity,
+              COALESCE(pb.supply_group_id, 'batch-' || pb.id) AS supply_group_id
+       FROM product_batches pb
+       WHERE COALESCE(pb.supply_group_id, 'batch-' || pb.id) = (
+         SELECT COALESCE(anchor.supply_group_id, 'batch-' || anchor.id)
+         FROM product_batches anchor
+         WHERE anchor.id = $1
+       )
+       ORDER BY pb.id
+       FOR UPDATE`,
       [id]
     );
     if (existing.rowCount === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Партия не найдена' });
     }
-    const oldQuantity = Number(existing.rows[0].quantity);
-    const oldRemaining = Number(existing.rows[0].remaining_quantity);
+    if (existing.rows.length > 1 && declared_quantity === undefined) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Поставка содержит несколько городов. Обновите страницу и откройте её заново' });
+    }
+    const oldQuantity = existing.rows.reduce((sum, row) => sum + Number(row.quantity), 0);
+    const oldRemaining = existing.rows.reduce((sum, row) => sum + Number(row.remaining_quantity), 0);
     // Уже проданные единицы не должны внезапно вернуться в остаток после разделения.
     // Сначала относим их к первой строке (исходной партии), затем — к следующим,
     // если количество первой строки оказалось меньше уже проданного количества.
@@ -312,49 +414,72 @@ router.put('/:id', async (req, res) => {
       soldToDistribute -= soldFromRow;
       return { ...allocation, remainingQuantity: allocation.quantity - soldFromRow };
     });
-    const firstAllocation = allocations[0];
-    const newRemaining = allocationsWithRemaining[0].remainingQuantity;
-    const firstPurchaseAmount = proportionalValue(purchaseAmountForeign, firstAllocation.quantity, qty);
-    const firstLogisticsAmount = proportionalValue(logisticsAmountForeign, firstAllocation.quantity, qty);
-    const firstExpenses = proportionalExpenses(extraExpenses, firstAllocation.quantity, qty);
+    const anchor = existing.rows.find((row) => Number(row.id) === Number(id)) || existing.rows[0];
+    const supplyGroupId = anchor.supply_group_id || `batch-${anchor.id}`;
+    const existingById = new Map(existing.rows.map((row) => [Number(row.id), row]));
+    const usedIds = new Set();
 
-    const result = await client.query(
-      `UPDATE product_batches
-       SET cost_price = $1, purchase_price = $2, logistics_cost = $3, note = $4, warehouse = $5,
-           quantity = $6, remaining_quantity = $7, received_date = $8, status = $9,
-           purchase_currency = $10, purchase_amount_foreign = $11, purchase_rate = $12,
-           logistics_currency = $13, logistics_amount_foreign = $14, logistics_rate = $15,
-           extra_expenses = $16
-       WHERE id = $17
-       RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses`,
-      [costPrice, purchasePrice, logisticsCost, note || null, firstAllocation.warehouse, firstAllocation.quantity,
-        newRemaining, received_date, batchStatus, purchaseCurrency, firstPurchaseAmount, purchaseRate,
-        logisticsCurrency, firstLogisticsAmount, logisticsRate, JSON.stringify(firstExpenses), id]
-    );
-    const batches = [result.rows[0]];
-
-    for (const allocation of allocationsWithRemaining.slice(1)) {
+    for (let index = 0; index < allocationsWithRemaining.length; index += 1) {
+      const allocation = allocationsWithRemaining[index];
       const rowPurchaseAmount = proportionalValue(purchaseAmountForeign, allocation.quantity, qty);
       const rowLogisticsAmount = proportionalValue(logisticsAmountForeign, allocation.quantity, qty);
       const rowExpenses = proportionalExpenses(extraExpenses, allocation.quantity, qty);
-      const inserted = await client.query(
-        `INSERT INTO product_batches
-         (product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status,
-          purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-         RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-                   purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses`,
-        [existing.rows[0].product_id, existing.rows[0].product_name, costPrice, purchasePrice, logisticsCost,
-          note || null, allocation.warehouse, allocation.quantity, allocation.remainingQuantity, received_date, batchStatus,
-          purchaseCurrency, rowPurchaseAmount, purchaseRate, logisticsCurrency, rowLogisticsAmount, logisticsRate,
-          JSON.stringify(rowExpenses)]
-      );
-      batches.push(inserted.rows[0]);
+      let target = null;
+      if (index === 0) {
+        target = anchor;
+      } else if (allocation.id && existingById.has(allocation.id) && !usedIds.has(allocation.id)) {
+        target = existingById.get(allocation.id);
+      } else {
+        target = existing.rows.find((row) => !usedIds.has(Number(row.id)) && Number(row.id) !== Number(anchor.id)) || null;
+      }
+
+      if (target) {
+        usedIds.add(Number(target.id));
+        await client.query(
+          `UPDATE product_batches
+           SET cost_price = $1, purchase_price = $2, logistics_cost = $3, note = $4, warehouse = $5,
+               quantity = $6, remaining_quantity = $7, received_date = $8, status = $9,
+               purchase_currency = $10, purchase_amount_foreign = $11, purchase_rate = $12,
+               logistics_currency = $13, logistics_amount_foreign = $14, logistics_rate = $15,
+               extra_expenses = $16, supply_group_id = $17
+           WHERE id = $18`,
+          [costPrice, purchasePrice, logisticsCost, note || null, allocation.warehouse, allocation.quantity,
+            allocation.remainingQuantity, received_date, batchStatus, purchaseCurrency, rowPurchaseAmount, purchaseRate,
+            logisticsCurrency, rowLogisticsAmount, logisticsRate, JSON.stringify(rowExpenses), supplyGroupId, target.id]
+        );
+      } else {
+        const inserted = await client.query(
+          `INSERT INTO product_batches
+           (product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status,
+            purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses, supply_group_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+           RETURNING id`,
+          [anchor.product_id, anchor.product_name, costPrice, purchasePrice, logisticsCost,
+            note || null, allocation.warehouse, allocation.quantity, allocation.remainingQuantity, received_date, batchStatus,
+            purchaseCurrency, rowPurchaseAmount, purchaseRate, logisticsCurrency, rowLogisticsAmount, logisticsRate,
+            JSON.stringify(rowExpenses), supplyGroupId]
+        );
+        usedIds.add(Number(inserted.rows[0].id));
+      }
     }
 
+    const obsoleteIds = existing.rows
+      .map((row) => Number(row.id))
+      .filter((rowId) => !usedIds.has(rowId));
+    if (obsoleteIds.length > 0) {
+      await client.query(`DELETE FROM product_batches WHERE id = ANY($1::int[])`, [obsoleteIds]);
+    }
+
+    const saved = await client.query(
+      `SELECT id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
+              purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses, supply_group_id
+       FROM product_batches
+       WHERE supply_group_id = $1
+       ORDER BY id`,
+      [supplyGroupId]
+    );
     await client.query('COMMIT');
-    res.json({ batch: batches[0], batches });
+    res.json({ batch: groupBatchRows(saved.rows), rows: saved.rows });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error(err);
@@ -371,16 +496,21 @@ router.post('/:id/receive', async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
     const result = await pool.query(
-      `UPDATE product_batches SET status = 'received', received_date = $1
-       WHERE id = $2
+      `WITH target AS (
+         SELECT COALESCE(supply_group_id, 'batch-' || id) AS group_id
+         FROM product_batches WHERE id = $2
+       )
+       UPDATE product_batches
+       SET status = 'received', received_date = $1
+       WHERE COALESCE(supply_group_id, 'batch-' || id) = (SELECT group_id FROM target)
        RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses`,
+                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses, supply_group_id`,
       [today, id]
     );
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Партия не найдена' });
     }
-    res.json({ batch: result.rows[0] });
+    res.json({ batch: groupBatchRows(result.rows), rows: result.rows });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось отметить поставку как прибывшую' });
@@ -391,7 +521,16 @@ router.post('/:id/receive', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await pool.query(`DELETE FROM product_batches WHERE id = $1 RETURNING id`, [id]);
+    const result = await pool.query(
+      `WITH target AS (
+         SELECT COALESCE(supply_group_id, 'batch-' || id) AS group_id
+         FROM product_batches WHERE id = $1
+       )
+       DELETE FROM product_batches
+       WHERE COALESCE(supply_group_id, 'batch-' || id) = (SELECT group_id FROM target)
+       RETURNING id`,
+      [id]
+    );
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Партия не найдена' });
     }

@@ -27,17 +27,19 @@ function makeExpenseRow(saved) {
 }
 
 let nextAllocationKey = 0;
-function makeAllocationRow(warehouse = '', quantity = '') {
+function makeAllocationRow(warehouse = '', quantity = '', id = null, remainingQuantity = null) {
   return {
     key: `allocation-${nextAllocationKey++}`,
+    id,
     warehouse,
     quantity: quantity === '' ? '' : String(quantity),
+    remainingQuantity,
   };
 }
 
 // editingBatch === null -> режим создания. И новую, и уже существующую поставку можно
-// распределить по нескольким городам. При редактировании текущая городская часть остаётся
-// первой строкой, а добавленные города сохраняются как новые самостоятельные FIFO-партии.
+// распределить по нескольким городам. Для FIFO города хранятся раздельно, но здесь всегда
+// открываются и сохраняются как одна поставка с неизменным общим количеством и себестоимостью.
 function BatchModal({ password, products, warehouses, editingBatch, onClose, onSaved, onDelete }) {
   const isEdit = Boolean(editingBatch);
   const { closing, close } = useClosing(onClose);
@@ -53,9 +55,23 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
   const matchedManualProduct = manualProduct
     ? products.find((p) => p.product_id === manualProductId.trim() && p.from_sales !== false)
     : null;
-  const [allocations, setAllocations] = useState(() => [
-    makeAllocationRow(editingBatch?.warehouse || warehouses[0] || '', editingBatch?.quantity || ''),
-  ]);
+  const [allocations, setAllocations] = useState(() => {
+    if (Array.isArray(editingBatch?.allocations) && editingBatch.allocations.length > 0) {
+      return editingBatch.allocations.map((allocation) => makeAllocationRow(
+        allocation.warehouse,
+        allocation.quantity,
+        allocation.id,
+        allocation.remaining_quantity
+      ));
+    }
+    return [makeAllocationRow(
+      editingBatch?.warehouse || warehouses[0] || '',
+      editingBatch?.quantity || '',
+      editingBatch?.id || null,
+      editingBatch?.remaining_quantity ?? null
+    )];
+  });
+  const [declaredQuantity, setDeclaredQuantity] = useState(editingBatch ? String(editingBatch.quantity) : '');
   const [purchasePrice, setPurchasePrice] = useState(editingBatch ? String(editingBatch.purchase_price) : '');
   const [logisticsCost, setLogisticsCost] = useState(editingBatch ? String(editingBatch.logistics_cost) : '');
 
@@ -85,7 +101,10 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
   // иначе предпросмотр себестоимости разойдётся с тем, что реально сохранится.
   const filledExpenses = extraExpenses.filter((e) => e.name.trim() && e.amount !== '' && Number(e.amount) >= 0);
   const allocatedQuantity = allocations.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
-  const calculationQuantity = allocatedQuantity;
+  const calculationQuantity = Number(declaredQuantity) || 0;
+  const allocationMismatch = !Number.isInteger(Number(declaredQuantity))
+    || Number(declaredQuantity) <= 0
+    || allocatedQuantity !== Number(declaredQuantity);
   const extraTotalKzt = filledExpenses.reduce(
     (sum, e) => sum + (Number(e.amount) || 0) * (e.currency === 'KZT' ? 1 : (Number(e.rate) || 1)),
     0
@@ -145,6 +164,7 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
     e.preventDefault();
 
     const normalizedAllocations = allocations.map((item) => ({
+      id: item.id,
       warehouse: item.warehouse,
       quantity: Number(item.quantity),
     }));
@@ -154,6 +174,15 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
     }
     if (new Set(normalizedAllocations.map((item) => item.warehouse)).size !== normalizedAllocations.length) {
       setError('Один город нельзя добавить в поставку дважды');
+      return;
+    }
+    const declared = Number(declaredQuantity);
+    if (!Number.isInteger(declared) || declared <= 0) {
+      setError('Укажите общее количество поставки целым числом больше нуля');
+      return;
+    }
+    if (allocatedQuantity !== declared) {
+      setError(`По городам распределено ${allocatedQuantity} шт., а заявлено всего ${declared} шт.`);
       return;
     }
 
@@ -167,7 +196,8 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
       purchase_price: purchasePrice,
       logistics_cost: logisticsCost || 0,
       note,
-      quantity: allocatedQuantity,
+      quantity: declared,
+      declared_quantity: declared,
       allocations: normalizedAllocations,
       received_date: receivedDate,
       status,
@@ -324,9 +354,21 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
           <div className="form-section">
             <div className="form-section-title">Партия</div>
             <div className="form-section-hint">
-              {isEdit
-                ? 'Измените текущий город или добавьте новый. Общая себестоимость посчитается по всем городам'
-                : 'Укажите, сколько единиц отправляется в каждый город. Общая себестоимость посчитается по всей поставке'}
+              Сначала укажите общее количество поставки, затем полностью распределите его по городам.
+              Себестоимость считается от общего количества и при делении не меняется.
+            </div>
+
+            <div className="batch-form-field batch-declared-quantity">
+              <label>Заявлено всего, шт</label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={declaredQuantity}
+                onChange={(e) => setDeclaredQuantity(e.target.value)}
+                required
+              />
+              <span className="batch-field-hint">Это общее количество во всей поставке до разделения по городам</span>
             </div>
 
             <div className="batch-allocation-list">
@@ -359,8 +401,10 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
                         onChange={(e) => updateAllocation(allocation.key, 'quantity', e.target.value)}
                         required
                       />
-                      {isEdit && index === 0 && (
-                        <span className="batch-field-hint">Сейчас остаток: {formatNumber(editingBatch.remaining_quantity)} шт</span>
+                      {isEdit && allocation.remainingQuantity != null && (
+                        <span className="batch-field-hint">
+                          Сейчас остаток в городе: {formatNumber(allocation.remainingQuantity)} шт
+                        </span>
                       )}
                     </div>
                     <button
@@ -387,10 +431,17 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
               + Добавить город
             </button>
 
-            <div className="batch-allocation-total">
-              Всего: <b>{formatNumber(allocatedQuantity)} шт</b>
+            <div className={`batch-allocation-total${allocationMismatch ? ' is-mismatch' : ' is-complete'}`}>
+              Распределено: <b>{formatNumber(allocatedQuantity)} из {formatNumber(Number(declaredQuantity) || 0)} шт</b>
               {allocations.length > 1 && (
                 <span> · {allocations.length} {allocations.length <= 4 ? 'города' : 'городов'}</span>
+              )}
+              {Number(declaredQuantity) > 0 && allocatedQuantity !== Number(declaredQuantity) && (
+                <span className="batch-allocation-difference">
+                  {allocatedQuantity < Number(declaredQuantity)
+                    ? ` · осталось распределить ${formatNumber(Number(declaredQuantity) - allocatedQuantity)} шт`
+                    : ` · превышение на ${formatNumber(allocatedQuantity - Number(declaredQuantity))} шт`}
+                </span>
               )}
             </div>
 
@@ -614,7 +665,7 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
             </div>
           </div>
 
-          <button className="primary-button batch-submit" type="submit" disabled={saving}>
+          <button className="primary-button batch-submit" type="submit" disabled={saving || allocationMismatch}>
             {saving ? 'Сохраняем...' : isEdit ? 'Сохранить изменения' : 'Создать поставку'}
           </button>
 
@@ -733,19 +784,23 @@ export default function Batches({ password, onClose, active = true, isOnline = t
     return batches
       .filter((b) => !search || b.product_name.toLowerCase().includes(search.toLowerCase()))
       .filter((b) => !productFilter || b.product_id === productFilter)
-      .filter((b) => !warehouseFilter || b.warehouse === warehouseFilter)
+      .filter((b) => !warehouseFilter || (b.warehouses || [b.warehouse]).includes(warehouseFilter))
       .filter((b) => !dateFrom || b.received_date >= dateFrom)
       .filter((b) => !dateTo || b.received_date <= dateTo)
       .sort((a, b) => (a.received_date < b.received_date ? 1 : -1));
   }, [batches, search, productFilter, warehouseFilter, dateFrom, dateTo]);
 
   const groupedByWarehouse = filtered.reduce((acc, b) => {
-    const city = b.warehouse || 'Без склада';
+    const city = (b.warehouses || []).length > 1 ? 'Несколько городов' : (b.warehouse || 'Без склада');
     if (!acc[city]) acc[city] = [];
     acc[city].push(b);
     return acc;
   }, {});
-  const cities = Object.keys(groupedByWarehouse).sort((a, b) => a.localeCompare(b, 'ru'));
+  const cities = Object.keys(groupedByWarehouse).sort((a, b) => {
+    if (a === 'Несколько городов') return -1;
+    if (b === 'Несколько городов') return 1;
+    return a.localeCompare(b, 'ru');
+  });
 
   return (
     <div>
@@ -856,6 +911,9 @@ export default function Batches({ password, onClose, active = true, isOnline = t
                           <td className="num">#{b.id}</td>
                           <td>
                             {b.product_name}
+                            {(b.warehouses || []).length > 1 && (
+                              <span className="batch-warehouse-list">{b.warehouses.join(' · ')}</span>
+                            )}
                             {noLogistics && (
                               <span className="batch-missing-logistics">⚠ логистика не внесена</span>
                             )}

@@ -155,6 +155,33 @@ async function initDb() {
   // попадают в FIFO-себестоимость, оценку склада и расчёт прибыли.
   await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS extra_expenses JSONB;`);
 
+  // Одна поставка в интерфейсе может быть распределена по нескольким городам, но для FIFO
+  // каждый город всё равно хранится отдельной строкой. supply_group_id связывает эти строки
+  // обратно в одну логическую поставку: в списке показывается общее количество, а при
+  // повторном открытии формы — сразу все города, без повторного деления общей суммы закупки.
+  await pool.query(`ALTER TABLE product_batches ADD COLUMN IF NOT EXISTS supply_group_id TEXT;`);
+  await pool.query(`UPDATE product_batches SET supply_group_id = 'batch-' || id WHERE supply_group_id IS NULL;`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_batches_supply_group ON product_batches(supply_group_id);`);
+
+  // Точечное восстановление первой поставки, которую пользователь успел разделить до
+  // появления связи между городскими строками. Строгие проверки не дадут затронуть другую
+  // базу или строки, если их содержимое отличается: №35 + №40 + №41 должны составлять
+  // ровно 500 шт HS-918 с исходной себестоимостью 9 840 ₸.
+  await pool.query(`
+    UPDATE product_batches
+    SET supply_group_id = 'batch-35'
+    WHERE id IN (35, 40, 41)
+      AND (
+        SELECT COUNT(*) = 3
+          AND SUM(quantity) = 500
+          AND MIN(cost_price) = 9840
+          AND MAX(cost_price) = 9840
+          AND COUNT(DISTINCT product_id) = 1
+        FROM product_batches
+        WHERE id IN (35, 40, 41)
+      )
+  `);
+
   // Настройки формулы "Закупа" — общие на весь магазин (не по товарам), редактируются в UI
   // ("Настройка параметров" на странице "Закуп"). Одна строка-синглтон с id=1.
   await pool.query(`
