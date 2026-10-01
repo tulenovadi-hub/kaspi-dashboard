@@ -56,7 +56,7 @@ function extraExpensesPerUnit(expenses, qty) {
 
 // Одна поставка может быть сразу распределена между несколькими городами. В складских
 // формулах одна строка product_batches по-прежнему означает один товар на одном складе,
-// поэтому POST создаёт по строке на город, но делает это одной транзакцией. Старый формат
+// поэтому POST/PUT создают по строке на город, но делают это одной транзакцией. Старый формат
 // warehouse + quantity оставляем рабочим для уже закэшированного фронтенда.
 function normalizeAllocations(value, fallbackWarehouse, fallbackQuantity) {
   const source = Array.isArray(value) && value.length > 0
@@ -242,31 +242,30 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Редактирование существующей партии. Если меняется количество — остаток (remaining_quantity)
-// сдвигается на ту же разницу, чтобы не потерять уже проданную часть партии.
+// Редактирование существующей партии. Текущая строка становится первой городской частью,
+// дополнительные города — новыми строками; уже проданные единицы при этом не возвращаются
+// в остаток. Все изменения проходят одной транзакцией.
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const {
     warehouse, purchase_price, logistics_cost, note, quantity, received_date, status,
     purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate,
-    extra_expenses,
+    extra_expenses, allocations: requestedAllocations,
   } = req.body;
 
-  if (!warehouse || !VALID_WAREHOUSES.includes(warehouse)) {
-    return res.status(400).json({ error: 'Не указан склад (город)' });
+  const normalizedAllocations = normalizeAllocations(requestedAllocations, warehouse, quantity);
+  if (normalizedAllocations.error) {
+    return res.status(400).json({ error: normalizedAllocations.error });
   }
+  const { allocations, totalQuantity: qty } = normalizedAllocations;
   const purchasePrice = Number(purchase_price);
   const logisticsCost = Number(logistics_cost || 0);
-  const qty = Number(quantity);
   const batchStatus = VALID_STATUSES.includes(status) ? status : 'received';
   if (!Number.isFinite(purchasePrice) || purchasePrice < 0) {
     return res.status(400).json({ error: 'Закупочная цена указана некорректно' });
   }
   if (!Number.isFinite(logisticsCost) || logisticsCost < 0) {
     return res.status(400).json({ error: 'Логистика указана некорректно' });
-  }
-  if (!Number.isInteger(qty) || qty <= 0) {
-    return res.status(400).json({ error: 'Количество должно быть целым числом больше нуля' });
   }
   if (!received_date || !/^\d{4}-\d{2}-\d{2}$/.test(received_date)) {
     return res.status(400).json({ error: 'Дата поступления указана некорректно' });
@@ -283,16 +282,43 @@ router.put('/:id', async (req, res) => {
   const logisticsAmountForeign = optionalNumber(logistics_amount_foreign);
   const logisticsRate = optionalNumber(logistics_rate);
 
+  let client;
   try {
-    const existing = await pool.query(`SELECT quantity, remaining_quantity FROM product_batches WHERE id = $1`, [id]);
+    client = await pool.connect();
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Не удалось сохранить изменения' });
+  }
+
+  try {
+    await client.query('BEGIN');
+    const existing = await client.query(
+      `SELECT product_id, product_name, quantity, remaining_quantity
+       FROM product_batches WHERE id = $1 FOR UPDATE`,
+      [id]
+    );
     if (existing.rowCount === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Партия не найдена' });
     }
     const oldQuantity = Number(existing.rows[0].quantity);
     const oldRemaining = Number(existing.rows[0].remaining_quantity);
-    const newRemaining = Math.max(0, oldRemaining + (qty - oldQuantity));
+    // Уже проданные единицы не должны внезапно вернуться в остаток после разделения.
+    // Сначала относим их к первой строке (исходной партии), затем — к следующим,
+    // если количество первой строки оказалось меньше уже проданного количества.
+    let soldToDistribute = Math.max(0, oldQuantity - oldRemaining);
+    const allocationsWithRemaining = allocations.map((allocation) => {
+      const soldFromRow = Math.min(allocation.quantity, soldToDistribute);
+      soldToDistribute -= soldFromRow;
+      return { ...allocation, remainingQuantity: allocation.quantity - soldFromRow };
+    });
+    const firstAllocation = allocations[0];
+    const newRemaining = allocationsWithRemaining[0].remainingQuantity;
+    const firstPurchaseAmount = proportionalValue(purchaseAmountForeign, firstAllocation.quantity, qty);
+    const firstLogisticsAmount = proportionalValue(logisticsAmountForeign, firstAllocation.quantity, qty);
+    const firstExpenses = proportionalExpenses(extraExpenses, firstAllocation.quantity, qty);
 
-    const result = await pool.query(
+    const result = await client.query(
       `UPDATE product_batches
        SET cost_price = $1, purchase_price = $2, logistics_cost = $3, note = $4, warehouse = $5,
            quantity = $6, remaining_quantity = $7, received_date = $8, status = $9,
@@ -302,14 +328,39 @@ router.put('/:id', async (req, res) => {
        WHERE id = $17
        RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
                  purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses`,
-      [costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, newRemaining, received_date, batchStatus,
-        purchaseCurrency, purchaseAmountForeign, purchaseRate, logisticsCurrency, logisticsAmountForeign, logisticsRate,
-        JSON.stringify(extraExpenses), id]
+      [costPrice, purchasePrice, logisticsCost, note || null, firstAllocation.warehouse, firstAllocation.quantity,
+        newRemaining, received_date, batchStatus, purchaseCurrency, firstPurchaseAmount, purchaseRate,
+        logisticsCurrency, firstLogisticsAmount, logisticsRate, JSON.stringify(firstExpenses), id]
     );
-    res.json({ batch: result.rows[0] });
+    const batches = [result.rows[0]];
+
+    for (const allocation of allocationsWithRemaining.slice(1)) {
+      const rowPurchaseAmount = proportionalValue(purchaseAmountForeign, allocation.quantity, qty);
+      const rowLogisticsAmount = proportionalValue(logisticsAmountForeign, allocation.quantity, qty);
+      const rowExpenses = proportionalExpenses(extraExpenses, allocation.quantity, qty);
+      const inserted = await client.query(
+        `INSERT INTO product_batches
+         (product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status,
+          purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
+                   purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses`,
+        [existing.rows[0].product_id, existing.rows[0].product_name, costPrice, purchasePrice, logisticsCost,
+          note || null, allocation.warehouse, allocation.quantity, allocation.remainingQuantity, received_date, batchStatus,
+          purchaseCurrency, rowPurchaseAmount, purchaseRate, logisticsCurrency, rowLogisticsAmount, logisticsRate,
+          JSON.stringify(rowExpenses)]
+      );
+      batches.push(inserted.rows[0]);
+    }
+
+    await client.query('COMMIT');
+    res.json({ batch: batches[0], batches });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error(err);
     res.status(500).json({ error: 'Не удалось сохранить изменения' });
+  } finally {
+    client.release();
   }
 });
 
