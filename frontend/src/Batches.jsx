@@ -26,8 +26,18 @@ function makeExpenseRow(saved) {
   };
 }
 
-// editingBatch === null -> режим создания. editingBatch объект -> режим редактирования (товар и склад
-// продукта не меняются, только цена/логистика/количество/дата/примечание/склад отгрузки).
+let nextAllocationKey = 0;
+function makeAllocationRow(warehouse = '', quantity = '') {
+  return {
+    key: `allocation-${nextAllocationKey++}`,
+    warehouse,
+    quantity: quantity === '' ? '' : String(quantity),
+  };
+}
+
+// editingBatch === null -> режим создания. Новую поставку можно сразу распределить по
+// нескольким городам. При редактировании открывается одна городская часть поставки: она уже
+// является самостоятельной FIFO-партией и может прибыть/измениться отдельно от остальных.
 function BatchModal({ password, products, warehouses, editingBatch, onClose, onSaved, onDelete }) {
   const isEdit = Boolean(editingBatch);
   const { closing, close } = useClosing(onClose);
@@ -44,6 +54,7 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
     ? products.find((p) => p.product_id === manualProductId.trim() && p.from_sales !== false)
     : null;
   const [warehouse, setWarehouse] = useState(editingBatch ? editingBatch.warehouse : (warehouses[0] || ''));
+  const [allocations, setAllocations] = useState(() => [makeAllocationRow(warehouses[0] || '')]);
   const [purchasePrice, setPurchasePrice] = useState(editingBatch ? String(editingBatch.purchase_price) : '');
   const [logisticsCost, setLogisticsCost] = useState(editingBatch ? String(editingBatch.logistics_cost) : '');
   const [quantity, setQuantity] = useState(editingBatch ? String(editingBatch.quantity) : '');
@@ -73,33 +84,35 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
   // Условия отбора строк должны совпадать с normalizeExtraExpenses на бэкенде,
   // иначе предпросмотр себестоимости разойдётся с тем, что реально сохранится.
   const filledExpenses = extraExpenses.filter((e) => e.name.trim() && e.amount !== '' && Number(e.amount) >= 0);
+  const allocatedQuantity = allocations.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+  const calculationQuantity = isEdit ? Number(quantity) : allocatedQuantity;
   const extraTotalKzt = filledExpenses.reduce(
     (sum, e) => sum + (Number(e.amount) || 0) * (e.currency === 'KZT' ? 1 : (Number(e.rate) || 1)),
     0
   );
-  const extraPerUnit = Number(quantity) ? extraTotalKzt / Number(quantity) : 0;
+  const extraPerUnit = calculationQuantity ? extraTotalKzt / calculationQuantity : 0;
 
   const costPrice = (Number(purchasePrice) || 0) + (Number(logisticsCost) || 0) + extraPerUnit;
 
   useEffect(() => {
     const amount = Number(purchaseAmountForeign);
-    const qty = Number(quantity);
+    const qty = calculationQuantity;
     if (!amount || !qty) return;
     const rate = purchaseCurrency === 'KZT' ? 1 : Number(purchaseRate);
     if (!rate) return;
     setPurchasePrice(String(Math.round((amount * rate / qty) * 100) / 100));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [purchaseAmountForeign, purchaseCurrency, purchaseRate, quantity]);
+  }, [purchaseAmountForeign, purchaseCurrency, purchaseRate, calculationQuantity]);
 
   useEffect(() => {
     const amount = Number(logisticsAmountForeign);
-    const qty = Number(quantity);
+    const qty = calculationQuantity;
     if (!amount || !qty) return;
     const rate = logisticsCurrency === 'KZT' ? 1 : Number(logisticsRate);
     if (!rate) return;
     setLogisticsCost(String(Math.round((amount * rate / qty) * 100) / 100));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logisticsAmountForeign, logisticsCurrency, logisticsRate, quantity]);
+  }, [logisticsAmountForeign, logisticsCurrency, logisticsRate, calculationQuantity]);
 
   function updateExpense(key, field, value) {
     setExtraExpenses((rows) => rows.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
@@ -113,8 +126,39 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
     setExtraExpenses((rows) => rows.filter((r) => r.key !== key));
   }
 
+  function updateAllocation(key, field, value) {
+    setAllocations((rows) => rows.map((row) => (row.key === key ? { ...row, [field]: value } : row)));
+  }
+
+  function addAllocation() {
+    const selected = new Set(allocations.map((item) => item.warehouse));
+    const nextWarehouse = warehouses.find((item) => !selected.has(item));
+    if (!nextWarehouse) return;
+    setAllocations((rows) => [...rows, makeAllocationRow(nextWarehouse)]);
+  }
+
+  function removeAllocation(key) {
+    setAllocations((rows) => rows.length > 1 ? rows.filter((row) => row.key !== key) : rows);
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
+
+    let normalizedAllocations = null;
+    if (!isEdit) {
+      normalizedAllocations = allocations.map((item) => ({
+        warehouse: item.warehouse,
+        quantity: Number(item.quantity),
+      }));
+      if (normalizedAllocations.some((item) => !item.warehouse || !Number.isInteger(item.quantity) || item.quantity <= 0)) {
+        setError('Укажите целое количество больше нуля для каждого города');
+        return;
+      }
+      if (new Set(normalizedAllocations.map((item) => item.warehouse)).size !== normalizedAllocations.length) {
+        setError('Один город нельзя добавить в поставку дважды');
+        return;
+      }
+    }
 
     if (!purchasePrice || Number(purchasePrice) <= 0) {
       setError('Заполните сумму закупки, валюту, курс и количество — цена за 1 шт ещё не рассчиталась');
@@ -122,11 +166,12 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
     }
 
     const payload = {
-      warehouse,
+      warehouse: isEdit ? warehouse : normalizedAllocations[0].warehouse,
       purchase_price: purchasePrice,
       logistics_cost: logisticsCost || 0,
       note,
-      quantity,
+      quantity: isEdit ? quantity : allocatedQuantity,
+      allocations: isEdit ? undefined : normalizedAllocations,
       received_date: receivedDate,
       status,
       purchase_currency: purchaseAmountForeign ? purchaseCurrency : null,
@@ -205,7 +250,7 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
             <div className="form-section-title">Товар</div>
 
             <div className="batch-form-row-2">
-              <div className="batch-form-field">
+              <div className={`batch-form-field${isEdit ? '' : ' batch-product-field-wide'}`}>
                 <label>Товар</label>
                 {isEdit ? (
                   <input type="text" value={editingBatch.product_name} disabled />
@@ -245,19 +290,21 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
                   </button>
                 )}
               </div>
-              <div className="batch-form-field">
-                <label>Склад</label>
-                <select
-                  className="product-select"
-                  value={warehouse}
-                  onChange={(e) => setWarehouse(e.target.value)}
-                  required
-                >
-                  {warehouses.map((w) => (
-                    <option key={w} value={w}>{w}</option>
-                  ))}
-                </select>
-              </div>
+              {isEdit && (
+                <div className="batch-form-field">
+                  <label>Город</label>
+                  <select
+                    className="product-select"
+                    value={warehouse}
+                    onChange={(e) => setWarehouse(e.target.value)}
+                    required
+                  >
+                    {warehouses.map((w) => (
+                      <option key={w} value={w}>{w}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Артикул — единственное, что связывает партию с продажами при FIFO-списании.
@@ -294,23 +341,93 @@ function BatchModal({ password, products, warehouses, editingBatch, onClose, onS
               него, поэтому сначала логично указать, сколько штук в партии. */}
           <div className="form-section">
             <div className="form-section-title">Партия</div>
-            <div className="form-section-hint">Сколько штук привезли и когда — на это количество делятся суммы ниже</div>
+            <div className="form-section-hint">
+              {isEdit
+                ? 'Количество для этого города — на него делятся суммы ниже'
+                : 'Укажите, сколько единиц отправляется в каждый город. Общая себестоимость посчитается по всей поставке'}
+            </div>
 
-            <div className="batch-form-row">
-              <div className="batch-form-field">
-                <label>Количество, шт</label>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  required
-                />
-                {isEdit && (
+            {!isEdit && (
+              <>
+                <div className="batch-allocation-list">
+                  {allocations.map((allocation, index) => {
+                    const selectedElsewhere = new Set(
+                      allocations.filter((item) => item.key !== allocation.key).map((item) => item.warehouse)
+                    );
+                    return (
+                      <div className="batch-allocation-row" key={allocation.key}>
+                        <div className="batch-form-field batch-allocation-city">
+                          <label>{allocations.length > 1 ? `Город ${index + 1}` : 'Город'}</label>
+                          <select
+                            className="product-select"
+                            value={allocation.warehouse}
+                            onChange={(e) => updateAllocation(allocation.key, 'warehouse', e.target.value)}
+                            required
+                          >
+                            {warehouses.map((item) => (
+                              <option key={item} value={item} disabled={selectedElsewhere.has(item)}>{item}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="batch-form-field batch-allocation-quantity">
+                          <label>Количество, шт</label>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={allocation.quantity}
+                            onChange={(e) => updateAllocation(allocation.key, 'quantity', e.target.value)}
+                            required
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="batch-allocation-remove"
+                          onClick={() => removeAllocation(allocation.key)}
+                          disabled={allocations.length === 1}
+                          title="Убрать город"
+                          aria-label={`Убрать город ${allocation.warehouse}`}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  className="batch-allocation-add"
+                  onClick={addAllocation}
+                  disabled={allocations.length >= warehouses.length}
+                >
+                  + Добавить город
+                </button>
+
+                <div className="batch-allocation-total">
+                  Всего: <b>{formatNumber(allocatedQuantity)} шт</b>
+                  {allocations.length > 1 && (
+                    <span> · {allocations.length} {allocations.length <= 4 ? 'города' : 'городов'}</span>
+                  )}
+                </div>
+              </>
+            )}
+
+            <div className={isEdit ? 'batch-form-row' : 'batch-form-row-2'}>
+              {isEdit && (
+                <div className="batch-form-field">
+                  <label>Количество, шт</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value)}
+                    required
+                  />
                   <span className="batch-field-hint">Сейчас остаток: {formatNumber(editingBatch.remaining_quantity)} шт</span>
-                )}
-              </div>
+                </div>
+              )}
               <div className="batch-form-field">
                 <label>Статус поставки</label>
                 <select

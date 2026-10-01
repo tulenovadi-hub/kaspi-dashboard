@@ -26,6 +26,7 @@ const MAX_EXPENSE_NAME_LENGTH = 60;
 const MAX_PRODUCT_ID_LENGTH = 100;
 const MAX_PRODUCT_NAME_LENGTH = 200;
 const MAX_EXTRA_EXPENSES = 20;
+const MAX_ALLOCATIONS = VALID_WAREHOUSES.length;
 
 function normalizeExtraExpenses(value) {
   if (!Array.isArray(value)) return [];
@@ -51,6 +52,54 @@ function extraExpensesPerUnit(expenses, qty) {
   if (!qty) return 0;
   const totalKzt = expenses.reduce((sum, e) => sum + e.amount * e.rate, 0);
   return totalKzt / qty;
+}
+
+// Одна поставка может быть сразу распределена между несколькими городами. В складских
+// формулах одна строка product_batches по-прежнему означает один товар на одном складе,
+// поэтому POST создаёт по строке на город, но делает это одной транзакцией. Старый формат
+// warehouse + quantity оставляем рабочим для уже закэшированного фронтенда.
+function normalizeAllocations(value, fallbackWarehouse, fallbackQuantity) {
+  const source = Array.isArray(value) && value.length > 0
+    ? value
+    : [{ warehouse: fallbackWarehouse, quantity: fallbackQuantity }];
+
+  if (source.length > MAX_ALLOCATIONS) {
+    return { error: 'В поставке указано слишком много городов' };
+  }
+
+  const seen = new Set();
+  const allocations = [];
+  for (const item of source) {
+    const warehouse = String(item?.warehouse || '').trim();
+    const quantity = Number(item?.quantity);
+    if (!VALID_WAREHOUSES.includes(warehouse)) {
+      return { error: 'Не указан склад (город)' };
+    }
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return { error: `Количество для города «${warehouse}» должно быть целым числом больше нуля` };
+    }
+    if (seen.has(warehouse)) {
+      return { error: `Город «${warehouse}» указан в поставке дважды` };
+    }
+    seen.add(warehouse);
+    allocations.push({ warehouse, quantity });
+  }
+
+  return {
+    allocations,
+    totalQuantity: allocations.reduce((sum, item) => sum + item.quantity, 0),
+  };
+}
+
+function proportionalValue(value, quantity, totalQuantity) {
+  return value === null ? null : value * quantity / totalQuantity;
+}
+
+function proportionalExpenses(expenses, quantity, totalQuantity) {
+  return expenses.map((expense) => ({
+    ...expense,
+    amount: expense.amount * quantity / totalQuantity,
+  }));
 }
 
 // Список товаров для выпадающего списка при добавлении партии — чтобы не вводить название
@@ -114,7 +163,7 @@ router.post('/', async (req, res) => {
   const {
     product_id, product_name, purchase_price, logistics_cost, note, warehouse, quantity, received_date, status,
     purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate,
-    extra_expenses,
+    extra_expenses, allocations: requestedAllocations,
   } = req.body;
 
   // product_id/product_name могут прийти как из выпадающего списка, так и набранными вручную
@@ -124,21 +173,19 @@ router.post('/', async (req, res) => {
   if (!productId || !productName) {
     return res.status(400).json({ error: 'Не указан товар' });
   }
-  if (!warehouse || !VALID_WAREHOUSES.includes(warehouse)) {
-    return res.status(400).json({ error: 'Не указан склад (город)' });
+  const normalizedAllocations = normalizeAllocations(requestedAllocations, warehouse, quantity);
+  if (normalizedAllocations.error) {
+    return res.status(400).json({ error: normalizedAllocations.error });
   }
+  const { allocations, totalQuantity: qty } = normalizedAllocations;
   const purchasePrice = Number(purchase_price);
   const logisticsCost = Number(logistics_cost || 0);
-  const qty = Number(quantity);
   const batchStatus = VALID_STATUSES.includes(status) ? status : 'received';
   if (!Number.isFinite(purchasePrice) || purchasePrice < 0) {
     return res.status(400).json({ error: 'Закупочная цена указана некорректно' });
   }
   if (!Number.isFinite(logisticsCost) || logisticsCost < 0) {
     return res.status(400).json({ error: 'Логистика указана некорректно' });
-  }
-  if (!Number.isInteger(qty) || qty <= 0) {
-    return res.status(400).json({ error: 'Количество должно быть целым числом больше нуля' });
   }
   if (!received_date || !/^\d{4}-\d{2}-\d{2}$/.test(received_date)) {
     return res.status(400).json({ error: 'Дата поступления указана некорректно' });
@@ -155,21 +202,43 @@ router.post('/', async (req, res) => {
   const logisticsAmountForeign = optionalNumber(logistics_amount_foreign);
   const logisticsRate = optionalNumber(logistics_rate);
 
+  const client = await pool.connect().catch((err) => {
+    console.error(err);
+    return null;
+  });
+  if (!client) return res.status(500).json({ error: 'Не удалось добавить партию' });
+
   try {
-    const result = await pool.query(
-      `INSERT INTO product_batches (product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status,
-                                     purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-       RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
-                 purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses`,
-      [productId, productName, costPrice, purchasePrice, logisticsCost, note || null, warehouse, qty, received_date, batchStatus,
-        purchaseCurrency, purchaseAmountForeign, purchaseRate, logisticsCurrency, logisticsAmountForeign, logisticsRate,
-        JSON.stringify(extraExpenses)]
-    );
-    res.status(201).json({ batch: result.rows[0] });
+    await client.query('BEGIN');
+    const batches = [];
+    for (const allocation of allocations) {
+      // Справочные суммы в валюте и статьи расходов заданы за всю поставку. Храним в
+      // городской строке только её долю: тогда открытие/редактирование строки не покажет
+      // полную сумму повторно и общая стоимость не задвоится.
+      const rowPurchaseAmount = proportionalValue(purchaseAmountForeign, allocation.quantity, qty);
+      const rowLogisticsAmount = proportionalValue(logisticsAmountForeign, allocation.quantity, qty);
+      const rowExpenses = proportionalExpenses(extraExpenses, allocation.quantity, qty);
+      const result = await client.query(
+        `INSERT INTO product_batches (product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status,
+                                       purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+         RETURNING id, product_id, product_name, cost_price, purchase_price, logistics_cost, note, warehouse, quantity, remaining_quantity, received_date, status, created_at,
+                   purchase_currency, purchase_amount_foreign, purchase_rate, logistics_currency, logistics_amount_foreign, logistics_rate, extra_expenses`,
+        [productId, productName, costPrice, purchasePrice, logisticsCost, note || null,
+          allocation.warehouse, allocation.quantity, received_date, batchStatus,
+          purchaseCurrency, rowPurchaseAmount, purchaseRate, logisticsCurrency, rowLogisticsAmount, logisticsRate,
+          JSON.stringify(rowExpenses)]
+      );
+      batches.push(result.rows[0]);
+    }
+    await client.query('COMMIT');
+    res.status(201).json({ batch: batches[0], batches });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error(err);
     res.status(500).json({ error: 'Не удалось добавить партию' });
+  } finally {
+    client.release();
   }
 });
 

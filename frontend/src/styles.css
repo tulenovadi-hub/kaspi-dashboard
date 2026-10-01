@@ -1889,6 +1889,10 @@ button,
   margin-top: 12px;
 }
 
+.batch-product-field-wide {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 640px) {
   .batch-form-row,
   .batch-form-row-2 {
@@ -1920,6 +1924,93 @@ button,
   color: var(--text-muted);
   opacity: 0.8;
   cursor: not-allowed;
+}
+
+/* Распределение одной поставки между городами. Каждая строка станет отдельной FIFO-партией
+   на своём складе, поэтому город и количество всегда вводятся парой. */
+.batch-allocation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.batch-allocation-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 44px;
+  grid-template-areas: "city quantity remove";
+  gap: 12px;
+  align-items: end;
+}
+
+.batch-allocation-city { grid-area: city; }
+.batch-allocation-quantity { grid-area: quantity; }
+.batch-allocation-remove { grid-area: remove; }
+
+.batch-allocation-remove {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.batch-allocation-remove:hover:not(:disabled) {
+  color: var(--accent-down);
+  border-color: var(--accent-down);
+}
+
+.batch-allocation-remove:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.batch-allocation-add {
+  width: 100%;
+  margin-top: 12px;
+  padding: 11px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: none;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.batch-allocation-add:hover:not(:disabled) {
+  color: var(--accent-brand);
+  border-color: var(--accent-brand);
+}
+
+.batch-allocation-add:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.batch-allocation-total {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.batch-allocation-total b {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 640px) {
+  .batch-allocation-row {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-areas:
+      "city remove"
+      "quantity quantity";
+  }
 }
 
 .batch-computed-value {
