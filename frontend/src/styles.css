@@ -6259,3 +6259,16 @@ input[type="date"] {
   font-size: 12.5px;
   cursor: pointer;
 }
+
+/* Единая симметричная стрелка для всех обычных выпадающих списков. Системные стрелки
+   Chrome/Safari отличаются по форме и часто визуально съезжают к нижнему правому углу.
+   Собственная иконка имеет одинаковую геометрию и всегда центрируется по высоте поля. */
+select:not([multiple]) {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%239AA6BD' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 12px 8px;
+  padding-right: 38px !important;
+}
