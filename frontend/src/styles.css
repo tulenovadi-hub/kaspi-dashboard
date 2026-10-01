@@ -1953,16 +1953,24 @@ button,
   grid-template-columns: minmax(0, 1fr) 150px 44px;
   grid-template-areas: "city quantity remove";
   gap: 12px;
-  align-items: end;
+  align-items: start;
 }
 
 .batch-allocation-city { grid-area: city; }
 .batch-allocation-quantity { grid-area: quantity; }
 .batch-allocation-remove { grid-area: remove; }
 
+/* Общий .product-select имеет нижний отступ для одиночных выпадающих списков. В строке
+   распределения он сдвигал поле города вверх относительно количества. Здесь поля должны
+   начинаться строго на одной линии, независимо от подсказки об остатке при редактировании. */
+.batch-allocation-row .product-select {
+  margin-bottom: 0;
+}
+
 .batch-allocation-remove {
   min-width: 44px;
   min-height: 44px;
+  margin-top: 20px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: none;
