@@ -166,7 +166,8 @@ async function initDb() {
   // Точечное восстановление первой поставки, которую пользователь успел разделить до
   // появления связи между городскими строками. Строгие проверки не дадут затронуть другую
   // базу или строки, если их содержимое отличается: №35 + №40 + №41 должны составлять
-  // ровно 500 шт HS-918 с исходной себестоимостью 9 840 ₸.
+  // ровно 500 шт HS-918 от 20.09.2026 в трёх городах. Фактическая себестоимость хранится
+  // как 9 840,032 ₸ и лишь округляется до 9 840 ₸ в интерфейсе.
   await pool.query(`
     UPDATE product_batches
     SET supply_group_id = 'batch-35'
@@ -174,9 +175,13 @@ async function initDb() {
       AND (
         SELECT COUNT(*) = 3
           AND SUM(quantity) = 500
-          AND MIN(cost_price) = 9840
-          AND MAX(cost_price) = 9840
-          AND COUNT(DISTINCT product_id) = 1
+          AND MIN(cost_price) = MAX(cost_price)
+          AND ROUND(MIN(cost_price)) = 9840
+          AND MIN(product_id) = '793865772'
+          AND MAX(product_id) = '793865772'
+          AND MIN(received_date) = DATE '2026-09-20'
+          AND MAX(received_date) = DATE '2026-09-20'
+          AND COUNT(DISTINCT warehouse) = 3
         FROM product_batches
         WHERE id IN (35, 40, 41)
       )
