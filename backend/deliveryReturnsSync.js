@@ -62,7 +62,8 @@ function upsertFromAttrs(client, attrs) {
   return client.query(
     `INSERT INTO delivery_cancellations
        (order_number, creation_date, total_price, cancellation_reason, delivery_mode, origin_city, state, status, returned_to_warehouse)
-     VALUES ($1, to_timestamp($2 / 1000.0), $3, $4, $5, $6, $7, $8, $9)
+     SELECT $1, to_timestamp($2 / 1000.0), $3, $4, $5, $6, $7, $8, $9
+     WHERE NOT EXISTS (SELECT 1 FROM excluded_orders WHERE order_number = $1)
      ON CONFLICT (order_number) DO UPDATE SET
        total_price = EXCLUDED.total_price,
        cancellation_reason = EXCLUDED.cancellation_reason,
@@ -273,7 +274,17 @@ async function syncOrderByNumber(code) {
     };
   }
 
-  await upsertFromAttrs(pool, attrs);
+  const saved = await upsertFromAttrs(pool, attrs);
+  if (saved.rowCount === 0) {
+    return {
+      found: true,
+      added: false,
+      state: attrs.state,
+      status: attrs.status,
+      diagnostics,
+      message: `Заказ ${code} исключён из учёта и не будет добавлен`,
+    };
+  }
   await refreshTrackingForOrder(code);
   // Заказ может быть помечен трекингом Kaspi как CANCELLED (будто его не отправляли),
   // хотя фулфилмент уже зарегистрировал передачу и ожидает возврат. Точечный поиск должен

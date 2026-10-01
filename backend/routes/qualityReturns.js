@@ -26,6 +26,14 @@ function asNumber(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+async function isExcludedOrder(orderNumber) {
+  const result = await pool.query(
+    'SELECT 1 FROM excluded_orders WHERE order_number = $1',
+    [orderNumber]
+  );
+  return result.rowCount > 0;
+}
+
 router.get('/', async (req, res) => {
   const today = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.today || ''))
     ? String(req.query.today)
@@ -156,6 +164,9 @@ router.put('/:orderNumber', async (req, res) => {
   }
 
   try {
+    if (await isExcludedOrder(orderNumber)) {
+      return res.status(409).json({ error: 'Заказ исключён из учёта в Настройках' });
+    }
     await pool.query(
       `INSERT INTO quality_return_overrides
          (order_number, counts_as_quality, reason, decision_deadline, updated_at)
@@ -186,6 +197,9 @@ router.post('/', async (req, res) => {
   if (!QUALITY_REASONS.includes(reason)) return res.status(400).json({ error: 'Выберите причину Kaspi' });
 
   try {
+    if (await isExcludedOrder(orderNumber)) {
+      return res.status(409).json({ error: 'Заказ исключён из учёта в Настройках' });
+    }
     await pool.query(
       `INSERT INTO quality_return_overrides
          (order_number, counts_as_quality, reason, return_date, product_name, amount, is_manual, updated_at)

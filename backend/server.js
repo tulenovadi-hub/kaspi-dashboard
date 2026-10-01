@@ -28,6 +28,7 @@ const abcRoutes = require('./routes/abc');
 const unitEconomicsRoutes = require('./routes/unitEconomics');
 const purchasingRoutes = require('./routes/purchasing');
 const qualityReturnsRoutes = require('./routes/qualityReturns');
+const orderExclusionsRoutes = require('./routes/orderExclusions');
 
 const app = express();
 app.use(cors());
@@ -97,6 +98,7 @@ app.use('/api/review-bonus-expenses', requireRole('admin', 'marketer'), reviewBo
 app.use('/api/analyst', requireRole('admin'), analystRoutes);
 app.use('/api/delivery-returns', requireRole('admin'), deliveryReturnsRoutes);
 app.use('/api/quality-returns', requireRole('admin'), qualityReturnsRoutes);
+app.use('/api/order-exclusions', requireRole('admin'), orderExclusionsRoutes);
 app.use('/api/geography', requireRole('admin', 'marketer'), geographyRoutes);
 app.use('/api/abc', requireRole('admin'), abcRoutes);
 app.use('/api/unit-economics', requireRole('admin'), unitEconomicsRoutes);

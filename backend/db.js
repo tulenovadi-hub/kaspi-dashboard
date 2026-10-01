@@ -241,6 +241,21 @@ async function initDb() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_kaspi_pay_date ON kaspi_pay_transactions(operation_date);`);
 
+  // Исключения для редких операционных ошибок, которые не являются реальной продажей магазина:
+  // например, фулфилмент отправил покупателю товар другого продавца, а наш товар физически
+  // остался на нашем складе. Активные таблицы очищаются, чтобы такой заказ автоматически не
+  // влиял ни на один существующий расчёт, а полный снимок хранится здесь для аудита и отмены.
+  // Отдельный реестр также не даёт синхронизации Kaspi и повторному Excel-импорту вернуть заказ.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS excluded_orders (
+      order_number TEXT PRIMARY KEY,
+      reason TEXT NOT NULL,
+      snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+      excluded_by TEXT,
+      excluded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
   // Kaspi Pay показывает факт денежного возврата, но не передаёт через официальный API его
   // причину. По умолчанию считаем любой возврат влияющим на качество (консервативно, чтобы не
   // занизить риск), а здесь храним ручную сверку с кабинетом Kaspi: обычный возврат можно

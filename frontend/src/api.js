@@ -117,6 +117,22 @@ export function deleteUser(token, id) {
   return apiRequest(`/api/users/${id}`, token, { method: 'DELETE' });
 }
 
+export function fetchOrderExclusions(token) {
+  return apiRequest('/api/order-exclusions', token);
+}
+
+export function excludeOrder(token, orderNumber, reason) {
+  return apiRequest('/api/order-exclusions', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order_number: orderNumber, reason }),
+  });
+}
+
+export function restoreExcludedOrder(token, orderNumber) {
+  return apiRequest(`/api/order-exclusions/${encodeURIComponent(orderNumber)}/restore`, token, { method: 'POST' });
+}
+
 export function fetchSummary(password, from, to, mode = 'main') {
   return apiRequest(`/api/stats/summary?from=${from}&to=${to}&mode=${mode}`, password);
 }

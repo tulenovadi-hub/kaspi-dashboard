@@ -136,10 +136,18 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: 'В файле не найдено ни одной строки с данными' });
   }
 
+  const excludedResult = await pool.query(
+    `SELECT order_number FROM excluded_orders
+     WHERE order_number = ANY($1::text[])`,
+    [[...new Set(records.map((record) => record.orderNumber))]]
+  );
+  const excludedNumbers = new Set(excludedResult.rows.map((row) => row.order_number));
+  const importRecords = records.filter((record) => !excludedNumbers.has(record.orderNumber));
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    for (const r of records) {
+    for (const r of importRecords) {
       await client.query(
         `INSERT INTO kaspi_pay_transactions (row_key, order_number, operation_date, operation_type, product_name, amount, commission_total, delivery_cost)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -166,11 +174,12 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   const dates = records.map((record) => record.date).sort();
   res.json({
     ok: true,
-    processed: records.length,
+    processed: importRecords.length,
+    excluded: records.length - importRecords.length,
     latestUpload: {
       period_from: dates[0],
       period_to: dates[dates.length - 1],
-      operations_count: records.length,
+      operations_count: importRecords.length,
     },
   });
 });

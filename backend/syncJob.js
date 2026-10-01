@@ -41,19 +41,19 @@ async function saveOrders(orders, { onlyMissingEntries = false } = {}) {
 
   let totalItems = 0;
   let newOrders = 0;
+  let savedOrders = 0;
   const customerReturnCodes = [];
 
   for (const order of orders) {
     const attrs = order.attributes;
     const isNew = !existingIds.has(order.id);
-    if (isNew) newOrders += 1;
     const completedEvidence = hasCompletedEvidence(attrs);
-    if (CUSTOMER_RETURN_STATUSES.includes(attrs.status) && attrs.code) customerReturnCodes.push(String(attrs.code));
 
     const originCity = resolveWarehouse(attrs.pickupPointId);
-    await pool.query(
+    const saved = await pool.query(
       `INSERT INTO orders (id, code, creation_date, total_price, state, status, raw_data, origin_city, pickup_point_id, was_completed)
-       VALUES ($1, $2, to_timestamp($3 / 1000.0), $4, $5, $6, $7, $8, $9, $10)
+       SELECT $1, $2, to_timestamp($3 / 1000.0), $4, $5, $6, $7, $8, $9, $10
+       WHERE NOT EXISTS (SELECT 1 FROM excluded_orders WHERE order_number = $2)
        ON CONFLICT (id) DO UPDATE SET
          total_price = EXCLUDED.total_price,
          state = EXCLUDED.state,
@@ -64,6 +64,14 @@ async function saveOrders(orders, { onlyMissingEntries = false } = {}) {
          was_completed = orders.was_completed OR EXCLUDED.was_completed`,
       [order.id, attrs.code, attrs.creationDate, attrs.totalPrice, attrs.state, attrs.status, JSON.stringify(order), originCity, attrs.pickupPointId || null, completedEvidence]
     );
+
+    // Исключённый заказ остаётся в Kaspi навсегда, но не должен вернуться в учёт после
+    // фоновой синхронизации. В настоящем pg rowCount=0; undefined сохраняет совместимость
+    // с простыми mock-ответами в тестах.
+    if (saved.rowCount === 0) continue;
+    savedOrders += 1;
+    if (isNew) newOrders += 1;
+    if (CUSTOMER_RETURN_STATUSES.includes(attrs.status) && attrs.code) customerReturnCodes.push(String(attrs.code));
 
     if (!MEANINGFUL_STATUSES.includes(attrs.status)) continue;
     if (onlyMissingEntries && !isNew && ordersWithItems.has(order.id)) continue;
@@ -103,7 +111,7 @@ async function saveOrders(orders, { onlyMissingEntries = false } = {}) {
     );
   }
 
-  return { orders: orders.length, items: totalItems, new_orders: newOrders };
+  return { orders: savedOrders, items: totalItems, new_orders: newOrders };
 }
 
 // По умолчанию забираем заказы за последние 3 дня — так если синхронизация
