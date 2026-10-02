@@ -4,6 +4,7 @@ import {
   fetchOrderExclusions, excludeOrder, restoreExcludedOrder,
 } from './api.js';
 import { useAppRefresh } from './useAppRefresh.js';
+import KaspiGatewaySettings from './KaspiGatewaySettings.jsx';
 
 function CreateUserForm({ password, onCreated }) {
   const [username, setUsername] = useState('');
@@ -323,6 +324,7 @@ export default function Settings({ password, username, active = true, isOnline =
       </div>
 
       <OrderExclusions password={password} exclusions={exclusions} onChanged={loadUsers} />
+      <KaspiGatewaySettings password={password} active={active} isOnline={isOnline} />
     </div>
   );
 }

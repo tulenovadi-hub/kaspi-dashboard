@@ -29,12 +29,20 @@ const unitEconomicsRoutes = require('./routes/unitEconomics');
 const purchasingRoutes = require('./routes/purchasing');
 const qualityReturnsRoutes = require('./routes/qualityReturns');
 const orderExclusionsRoutes = require('./routes/orderExclusions');
+const kaspiGatewayAdminRoutes = require('./routes/kaspiGatewayAdmin');
+const kaspiGatewayProxyRoutes = require('./routes/kaspiGatewayProxy');
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(cors());
 // Лимит по умолчанию (100kb) слишком мал для выгрузки расходов на рекламу за длинные периоды —
 // Tampermonkey-скрипт может прислать десятки кампаний с ежедневными данными за много месяцев.
-app.use(express.json({ limit: '25mb' }));
+app.use(express.json({ limit: '25mb', type: ['application/json', 'application/*+json'] }));
+
+// Публичная точка шлюза использует собственные отзывные X-Auth-Token. Она должна быть
+// подключена раньше общей авторизации дашборда, иначе внешнему сервису понадобилась бы
+// ещё и пользовательская сессия сайта.
+app.use('/kaspi-proxy', kaspiGatewayProxyRoutes);
 
 // Авторизация по токену сессии: фронтенд присылает токен в заголовке X-Session-Token,
 // сервер проверяет его в базе и подставляет req.user = { id, username, role }.
@@ -99,6 +107,7 @@ app.use('/api/analyst', requireRole('admin'), analystRoutes);
 app.use('/api/delivery-returns', requireRole('admin'), deliveryReturnsRoutes);
 app.use('/api/quality-returns', requireRole('admin'), qualityReturnsRoutes);
 app.use('/api/order-exclusions', requireRole('admin'), orderExclusionsRoutes);
+app.use('/api/kaspi-gateway', requireRole('admin'), kaspiGatewayAdminRoutes);
 app.use('/api/geography', requireRole('admin', 'marketer'), geographyRoutes);
 app.use('/api/abc', requireRole('admin'), abcRoutes);
 app.use('/api/unit-economics', requireRole('admin'), unitEconomicsRoutes);

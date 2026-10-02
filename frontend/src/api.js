@@ -133,6 +133,34 @@ export function restoreExcludedOrder(token, orderNumber) {
   return apiRequest(`/api/order-exclusions/${encodeURIComponent(orderNumber)}/restore`, token, { method: 'POST' });
 }
 
+export function fetchKaspiGatewayTokens(token) {
+  return apiRequest('/api/kaspi-gateway', token);
+}
+
+export function fetchKaspiGatewayLogs(token, limit = 50) {
+  return apiRequest(`/api/kaspi-gateway/logs?limit=${encodeURIComponent(limit)}`, token);
+}
+
+export function createKaspiGatewayToken(token, values) {
+  return apiRequest('/api/kaspi-gateway', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(values),
+  });
+}
+
+export function updateKaspiGatewayToken(token, id, values) {
+  return apiRequest(`/api/kaspi-gateway/${encodeURIComponent(id)}`, token, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(values),
+  });
+}
+
+export function rotateKaspiGatewayToken(token, id) {
+  return apiRequest(`/api/kaspi-gateway/${encodeURIComponent(id)}/rotate`, token, { method: 'POST' });
+}
+
 export function fetchSummary(password, from, to, mode = 'main') {
   return apiRequest(`/api/stats/summary?from=${from}&to=${to}&mode=${mode}`, password);
 }

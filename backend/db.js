@@ -620,6 +620,46 @@ async function initDb() {
     );
   `);
 
+  // Отзывные токены для встроенного шлюза Kaspi API. Сам токен не сохраняется: в базе
+  // остаются только SHA-256 и безопасная подсказка вида kgw_live_abcd…1234. Поэтому после
+  // создания секрет показывается администратору ровно один раз.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kaspi_gateway_tokens (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      token_hash TEXT UNIQUE NOT NULL,
+      token_hint TEXT NOT NULL,
+      access_level TEXT NOT NULL CHECK (access_level IN ('read', 'full')),
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      expires_at TIMESTAMPTZ,
+      rate_limit_per_minute INTEGER NOT NULL DEFAULT 60 CHECK (rate_limit_per_minute BETWEEN 1 AND 1000),
+      allowed_ips TEXT[] NOT NULL DEFAULT '{}',
+      request_window_start TIMESTAMPTZ NOT NULL DEFAULT now(),
+      request_window_count INTEGER NOT NULL DEFAULT 0,
+      request_count BIGINT NOT NULL DEFAULT 0,
+      last_used_at TIMESTAMPTZ,
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_kaspi_gateway_tokens_hash ON kaspi_gateway_tokens(token_hash);`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kaspi_gateway_logs (
+      id BIGSERIAL PRIMARY KEY,
+      token_id BIGINT REFERENCES kaspi_gateway_tokens(id) ON DELETE SET NULL,
+      token_name TEXT NOT NULL,
+      method TEXT NOT NULL,
+      request_path TEXT NOT NULL,
+      status_code INTEGER NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      client_ip TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_kaspi_gateway_logs_created ON kaspi_gateway_logs(created_at DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_kaspi_gateway_logs_token ON kaspi_gateway_logs(token_id, created_at DESC);`);
+
   // Миграция: если пользователей ещё нет вообще — создаём одного admin'а из старого общего
   // пароля (DASHBOARD_PASSWORD), чтобы не потерять доступ к сайту после обновления.
   const usersCount = await pool.query(`SELECT COUNT(*) AS count FROM users`);
@@ -633,7 +673,7 @@ async function initDb() {
     console.log('Создан пользователь по умолчанию: admin / (старый общий пароль сайта). Обязательно смените его в Настройках!');
   }
 
-  console.log('База данных готова: таблицы orders, order_items, product_batches, kaspi_pay_transactions, product_images, expenses, ad_expenses, bonus_expenses, users и sessions на месте.');
+  console.log('База данных готова: таблицы orders, order_items, product_batches, kaspi_pay_transactions, product_images, expenses, ad_expenses, bonus_expenses, users, sessions и Kaspi API шлюза на месте.');
 }
 
 module.exports = { pool, initDb };

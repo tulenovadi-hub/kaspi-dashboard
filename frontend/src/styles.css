@@ -1062,9 +1062,109 @@ button,
 .order-exclusion-main span { color: var(--text-secondary); }
 .order-exclusion-main small, .order-exclusion-impact { color: var(--text-muted); }
 
+.gateway-card { display: grid; gap: 18px; }
+.gateway-usage-note, .gateway-full-warning {
+  padding: 12px 14px;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.gateway-usage-note { border: 1px solid var(--border); background: rgba(110, 139, 255, 0.06); }
+.gateway-full-warning {
+  grid-column: 1 / -1;
+  color: var(--accent-warn);
+  border: 1px solid rgba(245, 166, 35, 0.35);
+  background: var(--accent-warn-dim);
+}
+.gateway-base-url, .gateway-secret-panel, .gateway-token-heading, .gateway-token-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.gateway-base-url {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card-hover);
+}
+.gateway-base-url > div { display: grid; gap: 6px; min-width: 0; }
+.gateway-base-url span { color: var(--text-muted); font-size: 12px; }
+.gateway-base-url code, .gateway-secret-value code, .gateway-token-heading code {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+.gateway-secret-panel {
+  align-items: flex-start;
+  padding: 16px;
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.1);
+}
+.gateway-secret-panel p { margin: 6px 0 0; color: var(--text-secondary); }
+.gateway-secret-value { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.gateway-secret-value code { max-width: min(540px, 50vw); user-select: text; }
+.gateway-copy-button { position: relative; overflow: hidden; }
+.gateway-copy-label { display: inline-block; transition: transform 0.22s ease, opacity 0.22s ease; }
+.gateway-copy-check {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--accent-up);
+  opacity: 0;
+  transform: scale(0.55) rotate(-18deg);
+  transition: opacity 0.22s ease, transform 0.28s cubic-bezier(0.2, 0.9, 0.25, 1.35);
+}
+.gateway-copy-button.is-copied .gateway-copy-label { opacity: 0; transform: translateY(-8px); }
+.gateway-copy-button.is-copied .gateway-copy-check { opacity: 1; transform: scale(1) rotate(0); }
+.gateway-create-form, .gateway-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+.gateway-create-form .gateway-ip-field { grid-column: span 3; }
+.gateway-create-form > .primary-button { min-height: 44px; }
+.gateway-token-row { display: grid; gap: 14px; padding: 18px 0; border-bottom: 1px solid var(--border); }
+.gateway-token-row:first-child { padding-top: 0; }
+.gateway-token-row:last-child { padding-bottom: 0; border-bottom: 0; }
+.gateway-token-heading > div:first-child { display: grid; gap: 5px; }
+.gateway-token-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.gateway-status, .gateway-access, .gateway-http-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.gateway-status-active { color: var(--accent-up); background: rgba(34, 197, 94, 0.12); }
+.gateway-status-inactive { color: var(--text-muted); background: var(--bg-card-hover); }
+.gateway-access { color: var(--accent-brand); background: rgba(99, 102, 241, 0.12); }
+.gateway-token-meta { display: flex; flex-wrap: wrap; gap: 10px 22px; color: var(--text-muted); font-size: 13px; }
+.gateway-token-meta strong { color: var(--text-secondary); font-weight: 500; }
+.gateway-edit-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.gateway-edit-grid .gateway-ip-field { grid-column: span 3; }
+.gateway-token-actions { justify-content: flex-start; flex-wrap: wrap; }
+.gateway-log-table code { white-space: nowrap; font-size: 12px; }
+.gateway-http-2 { color: var(--accent-up); background: rgba(34, 197, 94, 0.12); }
+.gateway-http-4, .gateway-http-5 { color: var(--accent-down); background: rgba(239, 68, 68, 0.12); }
+.gateway-http-3 { color: #f59e0b; background: rgba(245, 158, 11, 0.12); }
+
 @media (max-width: 760px) {
   .order-exclusion-form, .order-exclusion-row { grid-template-columns: 1fr; }
   .order-exclusion-form .primary-button, .order-exclusion-row .sync-button { width: 100%; }
+  .gateway-base-url, .gateway-secret-panel, .gateway-token-heading { align-items: stretch; flex-direction: column; }
+  .gateway-secret-value { justify-content: flex-start; }
+  .gateway-secret-value code { max-width: 100%; }
+  .gateway-create-form, .gateway-edit-grid { grid-template-columns: 1fr; }
+  .gateway-create-form .gateway-ip-field, .gateway-edit-grid .gateway-ip-field { grid-column: auto; }
+  .gateway-token-badges { justify-content: flex-start; }
+  .gateway-token-actions > button { flex: 1 1 130px; }
+  .gateway-base-url .gateway-copy-button, .gateway-create-form > .primary-button { width: 100%; }
 }
 
 /* Экран входа появляется целиком, а не выскакивает после проверки сессии. */

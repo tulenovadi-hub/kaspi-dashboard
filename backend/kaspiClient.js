@@ -251,4 +251,26 @@ async function fetchOrderEntries(orderId) {
   });
 }
 
-module.exports = { fetchOrders, fetchOrderEntries, fetchOrdersByStatus, fetchOrderByCode };
+// Низкоуровневый вызов для встроенного API-шлюза. URL сюда приходит уже проверенным и
+// относительным (/orders?...), реальный X-Auth-Token всегда берётся только из окружения.
+// Редиректы отключены, чтобы Kaspi-токен не мог уйти на другой домен даже при неожиданном
+// ответе upstream. Записывающие запросы намеренно не повторяются автоматически.
+async function proxyKaspiRequest(method, pathWithQuery, body) {
+  const http = client();
+  return withRequestSlot(() => http.request({
+    method,
+    url: pathWithQuery,
+    data: ['GET', 'HEAD'].includes(String(method).toUpperCase()) ? undefined : body,
+    responseType: 'arraybuffer',
+    validateStatus: () => true,
+    maxRedirects: 0,
+  }));
+}
+
+module.exports = {
+  fetchOrders,
+  fetchOrderEntries,
+  fetchOrdersByStatus,
+  fetchOrderByCode,
+  proxyKaspiRequest,
+};
