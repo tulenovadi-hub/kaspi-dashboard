@@ -205,4 +205,17 @@ router.post('/:id/rotate', async (req, res) => {
   }
 });
 
+router.delete('/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Некорректный токен' });
+  try {
+    const result = await pool.query(`DELETE FROM kaspi_gateway_tokens WHERE id = $1 RETURNING id`, [id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Токен не найден' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось удалить токен шлюза' });
+  }
+});
+
 module.exports = router;

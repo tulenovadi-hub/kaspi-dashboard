@@ -5,6 +5,7 @@ import {
   createKaspiGatewayToken,
   updateKaspiGatewayToken,
   rotateKaspiGatewayToken,
+  deleteKaspiGatewayToken,
 } from './api.js';
 
 function formatDate(value) {
@@ -108,6 +109,16 @@ function TokenRow({ password, item, onChanged, onSecret }) {
       .finally(() => setSaving(false));
   }
 
+  function remove() {
+    if (!window.confirm(`Удалить доступ «${item.name}»? Его токен сразу и навсегда перестанет работать.`)) return;
+    setSaving(true);
+    setError('');
+    deleteKaspiGatewayToken(password, item.id)
+      .then(onChanged)
+      .catch((err) => setError(err.message))
+      .finally(() => setSaving(false));
+  }
+
   return (
     <div className="gateway-token-row">
       <div className="gateway-token-heading">
@@ -178,6 +189,7 @@ function TokenRow({ password, item, onChanged, onSecret }) {
           {item.enabled ? 'Отключить' : 'Включить'}
         </button>
         <button className="sync-button" type="button" disabled={saving} onClick={rotate}>Перевыпустить</button>
+        <button className="batch-delete gateway-delete-button" type="button" disabled={saving} onClick={remove}>Удалить</button>
       </div>
     </div>
   );

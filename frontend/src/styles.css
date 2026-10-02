@@ -1149,6 +1149,7 @@ button,
 .gateway-edit-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .gateway-edit-grid .gateway-ip-field { grid-column: span 3; }
 .gateway-token-actions { justify-content: flex-start; flex-wrap: wrap; }
+.gateway-delete-button { width: auto; padding: 0 12px; }
 .gateway-log-table code { white-space: nowrap; font-size: 12px; }
 .gateway-http-2 { color: var(--accent-up); background: rgba(34, 197, 94, 0.12); }
 .gateway-http-4, .gateway-http-5 { color: var(--accent-down); background: rgba(239, 68, 68, 0.12); }

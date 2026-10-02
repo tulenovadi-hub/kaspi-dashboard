@@ -161,6 +161,10 @@ export function rotateKaspiGatewayToken(token, id) {
   return apiRequest(`/api/kaspi-gateway/${encodeURIComponent(id)}/rotate`, token, { method: 'POST' });
 }
 
+export function deleteKaspiGatewayToken(token, id) {
+  return apiRequest(`/api/kaspi-gateway/${encodeURIComponent(id)}`, token, { method: 'DELETE' });
+}
+
 export function fetchSummary(password, from, to, mode = 'main') {
   return apiRequest(`/api/stats/summary?from=${from}&to=${to}&mode=${mode}`, password);
 }
