@@ -15,7 +15,8 @@ const DELIVERY_CANCELLATION_STATUSES = ['CANCELLING', 'CANCELLED'];
 
 // На "Складе" показываем только склады с display: true в справочнике — самовыкупные
 // (Юбилейное, Талдыкорган, Атырау) сюда не входят, они отслеживаются на других страницах.
-const { DISPLAY_CITIES: DISPLAY_WAREHOUSES, CITY_ORDER: WAREHOUSE_SORT_ORDER, MAIN_CITIES, SELF_BUY_CITIES } = require('../warehouseMapping');
+const { DISPLAY_CITIES: DISPLAY_WAREHOUSES, CITY_ORDER: WAREHOUSE_SORT_ORDER, ALL_CITIES, MAIN_CITIES, SELF_BUY_CITIES } = require('../warehouseMapping');
+const { TransferError, applyTransfer } = require('../warehouseTransfer');
 
 // Считает остатки по методу FIFO отдельно для каждого склада (города):
 // партии одного города списываются только продажами (и возвратами в пути, см. ниже),
@@ -400,7 +401,7 @@ async function computeInventoryValue() {
 // Состав складов для подписей на страницах. Отдаётся всем ролям: "Самовыкупы" и "Склад" открыты
 // и менеджеру, а настройки складов — только админу.
 router.get('/cities', (req, res) => {
-  res.json({ main: MAIN_CITIES, selfbuy: SELF_BUY_CITIES, display: DISPLAY_WAREHOUSES });
+  res.json({ main: MAIN_CITIES, selfbuy: SELF_BUY_CITIES, display: DISPLAY_WAREHOUSES, all: ALL_CITIES });
 });
 
 router.get('/inventory-value', async (req, res) => {
@@ -606,6 +607,100 @@ router.post('/reconcile', async (req, res) => {
       }
     }
     res.status(500).json({ error: err.message || 'Не удалось зафиксировать остатки' });
+  }
+});
+
+async function loadTransfers(db = pool) {
+  const result = await db.query(
+    `SELECT t.id, t.from_warehouse, t.to_warehouse, t.note, t.created_by, t.created_at,
+            COALESCE(json_agg(json_build_object(
+              'id', i.id, 'product_name', i.product_name, 'quantity', i.quantity, 'value', i.value
+            ) ORDER BY i.id) FILTER (WHERE i.id IS NOT NULL), '[]') AS items
+     FROM warehouse_transfers t
+     LEFT JOIN warehouse_transfer_items i ON i.transfer_id = t.id
+     GROUP BY t.id
+     ORDER BY t.created_at DESC`
+  );
+  return result.rows;
+}
+
+router.get('/transfers', async (req, res) => {
+  try {
+    res.json({ transfers: await loadTransfers() });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось загрузить историю перемещений' });
+  }
+});
+
+// Перемещение идёт в той же очереди, что и сверка: минутное обновление заказов не должно
+// вклиниться между расчётом остатка и переносом партий.
+router.post('/transfer', async (req, res) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Недостаточно прав для перемещения товара' });
+  }
+
+  const { from_warehouse: from, to_warehouse: to, note, items, idempotency_key: idempotencyKey } = req.body || {};
+  if (!ALL_CITIES.includes(from) || !ALL_CITIES.includes(to) || from === to) {
+    return res.status(400).json({ error: 'Выберите два разных склада' });
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Добавьте хотя бы один товар' });
+  }
+
+  const seen = new Set();
+  const normalized = [];
+  for (const item of items) {
+    const productId = String(item.product_id || '').trim();
+    const productName = String(item.product_name || productId).trim();
+    const quantity = Number(item.quantity);
+    if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
+      return res.status(400).json({ error: `Некорректное количество: ${productName || productId}` });
+    }
+    if (seen.has(productId)) return res.status(400).json({ error: `Товар ${productName} добавлен дважды` });
+    seen.add(productId);
+    normalized.push({ productId, productName, quantity });
+  }
+
+  const transfer = {
+    from,
+    to,
+    note: note ? String(note) : null,
+    items: normalized,
+    createdBy: req.user.username,
+    idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
+  };
+
+  try {
+    await enqueueKaspiSync('warehouse-transfer', async () => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        if (transfer.idempotencyKey) {
+          const existing = await client.query(
+            'SELECT id FROM warehouse_transfers WHERE idempotency_key = $1',
+            [transfer.idempotencyKey]
+          );
+          if (existing.rowCount > 0) {
+            await client.query('COMMIT');
+            return;
+          }
+        }
+        const stock = await computeWarehouseStock(client);
+        await applyTransfer(client, transfer, stock, crypto.randomUUID(), new Date().toISOString());
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    if (err instanceof TransferError) return res.status(400).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось переместить товар' });
   }
 });
 

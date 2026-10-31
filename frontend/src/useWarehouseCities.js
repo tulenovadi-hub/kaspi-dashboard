@@ -8,6 +8,7 @@ const FALLBACK = {
   main: ['Алматы', 'Астана'],
   selfbuy: ['Явленка', 'Юбилейное', 'Талдыкорган', 'Атырау'],
   display: ['Алматы', 'Астана'],
+  all: ['Алматы', 'Астана'],
 };
 
 export function useWarehouseCities(password, active = true) {

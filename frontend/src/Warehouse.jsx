@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { fetchWarehouse, fetchWarehouseReconciliations, reconcileWarehouse, fetchInventoryValue, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
+import { fetchWarehouse, fetchWarehouseReconciliations, fetchWarehouseTransfers, reconcileWarehouse, fetchInventoryValue, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
 import { useWarehouseCities } from './useWarehouseCities.js';
 import WarehouseMobile from './WarehouseMobile.jsx';
+import { TransferHistory, TransferModal } from './WarehouseTransfer.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import { useAppRefresh } from './useAppRefresh.js';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
@@ -390,6 +391,8 @@ export default function Warehouse({ password, role, active = true, isOnline = tr
   const [inventory, setInventory] = useState(null); // сводка "деньги в товаре" — считается отдельным роутом
   const [reconciliations, setReconciliations] = useState([]);
   const [reconciliationOpen, setReconciliationOpen] = useState(false);
+  const [transfers, setTransfers] = useState([]);
+  const [transferOpen, setTransferOpen] = useState(false);
 
   // На телефоне вместо широкой таблицы рисуются карточки товаров (WarehouseMobile.jsx):
   // 799px таблицы в 313px экрана не помещаются никаким способом.
@@ -408,6 +411,9 @@ export default function Warehouse({ password, role, active = true, isOnline = tr
     fetchWarehouseReconciliations(password)
       .then((res) => setReconciliations(res.reconciliations || []))
       .catch(() => {}); // история не должна мешать открыть сам склад
+    fetchWarehouseTransfers(password)
+      .then((res) => setTransfers(res.transfers || []))
+      .catch(() => {});
 
     fetchWarehouse(password)
       .then((res) => {
@@ -496,9 +502,14 @@ export default function Warehouse({ password, role, active = true, isOnline = tr
       <div className="app-header">
         <h1 className="app-title">Склад <span>остатков</span></h1>
         {role === 'admin' && (
-          <button className="primary-button warehouse-reconcile-open" type="button" onClick={() => setReconciliationOpen(true)}>
-            Сверить остатки
-          </button>
+          <div className="warehouse-header-actions">
+            <button className="secondary-button warehouse-reconcile-open" type="button" onClick={() => setTransferOpen(true)}>
+              Переместить товар
+            </button>
+            <button className="primary-button warehouse-reconcile-open" type="button" onClick={() => setReconciliationOpen(true)}>
+              Сверить остатки
+            </button>
+          </div>
         )}
       </div>
 
@@ -680,6 +691,7 @@ export default function Warehouse({ password, role, active = true, isOnline = tr
       </div>
       )}
 
+      <TransferHistory transfers={transfers} />
       <ReconciliationHistory reconciliations={reconciliations} />
 
       <div className="report-note">
@@ -690,6 +702,19 @@ export default function Warehouse({ password, role, active = true, isOnline = tr
         Обратно можно добавить только отменённый при доставке заказ кнопкой «+ в остаток». Нажмите на строку товара, чтобы увидеть разбивку по партиям.
         Наведите на картинку товара, чтобы загрузить свою (или удалить уже загруженную) — картинки автоматически не подтягиваются, только вручную.
       </div>
+
+      {transferOpen && (
+        <TransferModal
+          password={password}
+          products={products}
+          cities={warehouseCities.all}
+          onClose={() => setTransferOpen(false)}
+          onSaved={() => {
+            setTransferOpen(false);
+            loadAll();
+          }}
+        />
+      )}
 
       {reconciliationOpen && (
         <ReconciliationModal

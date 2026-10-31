@@ -4063,6 +4063,10 @@ input[type="date"] {
   white-space: nowrap;
 }
 
+.warehouse-header-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.warehouse-reconcile-row.warehouse-transfer-row { grid-template-columns: minmax(210px, 1.8fr) minmax(100px, 0.7fr) minmax(160px, 1fr) 36px; }
+
 .warehouse-reconcile-modal {
   max-width: 900px;
 }
@@ -4093,6 +4097,7 @@ input[type="date"] {
 }
 
 .warehouse-reconcile-head input,
+.warehouse-reconcile-head select,
 .warehouse-reconcile-row input,
 .warehouse-reconcile-row select,
 .warehouse-reconcile-note textarea {
@@ -4213,8 +4218,11 @@ input[type="date"] {
     width: 100%;
   }
 
+  .warehouse-header-actions { width: 100%; }
+
   .warehouse-reconcile-head,
-  .warehouse-reconcile-row {
+  .warehouse-reconcile-row,
+  .warehouse-reconcile-row.warehouse-transfer-row {
     grid-template-columns: 1fr;
   }
 

@@ -445,6 +445,19 @@ export function fetchOrders(password) {
   return apiRequest('/api/orders', password);
 }
 
+export function fetchWarehouseTransfers(password) {
+  return apiRequest('/api/warehouse/transfers', password);
+}
+
+export function transferWarehouseStock(password, transfer) {
+  return apiRequest('/api/warehouse/transfer', password, {
+    method: 'POST',
+    timeoutMs: LONG_TIMEOUT_MS,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(transfer),
+  });
+}
+
 export function fetchWarehouseCities(password) {
   return apiRequest('/api/warehouse/cities', password);
 }

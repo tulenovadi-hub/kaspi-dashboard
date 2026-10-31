@@ -131,6 +131,29 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  // Журнал перемещений товара между складами (см. warehouseTransfer.js). Сами единицы переезжают
+  // в product_batches, здесь хранится только кто, что и куда отправил.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS warehouse_transfers (
+      id TEXT PRIMARY KEY,
+      idempotency_key TEXT UNIQUE,
+      from_warehouse TEXT NOT NULL,
+      to_warehouse TEXT NOT NULL,
+      note TEXT,
+      created_by TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS warehouse_transfer_items (
+      id BIGSERIAL PRIMARY KEY,
+      transfer_id TEXT NOT NULL REFERENCES warehouse_transfers(id) ON DELETE RESTRICT,
+      product_id TEXT NOT NULL,
+      product_name TEXT,
+      quantity INTEGER NOT NULL,
+      value NUMERIC NOT NULL DEFAULT 0
+    );
+  `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_warehouse_adjustments_product ON warehouse_stock_adjustments(product_id, warehouse, created_at);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_warehouse_adjustments_reconciliation ON warehouse_stock_adjustments(reconciliation_id);`);
 
