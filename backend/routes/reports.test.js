@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-test('product breakdown uses monthly operations and allocates shared costs by issued orders', async () => {
+test('product breakdown uses monthly operations and allocates shared costs by revenue', async () => {
   const month = '2026-09';
   const dbPath = require.resolve('../db');
   const costEnginePath = require.resolve('../costEngine');
@@ -92,17 +92,17 @@ test('product breakdown uses monthly operations and allocates shared costs by is
   assert.equal(sum('revenue'), 1000, 'return of an old sale must not add that sale to current revenue');
   assert.equal(sum('returns'), 300);
   assert.equal(sum('issued_orders'), 2, 'the return must not count as an issued order');
-  assert.equal(byId.get('a').packaging, 50);
-  assert.equal(byId.get('b').packaging, 50);
-  assert.equal(byId.get('a').other_expenses, 100);
-  assert.equal(byId.get('b').other_expenses, 100);
+  assert.equal(byId.get('a').packaging, 60, 'shared costs follow revenue, not the number of orders');
+  assert.equal(byId.get('b').packaging, 40);
+  assert.equal(byId.get('a').other_expenses, 120);
+  assert.equal(byId.get('b').other_expenses, 80);
   assert.equal(sum('taxes'), 21);
-  assert.equal(byId.get('a').unplanned_income, 20);
-  assert.equal(byId.get('b').unplanned_income, 20);
+  assert.equal(byId.get('a').unplanned_income, 24);
+  assert.equal(byId.get('b').unplanned_income, 16);
   assert.equal(byId.get('a').write_offs, 10, 'a write-off stays on its own product');
   assert.equal(byId.get('b').write_offs, 0);
   assert.equal(sum('net_profit'), -161, 'unplanned income raises net profit, write-offs lower it');
-  assert.equal(byId.get('a').margin, (-169 / 600) * 100, 'margin must use gross revenue before returns');
+  assert.equal(byId.get('a').margin, (-195 / 600) * 100, 'margin must use gross revenue before returns');
 });
 
 test('latest Excel period comes only from the most recent upload batch', async () => {

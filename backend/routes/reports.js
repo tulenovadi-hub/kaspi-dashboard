@@ -344,7 +344,7 @@ async function fetchWriteOffsByProductForMonth(month) {
 // Excel-отчёте привязаны к заказу целиком, поэтому внутри многотоварного заказа распределяются
 // пропорционально стоимости позиций. Себестоимость берётся из computeCosts по товару (FIFO).
 // Реклама и бонусы разносятся через привязку кампания→товар; непривязанный остаток — по числу
-// выданных заказов. Упаковка и прочие расходы тоже распределяются по числу выданных заказов
+// выданных заказов. Упаковка и прочие расходы распределяются пропорционально выручке
 // каждого товара. Возврат без покупки в этом месяце выданным заказом не считается.
 // warehouses — список городов либо null. null означает "все склады и все заказы" (для верхней
 // таблицы "Основной отчёт (все склады)"): фильтр по origin_city не накладывается вообще, поэтому
@@ -535,6 +535,10 @@ async function getProductBreakdownForMonth(month, warehouses) {
 
   const issuedOrderWeight = (row) => Number(row.issued_orders) || 0;
   const positiveRevenueWeight = (row) => Math.max(0, Number(row.net_revenue) || 0);
+  // Упаковка и прочие расходы делятся по выручке, как на Главной (allocateToProducts в stats.js),
+  // иначе прибыль одного товара на двух экранах расходилась бы. Владелец выбрала это 2026-11-01:
+  // при делении поровну на заказ дешёвый товар нёс те же 4 100 ₸ на заказ, что и проектор.
+  const grossRevenueWeight = (row) => Math.max(0, Number(row.revenue) || 0);
   const totalMarketing = marketingByMonth[month] || 0;
   const totalAds = Object.values(productAdMarketing).reduce((sum, value) => sum + Number(value), 0);
   const totalBonuses = Object.values(productBonusMarketing).reduce((sum, value) => sum + Number(value), 0);
@@ -547,11 +551,11 @@ async function getProductBreakdownForMonth(month, warehouses) {
   allocateRemainder(totalAds + (totalMarketing - linkedMarketing), 'marketing_ads', issuedOrderWeight);
   allocateRemainder(totalBonuses, 'marketing_bonuses', issuedOrderWeight);
   allocateRemainder(totalReviews, 'marketing_reviews', issuedOrderWeight);
-  allocateRemainder(packagingByMonth[month] || 0, 'packaging', issuedOrderWeight);
-  allocateRemainder(otherExpensesByMonth[month] || 0, 'other_expenses', issuedOrderWeight);
-  allocateRemainder(unplannedIncomeByMonth[month] || 0, 'unplanned_income', issuedOrderWeight);
+  allocateRemainder(packagingByMonth[month] || 0, 'packaging', grossRevenueWeight);
+  allocateRemainder(otherExpensesByMonth[month] || 0, 'other_expenses', grossRevenueWeight);
+  allocateRemainder(unplannedIncomeByMonth[month] || 0, 'unplanned_income', grossRevenueWeight);
   // Своя сумма уже у товара; делится только списание товара, которого нет среди продаж месяца.
-  allocateRemainder(writeOffsByMonth[month] || 0, 'write_offs', issuedOrderWeight);
+  allocateRemainder(writeOffsByMonth[month] || 0, 'write_offs', grossRevenueWeight);
 
   // Налог в общей строке считается от совокупной чистой выручки. Распределяем ровно эту сумму
   // между товарами с положительной чистой выручкой — так возврат старой продажи не создаёт
