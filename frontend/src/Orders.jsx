@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { fetchOrders, fetchDeliveryAnomalies } from './api.js';
+import { fetchOrders, fetchDeliveryAnomalies, markSelfBuyOrder, unmarkSelfBuyOrder } from './api.js';
 import { formatMoney, formatNumber, formatDateDMY, formatPercent } from './dateUtils.js';
 import FilterHeader from './FilterHeader.jsx';
 import OrdersMobile from './OrdersMobile.jsx';
+import SelfBuyToggle from './SelfBuyToggle.jsx';
 import CopyableOrderNumber from './CopyableOrderNumber.jsx';
 import { getStatusLabel } from './orderStatus.js';
 import { useIsMobile } from './useIsMobile.js';
@@ -38,7 +39,7 @@ function createEmptyFilters() {
   };
 }
 
-export default function Orders({ password, active = true, isOnline = true }) {
+export default function Orders({ password, role, active = true, isOnline = true }) {
   const [orders, setOrders] = useState([]);
   // Точки продаж Kaspi, которых нет в справочнике складов. Заказы с такой точкой не попадают
   // ни в "Отчёт", ни на "Склад", и себестоимость по ним не считается — поэтому показываем явно.
@@ -48,6 +49,9 @@ export default function Orders({ password, active = true, isOnline = true }) {
   const [error, setError] = useState('');
   const [filters, setFilters] = useState(createEmptyFilters);
   const isMobile = useIsMobile();
+
+  const [markingOrder, setMarkingOrder] = useState(null);
+  const canMark = role === 'admin';
 
   const [checkingDelivery, setCheckingDelivery] = useState(false);
   const [deliveryCheckError, setDeliveryCheckError] = useState('');
@@ -62,10 +66,19 @@ export default function Orders({ password, active = true, isOnline = true }) {
       .finally(() => setCheckingDelivery(false));
   }
 
+  function handleToggleSelfBuy(order) {
+    const { order_number: orderNumber, self_buy_marked: marked } = order;
+    setMarkingOrder(orderNumber);
+    (marked ? unmarkSelfBuyOrder(password, orderNumber) : markSelfBuyOrder(password, orderNumber))
+      .then(() => loadOrders())
+      .catch((err) => setError(err.message))
+      .finally(() => setMarkingOrder(null));
+  }
+
   function loadOrders() {
     setLoading(true);
     setError('');
-    fetchOrders(password)
+    return fetchOrders(password)
       .then((res) => {
         setOrders(res.orders);
         setUnknownPoints(res.unknownPickupPoints || []);
@@ -186,6 +199,9 @@ export default function Orders({ password, active = true, isOnline = true }) {
             deliveryCheckError={deliveryCheckError}
             onCheckDelivery={handleCheckDelivery}
             onCloseDelivery={() => setDeliveryAnomalies(null)}
+            canMark={canMark}
+            markingOrder={markingOrder}
+            onToggleSelfBuy={handleToggleSelfBuy}
           />
         )}
       </>
@@ -418,12 +434,13 @@ export default function Orders({ password, active = true, isOnline = true }) {
                       </div>
                     </FilterHeader>
                   </th>
+                  {canMark && <th aria-label="Самовыкуп" />}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="empty-state">Ничего не найдено по заданным фильтрам</td>
+                    <td colSpan={canMark ? 12 : 11} className="empty-state">Ничего не найдено по заданным фильтрам</td>
                   </tr>
                 ) : (
                   filtered.map((o) => (
@@ -443,6 +460,13 @@ export default function Orders({ password, active = true, isOnline = true }) {
                           {getStatusLabel(o)}
                         </span>
                       </td>
+                      {canMark && (
+                        <td>
+                          {o.operation_type !== 'Возврат' && (
+                            <SelfBuyToggle order={o} busy={markingOrder !== null} onToggle={handleToggleSelfBuy} />
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}

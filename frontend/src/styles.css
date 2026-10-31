@@ -3494,11 +3494,11 @@ input[type="date"] {
   min-width: 720px;
 }
 
-/* Последний столбец (Статус) браузер сжимает первым, если не хватает общей ширины —
-   фиксируем ему минимум, чтобы текст и бейдж не обрезались. Остальное отдаём горизонтальному
-   скроллу контейнера, а не "порче" содержимого. */
-.orders-table th:last-child,
-.orders-table td:last-child {
+/* Столбец "Статус" браузер сжимает первым, если не хватает общей ширины — фиксируем ему
+   минимум, чтобы текст и бейдж не обрезались. Остальное отдаём горизонтальному скроллу
+   контейнера, а не "порче" содержимого. */
+.orders-table th:nth-child(11),
+.orders-table td:nth-child(11) {
   min-width: 150px;
   white-space: nowrap;
 }
@@ -3666,6 +3666,23 @@ input[type="date"] {
    "Обновить" (её убрали 2026-09-09) — отступ снизу отделяет их от заголовка "По месяцам". */
 .expenses-sync-notes { margin-bottom: 20px; }
 .expenses-sync-notes .report-upload-success { margin-top: 0; }
+
+/* Кнопка в строке заказа (SelfBuyToggle.jsx). */
+.orders-selfbuy-btn {
+  display: inline-block;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.orders-selfbuy-btn.is-marked { border-color: var(--accent-brand); color: var(--accent-brand); }
+.orders-selfbuy-btn[aria-disabled="true"] { opacity: 0.55; cursor: default; }
+.om-card-detail .orders-selfbuy-btn { display: block; margin-top: 6px; padding: 9px; text-align: center; font-size: 13px; }
 
 /* Блок "Самовыкупы вручную" на странице "Настройки" (SelfBuyOrders.jsx). */
 .self-buy-form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }

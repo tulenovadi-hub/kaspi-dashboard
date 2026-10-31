@@ -34,6 +34,7 @@ router.get('/', async (req, res) => {
       SELECT
         o.code AS order_number,
         o.origin_city AS warehouse,
+        o.self_buy_marked,
         o.status AS order_status,
         ka.operation_type,
         ka.operation_date,
@@ -80,6 +81,7 @@ router.get('/', async (req, res) => {
         order_number: row.order_number,
         date: row.operation_date,
         warehouse: row.warehouse,
+        self_buy_marked: row.self_buy_marked,
         status: row.order_status,
         operation_type: row.operation_type,
         product_name: row.product_names || '—',

@@ -163,7 +163,7 @@ export default function Dashboard({ password, username, role, onLogout, onInitia
     if (key === 'orders') {
       return (
         <div key={key} className="page-pane" style={style}>
-          <Orders password={password} active={active} isOnline={isOnline} />
+          <Orders password={password} role={role} active={active} isOnline={isOnline} />
         </div>
       );
     }

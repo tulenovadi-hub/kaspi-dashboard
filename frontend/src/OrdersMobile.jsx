@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { formatMoney, formatNumber, formatPercent } from './dateUtils.js';
 import { getStatusLabel } from './orderStatus.js';
 import CopyableOrderNumber from './CopyableOrderNumber.jsx';
+import SelfBuyToggle from './SelfBuyToggle.jsx';
 import { useBodyScrollLock } from './useBodyScrollLock.js';
 import { useClosing } from './useClosing.js';
 
@@ -217,6 +218,7 @@ export default function OrdersMobile({
   onChange, onToggleSet, onSelectAll, onSelectNone, onReset,
   unknownPoints, loading, isOnline,
   checkingDelivery, deliveryAnomalies, deliveryCheckError, onCheckDelivery, onCloseDelivery,
+  canMark, markingOrder, onToggleSelfBuy,
 }) {
   const [visibleDays, setVisibleDays] = useState(DAYS_STEP);
   const [openOrder, setOpenOrder] = useState(null);
@@ -348,6 +350,9 @@ export default function OrdersMobile({
                         <div className="om-line"><span>Доставка</span><span>{formatMoney(o.delivery)}</span></div>
                         <div className="om-line"><span>Комиссия</span><span>{formatMoney(o.commission)}</span></div>
                         <div className="om-line"><span>Статус</span><span>{getStatusLabel(o)}</span></div>
+                        {canMark && !isReturn && (
+                          <SelfBuyToggle order={o} busy={markingOrder !== null} onToggle={onToggleSelfBuy} />
+                        )}
                       </div>
                     )}
                   </button>
