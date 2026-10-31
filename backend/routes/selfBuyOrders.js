@@ -11,7 +11,7 @@ router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT o.code AS order_number, o.total_price, o.status, o.creation_date, o.self_buy_marked_by, o.self_buy_marked_at,
-              w.city AS warehouse, COALESCE(SUM(oi.quantity), 0)::int AS item_quantity
+              COALESCE(w.city, o.manual_city) AS warehouse, COALESCE(SUM(oi.quantity), 0)::int AS item_quantity
        FROM orders o
        LEFT JOIN warehouses w ON w.pickup_point_id = o.pickup_point_id
        LEFT JOIN order_items oi ON oi.order_id = o.id
@@ -55,7 +55,9 @@ router.delete('/:orderNumber', async (req, res) => {
     const updated = await pool.query(
       `UPDATE orders
        SET self_buy_marked = false, self_buy_marked_by = NULL, self_buy_marked_at = NULL,
-           origin_city = (SELECT w.city FROM warehouses w WHERE w.pickup_point_id = orders.pickup_point_id)
+           origin_city = COALESCE(
+             (SELECT w.city FROM warehouses w WHERE w.pickup_point_id = orders.pickup_point_id), manual_city
+           )
        WHERE code = $1 AND self_buy_marked = true`,
       [String(req.params.orderNumber)]
     );

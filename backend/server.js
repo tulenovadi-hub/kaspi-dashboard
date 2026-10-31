@@ -16,6 +16,7 @@ const reportsRoutes = require('./routes/reports');
 const warehouseRoutes = require('./routes/warehouse');
 const warehouseSettingsRoutes = require('./routes/warehouseSettings');
 const selfBuyOrdersRoutes = require('./routes/selfBuyOrders');
+const manualSalesRoutes = require('./routes/manualSales');
 const debugRoutes = require('./routes/debug');
 const imagesRoutes = require('./routes/images');
 const expensesRoutes = require('./routes/expenses');
@@ -114,6 +115,7 @@ app.use('/api/geography', requireRole('admin', 'marketer'), geographyRoutes);
 app.use('/api/abc', requireRole('admin'), abcRoutes);
 app.use('/api/warehouse-settings', requireRole('admin'), warehouseSettingsRoutes);
 app.use('/api/self-buy-orders', requireRole('admin'), selfBuyOrdersRoutes);
+app.use('/api/manual-sales', requireRole('admin'), manualSalesRoutes);
 app.use('/api/unit-economics', requireRole('admin'), unitEconomicsRoutes);
 app.use('/api/debug', requireRole('admin'), debugRoutes);
 

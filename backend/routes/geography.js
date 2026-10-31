@@ -123,6 +123,7 @@ router.get('/', async (req, res) => {
        WHERE o.creation_date >= $1::timestamp - interval '5 hours'
          AND o.creation_date < $2::timestamp - interval '5 hours' + interval '1 day'
          AND o.status = ANY($3::text[])
+         AND o.manual_sale = false
          ${cities ? 'AND o.origin_city = ANY($4::text[])' : ''}`,
       params
     );

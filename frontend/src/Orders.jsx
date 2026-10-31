@@ -4,6 +4,7 @@ import { formatMoney, formatNumber, formatDateDMY, formatPercent } from './dateU
 import FilterHeader from './FilterHeader.jsx';
 import OrdersMobile from './OrdersMobile.jsx';
 import SelfBuyToggle from './SelfBuyToggle.jsx';
+import ManualSales from './ManualSales.jsx';
 import CopyableOrderNumber from './CopyableOrderNumber.jsx';
 import { getStatusLabel } from './orderStatus.js';
 import { useIsMobile } from './useIsMobile.js';
@@ -169,6 +170,10 @@ export default function Orders({ password, role, active = true, isOnline = true 
 
   const hasActiveFilters = Object.entries(filters).some(([, v]) => (v instanceof Set ? v.size > 0 : v !== ''));
 
+  const manualSales = canMark
+    ? <ManualSales password={password} active={active} onChanged={loadOrders} />
+    : null;
+
   // Телефон — отдельный компонент (таблица на 11 колонок не помещается никаким CSS), но
   // фильтры, загрузка и проверка доставки у него ОБЩИЕ с таблицей: сюда уходит уже
   // отфильтрованный список и те же обработчики.
@@ -202,6 +207,7 @@ export default function Orders({ password, role, active = true, isOnline = true 
             canMark={canMark}
             markingOrder={markingOrder}
             onToggleSelfBuy={handleToggleSelfBuy}
+            manualSales={manualSales}
           />
         )}
       </>
@@ -215,6 +221,8 @@ export default function Orders({ password, role, active = true, isOnline = true 
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {manualSales}
 
       {unknownPoints.length > 0 && (
         <div className="orders-unknown-point">

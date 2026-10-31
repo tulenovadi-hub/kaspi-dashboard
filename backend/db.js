@@ -33,6 +33,9 @@ async function initDb() {
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS self_buy_marked BOOLEAN NOT NULL DEFAULT false;`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS self_buy_marked_by TEXT;`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS self_buy_marked_at TIMESTAMPTZ;`);
+  // Продажа вне магазина Kaspi, заведённая вручную из строки Kaspi Pay (см. routes/manualSales.js).
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS manual_sale BOOLEAN NOT NULL DEFAULT false;`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS manual_city TEXT;`);
   // Необратимый признак: как только заказ хотя бы раз был выдан покупателю, он больше никогда
   // не должен возвращать товар в доступный остаток — даже если Kaspi позже сменит status.
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS was_completed BOOLEAN NOT NULL DEFAULT false;`);
@@ -284,6 +287,9 @@ async function initDb() {
       uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  // "Тип оплаты" из выгрузки: отличает продажу через магазин от оплаты по счёту. У строк, загруженных
+  // раньше, он пустой, пока тот же период не загрузят заново.
+  await pool.query(`ALTER TABLE kaspi_pay_transactions ADD COLUMN IF NOT EXISTS payment_type TEXT;`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_kaspi_pay_date ON kaspi_pay_transactions(operation_date);`);
 
   // Исключения для редких операционных ошибок, которые не являются реальной продажей магазина:

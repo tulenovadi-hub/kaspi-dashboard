@@ -458,6 +458,22 @@ export function transferWarehouseStock(password, transfer) {
   });
 }
 
+export function fetchManualSales(password) {
+  return apiRequest('/api/manual-sales', password);
+}
+
+export function addManualSale(password, sale) {
+  return apiRequest('/api/manual-sales', password, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sale),
+  });
+}
+
+export function removeManualSale(password, orderNumber) {
+  return apiRequest(`/api/manual-sales/${encodeURIComponent(orderNumber)}`, password, { method: 'DELETE' });
+}
+
 export function fetchSelfBuyOrders(password) {
   return apiRequest('/api/self-buy-orders', password);
 }

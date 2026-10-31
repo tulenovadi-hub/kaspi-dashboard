@@ -92,6 +92,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     date: colIndex('Дата операции'),
     time: colIndex('Время'),
     type: colIndex('Тип операции'),
+    paymentType: colIndex('Тип оплаты'),
     product: colIndex('Детали покупки'),
     amount: colIndex('Сумма операции (т)'),
     delivery: colIndex('Стоимость услуги за Kaspi Доставку'),
@@ -125,6 +126,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       orderNumber,
       date,
       type,
+      paymentType: idx.paymentType !== -1 ? String(row[idx.paymentType] || '') || null : null,
       product: idx.product !== -1 ? String(row[idx.product] || '') : '',
       amount,
       commissionTotal,
@@ -149,8 +151,8 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     await client.query('BEGIN');
     for (const r of importRecords) {
       await client.query(
-        `INSERT INTO kaspi_pay_transactions (row_key, order_number, operation_date, operation_type, product_name, amount, commission_total, delivery_cost)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO kaspi_pay_transactions (row_key, order_number, operation_date, operation_type, product_name, amount, commission_total, delivery_cost, payment_type)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (row_key) DO UPDATE SET
            operation_date = EXCLUDED.operation_date,
            operation_type = EXCLUDED.operation_type,
@@ -158,8 +160,9 @@ router.post('/upload', upload.single('file'), async (req, res) => {
            amount = EXCLUDED.amount,
            commission_total = EXCLUDED.commission_total,
            delivery_cost = EXCLUDED.delivery_cost,
+           payment_type = EXCLUDED.payment_type,
            uploaded_at = now()`,
-        [r.rowKey, r.orderNumber, r.date, r.type, r.product, r.amount, r.commissionTotal, r.deliveryCost]
+        [r.rowKey, r.orderNumber, r.date, r.type, r.product, r.amount, r.commissionTotal, r.deliveryCost, r.paymentType]
       );
     }
     await client.query('COMMIT');

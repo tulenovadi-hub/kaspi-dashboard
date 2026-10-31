@@ -218,7 +218,7 @@ export default function OrdersMobile({
   onChange, onToggleSet, onSelectAll, onSelectNone, onReset,
   unknownPoints, loading, isOnline,
   checkingDelivery, deliveryAnomalies, deliveryCheckError, onCheckDelivery, onCloseDelivery,
-  canMark, markingOrder, onToggleSelfBuy,
+  canMark, markingOrder, onToggleSelfBuy, manualSales,
 }) {
   const [visibleDays, setVisibleDays] = useState(DAYS_STEP);
   const [openOrder, setOpenOrder] = useState(null);
@@ -246,6 +246,8 @@ export default function OrdersMobile({
           {formatNumber(filtered.length)} из {formatNumber(orders.length)}
         </span>
       </div>
+
+      {manualSales}
 
       {unknownPoints.length > 0 && (
         <div className="orders-unknown-point">
