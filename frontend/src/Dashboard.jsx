@@ -23,6 +23,7 @@ import { useOnlineStatus } from './useOnlineStatus.js';
 import { useIsMobile } from './useIsMobile.js';
 import { usePullToRefresh, PullToRefreshIndicator } from './usePullToRefresh.jsx';
 import { requestAppRefresh } from './useAppRefresh.js';
+import { useWarehouseCities } from './useWarehouseCities.js';
 
 const SECTION_TITLES = {};
 
@@ -54,6 +55,7 @@ export default function Dashboard({ password, username, role, onLogout, onInitia
   // Защита на случай, если роль не даёт доступа к текущему разделу (например, роль сменили
   // прямо во время работы, или view остался от предыдущей роли) — просто откатываемся на Главную.
   const safeView = allowedPages.includes(view) ? view : 'sales';
+  const warehouseCities = useWarehouseCities(password, safeView === 'selfbuy');
 
   // Если сессия восстановилась на другом разделе, глобальную стартовую заставку не держим:
   // требование дождаться всех показателей и графиков относится к старту Главной.
@@ -265,7 +267,7 @@ export default function Dashboard({ password, username, role, onLogout, onInitia
             password={password}
             onLogout={onLogout}
             mode="selfbuy"
-            title={<>Самовыкупы <span>(Талдыкорган + Юбилейное)</span></>}
+            title={<>Самовыкупы <span>({warehouseCities.selfbuy.join(' + ')})</span></>}
             showSync={false}
             active={active}
             isOnline={isOnline}

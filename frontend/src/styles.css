@@ -3667,6 +3667,76 @@ input[type="date"] {
 .expenses-sync-notes { margin-bottom: 20px; }
 .expenses-sync-notes .report-upload-success { margin-top: 0; }
 
+/* Блок "Склады" на странице "Настройки" (WarehouseSettings.jsx). */
+.wh-set-list { display: grid; gap: 8px; margin-bottom: 8px; }
+.wh-set-row {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.wh-set-row.is-new { border-color: var(--accent-warn); background: var(--accent-warn-dim); }
+.wh-set-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.wh-set-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.wh-set-city { font-weight: 600; color: var(--text-primary); }
+.wh-set-code { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+.wh-set-hint { font-size: 13px; color: var(--text-secondary); }
+.wh-set-seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  flex: 0 1 240px;
+  padding: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.wh-set-seg-btn {
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.wh-set-seg-btn[aria-pressed="true"] { font-weight: 600; }
+.wh-set-seg-btn.main[aria-pressed="true"] { background: var(--accent-up-dim); color: var(--accent-up); }
+.wh-set-seg-btn.selfbuy[aria-pressed="true"] { background: rgba(110, 139, 255, 0.14); color: var(--accent-brand); }
+.wh-set-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wh-set-btn {
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.wh-set-btn.primary { background: var(--accent-brand); border-color: var(--accent-brand); color: var(--bg); }
+.wh-set-btn:disabled, .wh-set-seg-btn:disabled { opacity: 0.55; cursor: default; }
+.wh-set-confirm {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+@media (max-width: 700px) {
+  .wh-set-line { flex-direction: column; align-items: stretch; }
+  .wh-set-seg { flex: none; }
+}
+.wh-set-form { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px; }
+.wh-set-form label { display: grid; gap: 4px; min-width: 0; font-size: 12px; color: var(--text-muted); }
+.wh-set-form input { width: 100%; min-width: 0; }
+.wh-set-form .wh-set-actions { grid-column: 1 / -1; }
+
 /* Сообщение упавшей страницы (ErrorBoundary.jsx). Не error-banner: тот показывает временный
    сбой запроса поверх работающей страницы, а здесь страницы нет вообще, и это должно читаться
    как отдельное состояние, а не как строчка предупреждения. */

@@ -287,7 +287,7 @@ export function fetchMonthlyReport(password) {
   return apiRequest('/api/reports/monthly', password);
 }
 
-// scope: 'all' — разбивка по всем складам (верхняя таблица отчёта), иначе Алматы + Астана.
+// scope: 'all' — разбивка по всем складам (верхняя таблица отчёта), иначе реальные склады.
 export function fetchMonthProductBreakdown(password, month, scope) {
   const query = scope === 'all' ? '?scope=all' : '';
   return apiRequest(`/api/reports/monthly/${month}/products${query}`, password);
@@ -443,6 +443,30 @@ export function fetchExpensesMonthly(password) {
 
 export function fetchOrders(password) {
   return apiRequest('/api/orders', password);
+}
+
+export function fetchWarehouseCities(password) {
+  return apiRequest('/api/warehouse/cities', password);
+}
+
+export function fetchWarehouseSettings(password) {
+  return apiRequest('/api/warehouse-settings', password);
+}
+
+export function addWarehouse(password, payload) {
+  return apiRequest('/api/warehouse-settings', password, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function setWarehouseRole(password, code, role) {
+  return apiRequest(`/api/warehouse-settings/${encodeURIComponent(code)}/role`, password, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  });
 }
 
 export function syncExpenses(password) {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { fetchWarehouse, fetchWarehouseReconciliations, reconcileWarehouse, fetchInventoryValue, fetchProductImages, uploadProductImage, deleteProductImage } from './api.js';
 import { formatMoney, formatNumber } from './dateUtils.js';
+import { useWarehouseCities } from './useWarehouseCities.js';
 import WarehouseMobile from './WarehouseMobile.jsx';
 import { useIsMobile } from './useIsMobile.js';
 import { useAppRefresh } from './useAppRefresh.js';
@@ -175,20 +176,20 @@ function localDateTimeValue() {
   return local.toISOString().slice(0, 16);
 }
 
-function newRow() {
+function newRow(warehouse) {
   return {
     key: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     product_id: '',
-    warehouse: 'Алматы',
+    warehouse,
     target_quantity: '',
   };
 }
 
-function ReconciliationModal({ password, products, onClose, onSaved }) {
+function ReconciliationModal({ password, products, cities, onClose, onSaved }) {
   const [source, setSource] = useState('Wonder Fulfillment');
   const [capturedAt, setCapturedAt] = useState(localDateTimeValue);
   const [note, setNote] = useState('');
-  const [rows, setRows] = useState(() => [newRow()]);
+  const [rows, setRows] = useState(() => [newRow(cities[0])]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [idempotencyKey] = useState(() => (
@@ -315,8 +316,7 @@ function ReconciliationModal({ password, products, onClose, onSaved }) {
                   <label>
                     <span>Склад</span>
                     <select value={row.warehouse} onChange={(e) => updateRow(row.key, { warehouse: e.target.value })}>
-                      <option value="Алматы">Алматы</option>
-                      <option value="Астана">Астана</option>
+                      {cities.map((city) => <option value={city} key={city}>{city}</option>)}
                     </select>
                   </label>
                   <label>
@@ -378,6 +378,7 @@ function ReconciliationModal({ password, products, onClose, onSaved }) {
 
 export default function Warehouse({ password, role, active = true, isOnline = true }) {
   const [products, setProducts] = useState([]);
+  const warehouseCities = useWarehouseCities(password, active);
   const [images, setImages] = useState({});
   const [cutoffDate, setCutoffDate] = useState('');
   const [loading, setLoading] = useState(true);
@@ -694,6 +695,7 @@ export default function Warehouse({ password, role, active = true, isOnline = tr
         <ReconciliationModal
           password={password}
           products={products}
+          cities={warehouseCities.display}
           onClose={() => setReconciliationOpen(false)}
           onSaved={async () => {
             setReconciliationOpen(false);

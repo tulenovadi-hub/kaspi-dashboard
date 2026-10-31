@@ -15,7 +15,7 @@ const DELIVERY_CANCELLATION_STATUSES = ['CANCELLING', 'CANCELLED'];
 
 // На "Складе" показываем только склады с display: true в справочнике — самовыкупные
 // (Юбилейное, Талдыкорган, Атырау) сюда не входят, они отслеживаются на других страницах.
-const { DISPLAY_CITIES: DISPLAY_WAREHOUSES, CITY_ORDER: WAREHOUSE_SORT_ORDER } = require('../warehouseMapping');
+const { DISPLAY_CITIES: DISPLAY_WAREHOUSES, CITY_ORDER: WAREHOUSE_SORT_ORDER, MAIN_CITIES, SELF_BUY_CITIES } = require('../warehouseMapping');
 
 // Считает остатки по методу FIFO отдельно для каждого склада (города):
 // партии одного города списываются только продажами (и возвратами в пути, см. ниже),
@@ -397,6 +397,12 @@ async function computeInventoryValue() {
 
 // Отдельный лёгкий роут: те же цифры нужны и блоку на "Складе", и плитке на Главной,
 // а тащить ради них весь список товаров со склада не нужно.
+// Состав складов для подписей на страницах. Отдаётся всем ролям: "Самовыкупы" и "Склад" открыты
+// и менеджеру, а настройки складов — только админу.
+router.get('/cities', (req, res) => {
+  res.json({ main: MAIN_CITIES, selfbuy: SELF_BUY_CITIES, display: DISPLAY_WAREHOUSES });
+});
+
 router.get('/inventory-value', async (req, res) => {
   try {
     res.json(await computeInventoryValue());

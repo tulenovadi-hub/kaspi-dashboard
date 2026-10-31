@@ -8,39 +8,76 @@
 // означал "всё, кроме самовыкупов", а в Отчёте — "ровно Алматы и Астана", и заказы с неизвестной
 // точкой продаж попадали на Главную, но пропадали из Отчёта. Теперь всё выводится отсюда.
 //
-// ЧТОБЫ ДОБАВИТЬ СКЛАД — допиши одну строку в WAREHOUSES ниже. Больше ничего править не нужно:
-// и валидация поставок, и выпадающие списки, и деление на основной/самовыкупы, и порядок городов
-// подхватят его сами. Код точки (pickupPointId) виден в заказе Kaspi; префикс "18619047_" —
-// это ID продавца, он для магазина не меняется.
+// С 2026-11-01 склады живут в таблице warehouses и меняются на странице "Настройки". Модули берут
+// списки ниже один раз при загрузке, поэтому applyWarehouses меняет их НА МЕСТЕ, а не заменяет:
+// так новый состав сразу виден всем маршрутам. Заменять эти массивы и объекты новыми нельзя.
+// Код точки виден в заказе Kaspi; префикс "18619047_" — это ID продавца, он для магазина не меняется.
 //
-// role: 'main'    — обычные продажи, идут в "Основной отчёт" и на Главную
+// role: 'main'    — реальный склад: хранит товар, виден на "Складе", продажи идут в "Основной
+//                   отчёт" и на Главную
 //       'selfbuy' — самовыкупы, считаются отдельно и в основную статистику не входят
-// display         — показывать ли склад на странице "Склад" (там нужны только рабочие склады)
+//       null      — тип ещё не выбран: заказы привязаны к складу, но не входят ни в одну группу
 
-const WAREHOUSES = [
-  { pickupPointId: '18619047_PP2', city: 'Алматы', role: 'main', display: true },
-  { pickupPointId: '18619047_PP3', city: 'Астана', role: 'main', display: true },
-  { pickupPointId: '18619047_PP5', city: 'Явленка', role: 'selfbuy', display: false },
-  { pickupPointId: '18619047_PP6', city: 'Юбилейное', role: 'selfbuy', display: false },
-  { pickupPointId: '18619047_PP7', city: 'Талдыкорган', role: 'selfbuy', display: false },
-  { pickupPointId: '18619047_PP8', city: 'Атырау', role: 'selfbuy', display: false },
+const PICKUP_POINT_PREFIX = '18619047_';
+
+// Начальное содержимое таблицы warehouses. Дальше источник правды — база: миграция только
+// дописывает отсутствующие строки и выбранный на сайте тип не перезаписывает.
+const DEFAULT_WAREHOUSES = [
+  { pickupPointId: '18619047_PP2', city: 'Алматы', role: 'main' },
+  { pickupPointId: '18619047_PP3', city: 'Астана', role: 'main' },
+  { pickupPointId: '18619047_PP5', city: 'Явленка', role: 'selfbuy' },
+  { pickupPointId: '18619047_PP6', city: 'Юбилейное', role: 'selfbuy' },
+  { pickupPointId: '18619047_PP7', city: 'Талдыкорган', role: 'selfbuy' },
+  { pickupPointId: '18619047_PP8', city: 'Атырау', role: 'selfbuy' },
+  { pickupPointId: '18619047_PP9', city: 'Актобе', role: null },
 ];
 
-// Порядок в массиве выше — это и порядок показа городов в интерфейсе, менять его осмысленно.
-const ALL_CITIES = WAREHOUSES.map((w) => w.city);
-const MAIN_CITIES = WAREHOUSES.filter((w) => w.role === 'main').map((w) => w.city);
-const SELF_BUY_CITIES = WAREHOUSES.filter((w) => w.role === 'selfbuy').map((w) => w.city);
-const DISPLAY_CITIES = WAREHOUSES.filter((w) => w.display).map((w) => w.city);
+// Порядок в справочнике — это и порядок показа городов в интерфейсе.
+const WAREHOUSES = [];
+const ALL_CITIES = [];
+const MAIN_CITIES = [];
+const SELF_BUY_CITIES = [];
+const DISPLAY_CITIES = [];
 
 // { город: позиция } — для сортировки таблиц по городам вместо localeCompare
-const CITY_ORDER = Object.fromEntries(ALL_CITIES.map((city, i) => [city, i]));
+const CITY_ORDER = {};
 
-// { код точки: город } — в этом виде справочник нужен миграции в db.js, которая при каждом
-// старте пересчитывает orders.origin_city из сохранённого pickup_point_id. Благодаря ей
-// добавление склада сюда чинит и уже загруженные заказы, а не только будущие.
-const PICKUP_POINT_WAREHOUSE_MAP = Object.fromEntries(
-  WAREHOUSES.map((w) => [w.pickupPointId, w.city])
-);
+// { код точки: город } — нужен синхронизации заказов (см. resolveWarehouse).
+const PICKUP_POINT_WAREHOUSE_MAP = {};
+
+function replaceArray(target, items) {
+  target.splice(0, target.length, ...items);
+}
+
+function replaceObject(target, entries) {
+  for (const key of Object.keys(target)) delete target[key];
+  Object.assign(target, Object.fromEntries(entries));
+}
+
+function applyWarehouses(rows) {
+  const cities = rows.map((w) => w.city);
+  const main = rows.filter((w) => w.role === 'main').map((w) => w.city);
+  replaceArray(WAREHOUSES, rows);
+  replaceArray(ALL_CITIES, cities);
+  replaceArray(MAIN_CITIES, main);
+  replaceArray(SELF_BUY_CITIES, rows.filter((w) => w.role === 'selfbuy').map((w) => w.city));
+  // На "Складе" показываем только реальные склады.
+  replaceArray(DISPLAY_CITIES, main);
+  replaceObject(CITY_ORDER, cities.map((city, i) => [city, i]));
+  replaceObject(PICKUP_POINT_WAREHOUSE_MAP, rows.map((w) => [w.pickupPointId, w.city]));
+}
+
+async function loadWarehouses(pool) {
+  const result = await pool.query(
+    `SELECT pickup_point_id AS "pickupPointId", city, role
+     FROM warehouses
+     ORDER BY sort_order, created_at`
+  );
+  applyWarehouses(result.rows);
+}
+
+// До чтения базы (тесты, отдельный запуск syncJob.js) работают начальные значения.
+applyWarehouses(DEFAULT_WAREHOUSES);
 
 // Неизвестная точка продаж → null. Такой заказ не относится ни к одному складу: он не спишет
 // товар со склада, по нему не посчитается себестоимость и он не попадёт в "Отчёт". Чтобы это
@@ -50,6 +87,8 @@ function resolveWarehouse(pickupPointId) {
 }
 
 module.exports = {
+  PICKUP_POINT_PREFIX,
+  DEFAULT_WAREHOUSES,
   WAREHOUSES,
   ALL_CITIES,
   MAIN_CITIES,
@@ -57,5 +96,7 @@ module.exports = {
   DISPLAY_CITIES,
   CITY_ORDER,
   PICKUP_POINT_WAREHOUSE_MAP,
+  applyWarehouses,
+  loadWarehouses,
   resolveWarehouse,
 };

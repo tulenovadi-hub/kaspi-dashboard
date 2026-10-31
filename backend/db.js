@@ -39,16 +39,33 @@ async function initDb() {
   `);
   await pool.query(`UPDATE orders SET pickup_point_id = raw_data->'attributes'->>'pickupPointId' WHERE raw_data IS NOT NULL;`);
 
-  const { PICKUP_POINT_WAREHOUSE_MAP } = require('./warehouseMapping');
-  const mappingEntries = Object.entries(PICKUP_POINT_WAREHOUSE_MAP);
-  if (mappingEntries.length > 0) {
-    const caseSql = mappingEntries.map(([id, city]) => `WHEN '${id}' THEN '${city}'`).join(' ');
-    await pool.query(`
-      UPDATE orders
-      SET origin_city = CASE pickup_point_id ${caseSql} ELSE NULL END
-      WHERE raw_data IS NOT NULL
-    `);
+  // Справочник складов (см. warehouseMapping.js). Тип склада выбирается на странице "Настройки",
+  // поэтому начальные строки только дописываются и существующие не перезаписывают.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS warehouses (
+      pickup_point_id TEXT PRIMARY KEY,
+      city TEXT NOT NULL UNIQUE,
+      role TEXT CHECK (role IN ('main', 'selfbuy')),
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  const { DEFAULT_WAREHOUSES, loadWarehouses } = require('./warehouseMapping');
+  for (const [index, warehouse] of DEFAULT_WAREHOUSES.entries()) {
+    await pool.query(
+      `INSERT INTO warehouses (pickup_point_id, city, role, sort_order)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT DO NOTHING`,
+      [warehouse.pickupPointId, warehouse.city, warehouse.role, index]
+    );
   }
+  await loadWarehouses(pool);
+
+  await pool.query(`
+    UPDATE orders
+    SET origin_city = (SELECT w.city FROM warehouses w WHERE w.pickup_point_id = orders.pickup_point_id)
+    WHERE raw_data IS NOT NULL
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS order_items (

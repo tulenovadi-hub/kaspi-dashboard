@@ -19,10 +19,13 @@ import { useClosing } from './useClosing.js';
 // Мобильная версия — отдельный компонент, а не CSS: рисовать оба дерева и прятать одно значило бы
 // грузить разбивки по товарам дважды. Показатели при этом общие с таблицей (см. reportColumns.js).
 
-const SCOPES = [
-  { key: 'main', label: 'Алматы + Астана' },
-  { key: 'all', label: 'Все склады' },
-];
+// Подпись "main" собирается из реальных складов, поэтому список строится внутри компонента.
+function buildScopes(mainCities) {
+  return [
+    { key: 'main', label: mainCities.join(' + ') },
+    { key: 'all', label: 'Все склады' },
+  ];
+}
 
 // "Авг. 26", но "Май 26" — у коротких названий месяцев сокращать нечего, и точка после них
 // выглядит опечаткой.
@@ -122,7 +125,7 @@ function ProductList({ products, loading, error, openProduct, onToggleProduct })
   });
 }
 
-function MonthSheet({ month, scope, products, loading, error, onClose }) {
+function MonthSheet({ month, scopeLabel, products, loading, error, onClose }) {
   const { closing, close } = useClosing(onClose);
   const [openProduct, setOpenProduct] = useState(null);
   useBodyScrollLock();
@@ -134,7 +137,7 @@ function MonthSheet({ month, scope, products, loading, error, onClose }) {
         <div className="rm-sheet-head">
           <div>
             <div className="rm-sheet-title">{formatMonthLabel(month.month)}</div>
-            <div className="rm-sheet-scope">{SCOPES.find((s) => s.key === scope).label}</div>
+            <div className="rm-sheet-scope">{scopeLabel}</div>
           </div>
           <button className="rm-sheet-close" onClick={close} aria-label="Закрыть">×</button>
         </div>
@@ -153,13 +156,14 @@ function MonthSheet({ month, scope, products, loading, error, onClose }) {
 }
 
 export default function ReportMobile({
-  monthsAll, monthsMainCities, onLoadProducts, productBreakdowns, productLoading, productError,
+  monthsAll, monthsMainCities, mainCities, onLoadProducts, productBreakdowns, productLoading, productError,
 }) {
   const [scope, setScope] = useState('main');
   const [metricKey, setMetricKey] = useState('net_profit');
   const [sheetMonth, setSheetMonth] = useState(null);
 
   const months = scope === 'all' ? monthsAll : monthsMainCities;
+  const scopes = buildScopes(mainCities);
   const metric = METRICS.find((m) => m.key === metricKey) || METRICS[0];
 
   // Масштаб полосок — по самому большому значению среди месяцев, поэтому длина полоски
@@ -178,7 +182,7 @@ export default function ReportMobile({
   return (
     <div className="rm">
       <div className="rm-scope">
-        {SCOPES.map((s) => (
+        {scopes.map((s) => (
           <button
             key={s.key}
             className="rm-scope-pill"
@@ -249,7 +253,7 @@ export default function ReportMobile({
       {sheetRow && (
         <MonthSheet
           month={sheetRow}
-          scope={scope}
+          scopeLabel={scopes.find((s) => s.key === scope).label}
           products={productBreakdowns[cacheKey]}
           loading={!!productLoading[cacheKey]}
           error={productError[cacheKey]}

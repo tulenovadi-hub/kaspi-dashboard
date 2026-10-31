@@ -5,6 +5,7 @@ import {
 } from './api.js';
 import { useAppRefresh } from './useAppRefresh.js';
 import KaspiGatewaySettings from './KaspiGatewaySettings.jsx';
+import WarehouseSettings from './WarehouseSettings.jsx';
 
 function CreateUserForm({ password, onCreated }) {
   const [username, setUsername] = useState('');
@@ -287,6 +288,8 @@ export default function Settings({ password, username, active = true, isOnline =
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+
+      <WarehouseSettings password={password} active={active} isOnline={isOnline} />
 
       <div className="section-title">Новый пользователь</div>
       <div className="card">

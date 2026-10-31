@@ -638,7 +638,7 @@ async function fetchMarketingByMonth() {
 }
 
 // scope=all — разбивка по всем складам и всем заказам (верхняя таблица отчёта),
-// без scope — только Алматы и Астана, как было (таблица "Основной отчёт (Алматы, Астана)").
+// без scope — только реальные склады (таблица "Основной отчёт").
 router.get('/monthly/:month/products', async (req, res) => {
   const { month } = req.params;
   if (!/^\d{4}-\d{2}$/.test(month)) {

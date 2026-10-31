@@ -14,6 +14,7 @@ const statsRoutes = require('./routes/stats');
 const batchesRoutes = require('./routes/batches');
 const reportsRoutes = require('./routes/reports');
 const warehouseRoutes = require('./routes/warehouse');
+const warehouseSettingsRoutes = require('./routes/warehouseSettings');
 const debugRoutes = require('./routes/debug');
 const imagesRoutes = require('./routes/images');
 const expensesRoutes = require('./routes/expenses');
@@ -110,6 +111,7 @@ app.use('/api/order-exclusions', requireRole('admin'), orderExclusionsRoutes);
 app.use('/api/kaspi-gateway', requireRole('admin'), kaspiGatewayAdminRoutes);
 app.use('/api/geography', requireRole('admin', 'marketer'), geographyRoutes);
 app.use('/api/abc', requireRole('admin'), abcRoutes);
+app.use('/api/warehouse-settings', requireRole('admin'), warehouseSettingsRoutes);
 app.use('/api/unit-economics', requireRole('admin'), unitEconomicsRoutes);
 app.use('/api/debug', requireRole('admin'), debugRoutes);
 
