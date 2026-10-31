@@ -1,7 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const { pool } = require('../db');
-const { aggregateKaspiPayMonthly, fetchOtherExpensesByMonth, fetchMarketingByMonth, fetchPackagingExpensesByMonth, fetchUnplannedIncomeByMonth, withStoreWideExpenses, getProductBreakdownForMonth, MAIN_CITIES, SELF_BUY_CITIES } = require('./reports');
+const { aggregateKaspiPayMonthly, fetchOtherExpensesByMonth, fetchMarketingByMonth, fetchPackagingExpensesByMonth, fetchUnplannedIncomeByMonth, fetchWriteOffsByMonth, withStoreWideExpenses, getProductBreakdownForMonth, MAIN_CITIES, SELF_BUY_CITIES } = require('./reports');
 const { computeWarehouseStock, DISPLAY_WAREHOUSES } = require('./warehouse');
 
 const router = express.Router();
@@ -39,12 +39,13 @@ function pct(n) {
 // Последние несколько месяцев "Основного отчёта" (Алматы+Астана) — то же самое, что показано
 // в таблице на странице "Отчёт", просто переиспользуем готовую функцию оттуда.
 async function getMonthlyReportText() {
-  const [monthsMainCities, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth] = await Promise.all([
+  const [monthsMainCities, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth, writeOffsByMonth] = await Promise.all([
     aggregateKaspiPayMonthly(MAIN_CITIES),
     fetchOtherExpensesByMonth(),
     fetchMarketingByMonth(),
     fetchPackagingExpensesByMonth(),
     fetchUnplannedIncomeByMonth(),
+    fetchWriteOffsByMonth(),
   ]);
 
   const rows = withStoreWideExpenses(
@@ -52,7 +53,8 @@ async function getMonthlyReportText() {
     otherExpensesByMonth,
     marketingByMonth,
     packagingByMonth,
-    unplannedIncomeByMonth
+    unplannedIncomeByMonth,
+    writeOffsByMonth
   );
 
   if (rows.length === 0) return 'Нет данных помесячного отчёта (не загружен Excel-отчёт Kaspi Pay).';
@@ -61,7 +63,7 @@ async function getMonthlyReportText() {
     .map((r) => (
       `${r.month}: выручка ${fmt(r.revenue)}, себестоимость ${fmt(r.cost_of_goods)}, возвраты ${fmt(r.returns)}, ` +
       `комиссия ${fmt(r.commission)}, доставка ${fmt(r.delivery)}, налоги ${fmt(r.taxes)}, маркетинг ${fmt(r.marketing)}, ` +
-      `упаковка ${fmt(r.packaging)}, прочие расходы ${fmt(r.other_expenses)}, внеплановые доходы ${fmt(r.unplanned_income)}, чистая прибыль ${fmt(r.net_profit)}, ` +
+      `упаковка ${fmt(r.packaging)}, прочие расходы ${fmt(r.other_expenses)}, внеплановые доходы ${fmt(r.unplanned_income)}, списания товара ${fmt(r.write_offs)}, чистая прибыль ${fmt(r.net_profit)}, ` +
       `маржа ${pct(r.margin)}, ROI ${pct(r.roi)}`
     ))
     .join('\n');

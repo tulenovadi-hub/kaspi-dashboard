@@ -4133,6 +4133,7 @@ input[type="date"] {
 }
 
 .warehouse-header-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.warehouse-writeoff-cancel { margin: 0 14px 14px; }
 
 .warehouse-reconcile-row.warehouse-transfer-row { grid-template-columns: minmax(210px, 1.8fr) minmax(100px, 0.7fr) minmax(160px, 1fr) 36px; }
 

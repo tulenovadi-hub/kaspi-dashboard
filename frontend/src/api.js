@@ -490,6 +490,30 @@ export function unmarkSelfBuyOrder(password, orderNumber) {
   return apiRequest(`/api/self-buy-orders/${encodeURIComponent(orderNumber)}`, password, { method: 'DELETE' });
 }
 
+export function fetchWriteOffStock(password) {
+  return apiRequest('/api/warehouse/write-off-stock', password);
+}
+
+export function fetchWriteOffs(password) {
+  return apiRequest('/api/warehouse/write-offs', password);
+}
+
+export function createWriteOff(password, writeOff) {
+  return apiRequest('/api/warehouse/write-off', password, {
+    method: 'POST',
+    timeoutMs: LONG_TIMEOUT_MS,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(writeOff),
+  });
+}
+
+export function cancelWriteOff(password, id) {
+  return apiRequest(`/api/warehouse/write-offs/${encodeURIComponent(id)}/cancel`, password, {
+    method: 'POST',
+    timeoutMs: LONG_TIMEOUT_MS,
+  });
+}
+
 export function fetchWarehouseCities(password) {
   return apiRequest('/api/warehouse/cities', password);
 }

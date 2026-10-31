@@ -652,6 +652,21 @@ async function fetchLinkedMarketingByProduct(from, to) {
   return byProduct;
 }
 
+// Списания за период по товарам: на Главной они идут вместе с операционными расходами месяца,
+// но записываются на свой товар, а не делятся по выручке.
+async function fetchWriteOffsByProduct(from, to) {
+  const result = await pool.query(
+    `SELECT i.product_id, SUM(i.value) AS total
+     FROM warehouse_transfers t
+     JOIN warehouse_transfer_items i ON i.transfer_id = t.id
+     WHERE t.kind = 'write_off' AND t.cancelled_at IS NULL
+       AND t.effective_date >= $1::date AND t.effective_date <= $2::date
+     GROUP BY i.product_id`,
+    [from, to]
+  );
+  return new Map(result.rows.map((row) => [row.product_id, Number(row.total)]));
+}
+
 // Делит общую сумму между товарами: сначала каждому его точная часть, а то, что к товарам не
 // привязано (кампания без привязки, прогноз маркетинга, возврат товара без продаж в периоде),
 // пропорционально выручке. Сумма долей всегда равна total.
@@ -704,12 +719,22 @@ function elapsedDaysInMonth(month, today) {
 // с начала месяца по сегодня — тоже: доля × число прошедших дней = всё, что записано.
 async function fetchOpExpensesByDay(from, to) {
   const result = await pool.query(
-    `SELECT to_char(expense_date, 'YYYY-MM') AS month,
-            COALESCE(SUM(CASE WHEN entry_type = 'income' THEN -amount ELSE amount END), 0) AS total
-     FROM expenses
-     WHERE (entry_type = 'income' OR category = ANY($3::text[]))
-       AND expense_date >= date_trunc('month', $1::date)
-       AND expense_date < date_trunc('month', $2::date) + interval '1 month'
+    `SELECT month, SUM(total) AS total
+     FROM (
+       SELECT to_char(expense_date, 'YYYY-MM') AS month,
+              CASE WHEN entry_type = 'income' THEN -amount ELSE amount END AS total
+       FROM expenses
+       WHERE (entry_type = 'income' OR category = ANY($3::text[]))
+         AND expense_date >= date_trunc('month', $1::date)
+         AND expense_date < date_trunc('month', $2::date) + interval '1 month'
+       UNION ALL
+       SELECT to_char(t.effective_date, 'YYYY-MM'), i.value
+       FROM warehouse_transfers t
+       JOIN warehouse_transfer_items i ON i.transfer_id = t.id
+       WHERE t.kind = 'write_off' AND t.cancelled_at IS NULL
+         AND t.effective_date >= date_trunc('month', $1::date)
+         AND t.effective_date < date_trunc('month', $2::date) + interval '1 month'
+     ) month_expenses
      GROUP BY month`,
     [from, to, PROFIT_EXPENSE_CATEGORIES]
   );
@@ -747,7 +772,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   // (Алматы, Астана), а не в "Самовыкупах".
   const [
     itemsResult, kptResult, costData, marketingData, opExpensesByDay, confirmedReturnsByDay,
-    linkedMarketingByProduct, confirmedReturnsByProduct,
+    linkedMarketingByProduct, confirmedReturnsByProduct, writeOffsByProduct,
   ] = await Promise.all([
     pool.query(
       // day — та же "казахстанская" дата, что и в /summary (сдвиг +5 часов), иначе выручка и
@@ -778,6 +803,7 @@ async function computeSummaryNetProfit(from, to, mode) {
     fetchConfirmedReturnsByDay(from, to, mode),
     mode !== 'selfbuy' ? fetchLinkedMarketingByProduct(from, to) : Promise.resolve(new Map()),
     fetchConfirmedReturnsByProduct(from, to, mode),
+    mode !== 'selfbuy' ? fetchWriteOffsByProduct(from, to) : Promise.resolve(new Map()),
   ]);
 
   // Выручка выбранного периода по дням нужна для прогноза маркетинга. Берём те же позиции,
@@ -999,7 +1025,7 @@ async function computeSummaryNetProfit(from, to, mode) {
   const productEntries = [...profitByProduct.entries()];
   const productRevenues = new Map(productEntries.map(([productId]) => [productId, revenueByProduct.get(productId) || 0]));
   const marketingShares = allocateToProducts(marketing, linkedMarketingByProduct, productRevenues);
-  const opExpenseShares = allocateToProducts(opExpenses, new Map(), productRevenues);
+  const opExpenseShares = allocateToProducts(opExpenses, writeOffsByProduct, productRevenues);
   const returnShares = allocateToProducts(confirmedReturnImpact, confirmedReturnsByProduct, productRevenues);
   let roundedProfitAssigned = 0;
 

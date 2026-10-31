@@ -15,7 +15,7 @@ const DELIVERY_CANCELLATION_STATUSES = ['CANCELLING', 'CANCELLED'];
 
 // На "Складе" показываем только склады с display: true в справочнике — самовыкупные
 // (Юбилейное, Талдыкорган, Атырау) сюда не входят, они отслеживаются на других страницах.
-const { DISPLAY_CITIES: DISPLAY_WAREHOUSES, CITY_ORDER: WAREHOUSE_SORT_ORDER, ALL_CITIES, MAIN_CITIES, SELF_BUY_CITIES, MARKED_SELF_BUY_CITY } = require('../warehouseMapping');
+const { DISPLAY_CITIES: DISPLAY_WAREHOUSES, CITY_ORDER: WAREHOUSE_SORT_ORDER, ALL_CITIES, MAIN_CITIES, SELF_BUY_CITIES, MARKED_SELF_BUY_CITY, WRITE_OFF_CITY } = require('../warehouseMapping');
 const { TransferError, applyTransfer } = require('../warehouseTransfer');
 
 // Считает остатки по методу FIFO отдельно для каждого склада (города):
@@ -31,7 +31,7 @@ const { TransferError, applyTransfer } = require('../warehouseTransfer');
 //
 // remaining здесь — это то, что РЕАЛЬНО ЛЕЖИТ НА ПОЛКЕ: из него вычтено и проданное, и
 // потенциальное пополнение из основного списка "Отмены при доставке" (поле returning).
-async function computeWarehouseStock(db = pool) {
+async function computeWarehouseStock(db = pool, { includeWrittenOff = false } = {}) {
   // Партии со статусом 'in_transit' (заказаны у поставщика, физически ещё не приехали) не входят
   // в реальный остаток склада — они учитываются отдельно на "Закупе" в колонке "В пути".
   const batchesResult = await db.query(`
@@ -291,7 +291,8 @@ async function computeWarehouseStock(db = pool) {
     if (product.adjustment_balance === undefined) product.adjustment_balance = 0;
   }
 
-  return products;
+  // Списанный товар уже не лежит на складе: ни в остатках, ни в деньгах в товаре, ни на "Закупе".
+  return includeWrittenOff ? products : products.filter((p) => p.warehouse !== WRITE_OFF_CITY);
 }
 
 // Партия "в пути" бывает не только товаром: ей же заводят депозиты и авансы поставщику
@@ -611,31 +612,32 @@ router.post('/reconcile', async (req, res) => {
   }
 });
 
-async function loadTransfers(db = pool) {
+async function loadTransfers(kind, db = pool) {
   const result = await db.query(
     `SELECT t.id, t.from_warehouse, t.to_warehouse, t.note, t.created_by, t.created_at,
+            t.reason, to_char(t.effective_date, 'YYYY-MM-DD') AS effective_date, t.cancelled_at,
             COALESCE(json_agg(json_build_object(
               'id', i.id, 'product_name', i.product_name, 'quantity', i.quantity, 'value', i.value
             ) ORDER BY i.id) FILTER (WHERE i.id IS NOT NULL), '[]') AS items
      FROM warehouse_transfers t
      LEFT JOIN warehouse_transfer_items i ON i.transfer_id = t.id
+     WHERE t.kind = $1
      GROUP BY t.id
-     ORDER BY t.created_at DESC`
+     ORDER BY t.created_at DESC`,
+    [kind]
   );
   return result.rows;
 }
 
 router.get('/transfers', async (req, res) => {
   try {
-    res.json({ transfers: await loadTransfers() });
+    res.json({ transfers: await loadTransfers('transfer') });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось загрузить историю перемещений' });
   }
 });
 
-// Перемещение идёт в той же очереди, что и сверка: минутное обновление заказов не должно
-// вклиниться между расчётом остатка и переносом партий.
 router.post('/transfer', async (req, res) => {
   if (!req.user || req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Недостаточно прав для перемещения товара' });
@@ -645,10 +647,59 @@ router.post('/transfer', async (req, res) => {
   if (!ALL_CITIES.includes(from) || !ALL_CITIES.includes(to) || from === to) {
     return res.status(400).json({ error: 'Выберите два разных склада' });
   }
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'Добавьте хотя бы один товар' });
-  }
+  const normalized = normalizeTransferItems(items);
+  if (normalized.error) return res.status(400).json({ error: normalized.error });
 
+  const key = idempotencyKey ? String(idempotencyKey) : null;
+  const transfer = {
+    from,
+    to,
+    note: note ? String(note) : null,
+    items: normalized.items,
+    createdBy: req.user.username,
+    idempotencyKey: key,
+  };
+
+  try {
+    await runStockChange('warehouse-transfer', key, {}, (client, stock) => (
+      applyTransfer(client, transfer, stock, crypto.randomUUID(), new Date().toISOString())
+    ));
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    if (err instanceof TransferError) return res.status(400).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось переместить товар' });
+  }
+});
+
+// Перемещения и списания идут в той же очереди, что и сверка: минутное обновление заказов не
+// должно вклиниться между расчётом остатка и переносом партий. Повтор запроса с тем же ключом не
+// создаст вторую запись. build получает client и пересчитанный остаток.
+async function runStockChange(label, idempotencyKey, options, build) {
+  await enqueueKaspiSync(label, async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (idempotencyKey) {
+        const existing = await client.query('SELECT id FROM warehouse_transfers WHERE idempotency_key = $1', [idempotencyKey]);
+        if (existing.rowCount > 0) {
+          await client.query('COMMIT');
+          return;
+        }
+      }
+      await build(client, await computeWarehouseStock(client, options));
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  });
+}
+
+function normalizeTransferItems(items) {
+  if (!Array.isArray(items) || items.length === 0) return { error: 'Добавьте хотя бы один товар' };
   const seen = new Set();
   const normalized = [];
   for (const item of items) {
@@ -656,52 +707,115 @@ router.post('/transfer', async (req, res) => {
     const productName = String(item.product_name || productId).trim();
     const quantity = Number(item.quantity);
     if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
-      return res.status(400).json({ error: `Некорректное количество: ${productName || productId}` });
+      return { error: `Некорректное количество: ${productName || productId}` };
     }
-    if (seen.has(productId)) return res.status(400).json({ error: `Товар ${productName} добавлен дважды` });
+    if (seen.has(productId)) return { error: `Товар ${productName} добавлен дважды` };
     seen.add(productId);
     normalized.push({ productId, productName, quantity });
   }
+  return { items: normalized };
+}
 
+const WRITE_OFF_REASONS = ['Бартер блогеру', 'Для контента', 'Брак', 'Другое'];
+
+// Остатки всех складов, включая самовыкупные: списывать можно и с них, а на "Складе" их не видно.
+router.get('/write-off-stock', async (req, res) => {
+  try {
+    const products = await computeWarehouseStock();
+    res.json({
+      reasons: WRITE_OFF_REASONS,
+      products: products
+        .filter((p) => Number(p.remaining) > 0)
+        .map((p) => ({ product_id: p.product_id, product_name: p.product_name, warehouse: p.warehouse, remaining: p.remaining })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось загрузить остатки складов' });
+  }
+});
+
+router.get('/write-offs', async (req, res) => {
+  try {
+    res.json({ writeOffs: await loadTransfers('write_off') });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось загрузить историю списаний' });
+  }
+});
+
+router.post('/write-off', async (req, res) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Недостаточно прав для списания товара' });
+  }
+
+  const { warehouse, reason, note, effective_date: effectiveDate, items, idempotency_key: idempotencyKey } = req.body || {};
+  if (!ALL_CITIES.includes(warehouse)) return res.status(400).json({ error: 'Выберите склад' });
+  if (!WRITE_OFF_REASONS.includes(reason)) return res.status(400).json({ error: 'Выберите причину списания' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) return res.status(400).json({ error: 'Укажите дату списания' });
+  const normalized = normalizeTransferItems(items);
+  if (normalized.error) return res.status(400).json({ error: normalized.error });
+
+  const key = idempotencyKey ? String(idempotencyKey) : null;
   const transfer = {
-    from,
-    to,
+    kind: 'write_off',
+    from: warehouse,
+    to: WRITE_OFF_CITY,
+    reason,
+    effectiveDate,
     note: note ? String(note) : null,
-    items: normalized,
+    items: normalized.items,
     createdBy: req.user.username,
-    idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
+    idempotencyKey: key,
   };
 
   try {
-    await enqueueKaspiSync('warehouse-transfer', async () => {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        if (transfer.idempotencyKey) {
-          const existing = await client.query(
-            'SELECT id FROM warehouse_transfers WHERE idempotency_key = $1',
-            [transfer.idempotencyKey]
-          );
-          if (existing.rowCount > 0) {
-            await client.query('COMMIT');
-            return;
-          }
-        }
-        const stock = await computeWarehouseStock(client);
-        await applyTransfer(client, transfer, stock, crypto.randomUUID(), new Date().toISOString());
-        await client.query('COMMIT');
-      } catch (err) {
-        await client.query('ROLLBACK').catch(() => {});
-        throw err;
-      } finally {
-        client.release();
-      }
-    });
+    await runStockChange('warehouse-write-off', key, {}, (client, stock) => (
+      applyTransfer(client, transfer, stock, crypto.randomUUID(), new Date().toISOString())
+    ));
     res.status(201).json({ ok: true });
   } catch (err) {
     if (err instanceof TransferError) return res.status(400).json({ error: err.message });
     console.error(err);
-    res.status(500).json({ error: 'Не удалось переместить товар' });
+    res.status(500).json({ error: 'Не удалось списать товар' });
+  }
+});
+
+// Отмена возвращает те же количества на склад обратным перемещением и снимает расход из отчётов.
+router.post('/write-offs/:id/cancel', async (req, res) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Недостаточно прав для отмены списания' });
+  }
+
+  try {
+    await runStockChange('warehouse-write-off-cancel', null, { includeWrittenOff: true }, async (client, stock) => {
+      const original = await client.query(
+        `SELECT t.from_warehouse, t.cancelled_at, i.product_id, i.product_name, i.quantity
+         FROM warehouse_transfers t
+         JOIN warehouse_transfer_items i ON i.transfer_id = t.id
+         WHERE t.id = $1 AND t.kind = 'write_off'
+         FOR UPDATE OF t`,
+        [req.params.id]
+      );
+      if (original.rowCount === 0) throw new TransferError('Списание не найдено');
+      if (original.rows[0].cancelled_at) throw new TransferError('Это списание уже отменено');
+
+      const transfer = {
+        kind: 'write_off_cancel',
+        from: WRITE_OFF_CITY,
+        to: original.rows[0].from_warehouse,
+        note: null,
+        items: original.rows.map((row) => ({ productId: row.product_id, productName: row.product_name, quantity: row.quantity })),
+        createdBy: req.user.username,
+        idempotencyKey: null,
+      };
+      await applyTransfer(client, transfer, stock, crypto.randomUUID(), new Date().toISOString());
+      await client.query('UPDATE warehouse_transfers SET cancelled_at = now() WHERE id = $1', [req.params.id]);
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err instanceof TransferError) return res.status(400).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Не удалось отменить списание' });
   }
 });
 

@@ -26,6 +26,11 @@ const PICKUP_POINT_PREFIX = '18619047_';
 // складов. В таблице warehouses этого "склада" нет.
 const MARKED_SELF_BUY_CITY = 'Отмеченные самовыкупы';
 
+// Списанный товар (бартер, контент, брак) переезжает в этот "город" внутри своей поставки, так же
+// как при перемещении (см. warehouseTransfer.js). Партии и FIFO остальных складов при этом остаются
+// согласованными, а наружу этот город не показывается: computeWarehouseStock его скрывает.
+const WRITE_OFF_CITY = 'Списано';
+
 // Начальное содержимое таблицы warehouses. Дальше источник правды — база: миграция только
 // дописывает отсутствующие строки и выбранный на сайте тип не перезаписывает.
 const DEFAULT_WAREHOUSES = [
@@ -95,6 +100,7 @@ function resolveWarehouse(pickupPointId) {
 module.exports = {
   PICKUP_POINT_PREFIX,
   MARKED_SELF_BUY_CITY,
+  WRITE_OFF_CITY,
   DEFAULT_WAREHOUSES,
   WAREHOUSES,
   ALL_CITIES,

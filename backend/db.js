@@ -152,6 +152,12 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  // Списание — то же перемещение на склад "Списано" (kind = 'write_off'): value его строк и есть
+  // расход месяца effective_date. Отмена — обратное перемещение (kind = 'write_off_cancel').
+  await pool.query(`ALTER TABLE warehouse_transfers ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'transfer';`);
+  await pool.query(`ALTER TABLE warehouse_transfers ADD COLUMN IF NOT EXISTS reason TEXT;`);
+  await pool.query(`ALTER TABLE warehouse_transfers ADD COLUMN IF NOT EXISTS effective_date DATE;`);
+  await pool.query(`ALTER TABLE warehouse_transfers ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS warehouse_transfer_items (
       id BIGSERIAL PRIMARY KEY,

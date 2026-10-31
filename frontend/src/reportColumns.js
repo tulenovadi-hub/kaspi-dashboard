@@ -30,6 +30,7 @@ export const MAIN_COLUMNS = [
   { key: 'marketing', label: 'Маркетинг' },
   { key: 'packaging', label: 'Упаковка' },
   { key: 'other_expenses', label: 'Прочие расходы' },
+  { key: 'write_offs', label: 'Списания' },
   { key: 'unplanned_income', label: 'Внеплановые доходы' },
   { key: 'net_profit', label: 'Чистая прибыль' },
   { key: 'margin', label: 'Маржа' },
@@ -55,6 +56,7 @@ export const PRODUCT_COLUMNS = [
   { key: 'marketing_reviews', label: 'Бонусы за отзыв' },
   { key: 'packaging', label: 'Упаковка' },
   { key: 'other_expenses', label: 'Прочие расходы' },
+  { key: 'write_offs', label: 'Списания' },
   { key: 'unplanned_income', label: 'Внеплановые доходы' },
   { key: 'net_profit', label: 'Чистая прибыль' },
   { key: 'margin', label: 'Маржа' },
@@ -75,7 +77,7 @@ export const YELLOW_KEYS = new Set(['cost_of_returns']);
 export const RED_KEYS = new Set([
   'cost_of_goods', 'returns', 'commission', 'delivery', 'taxes',
   'marketing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews',
-  'packaging', 'other_expenses',
+  'packaging', 'other_expenses', 'write_offs',
 ]);
 
 // Колонки, для которых под суммой показываем долю от полной выручки — той же базы, от которой
@@ -87,7 +89,7 @@ export const RED_KEYS = new Set([
 export const PERCENT_OF_REVENUE_KEYS = new Set([
   'cost_of_goods', 'returns', 'commission', 'delivery', 'taxes',
   'marketing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews',
-  'packaging', 'other_expenses', 'unplanned_income',
+  'packaging', 'other_expenses', 'write_offs', 'unplanned_income',
 ]);
 
 // Показатели-проценты: форматируются как "20.0%", а не как сумма, и на компьютере красятся

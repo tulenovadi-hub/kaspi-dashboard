@@ -4,7 +4,7 @@ const { pool } = require('../db');
 
 const router = express.Router();
 
-const { ALL_CITIES: VALID_WAREHOUSES } = require('../warehouseMapping');
+const { ALL_CITIES: VALID_WAREHOUSES, WRITE_OFF_CITY } = require('../warehouseMapping');
 const VALID_STATUSES = ['in_transit', 'received'];
 const VALID_CURRENCIES = ['KZT', 'USD', 'CNY'];
 
@@ -27,7 +27,7 @@ const MAX_EXPENSE_NAME_LENGTH = 60;
 const MAX_PRODUCT_ID_LENGTH = 100;
 const MAX_PRODUCT_NAME_LENGTH = 200;
 const MAX_EXTRA_EXPENSES = 20;
-const MAX_ALLOCATIONS = VALID_WAREHOUSES.length;
+const MAX_ALLOCATIONS = 50;
 
 function normalizeExtraExpenses(value) {
   if (!Array.isArray(value)) return [];
@@ -73,7 +73,8 @@ function normalizeAllocations(value, fallbackWarehouse, fallbackQuantity) {
   for (const item of source) {
     const warehouse = String(item?.warehouse || '').trim();
     const quantity = Number(item?.quantity);
-    if (!VALID_WAREHOUSES.includes(warehouse)) {
+    // "Списано" появляется в поставке после списания, и форма должна сохранять такую поставку.
+    if (!VALID_WAREHOUSES.includes(warehouse) && warehouse !== WRITE_OFF_CITY) {
       return { error: 'Не указан склад (город)' };
     }
     if (!Number.isInteger(quantity) || quantity <= 0) {
@@ -223,7 +224,7 @@ router.get('/', async (req, res) => {
     const batches = [...groups.values()].map(groupBatchRows);
     // Список складов отдаём вместе с партиями, чтобы фронтенду не приходилось держать
     // собственную копию — источник правды один, backend/warehouseMapping.js.
-    res.json({ batches, warehouses: VALID_WAREHOUSES });
+    res.json({ batches, warehouses: [...VALID_WAREHOUSES, WRITE_OFF_CITY] });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Не удалось получить список партий' });

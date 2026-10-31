@@ -154,9 +154,11 @@ async function moveAdjustedQuantity(client, { transfer, product, quantity, id, c
 // stock — результат computeWarehouseStock, посчитанный в этой же транзакции.
 async function applyTransfer(client, transfer, stock, id, createdAt) {
   await client.query(
-    `INSERT INTO warehouse_transfers (id, idempotency_key, from_warehouse, to_warehouse, note, created_by, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [id, transfer.idempotencyKey, transfer.from, transfer.to, transfer.note, transfer.createdBy, createdAt]
+    `INSERT INTO warehouse_transfers
+     (id, idempotency_key, from_warehouse, to_warehouse, note, created_by, created_at, kind, reason, effective_date)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [id, transfer.idempotencyKey, transfer.from, transfer.to, transfer.note, transfer.createdBy, createdAt,
+      transfer.kind || 'transfer', transfer.reason || null, transfer.effectiveDate || null]
   );
 
   for (const item of transfer.items) {

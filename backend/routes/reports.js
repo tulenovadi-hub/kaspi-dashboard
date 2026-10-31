@@ -308,6 +308,35 @@ async function fetchUnplannedIncomeByMonth() {
   return map;
 }
 
+// Списанный товар (бартер, контент, брак) — расход без выручки по себестоимости. Отменённые не считаем.
+async function fetchWriteOffsByMonth() {
+  const result = await pool.query(
+    `SELECT to_char(t.effective_date, 'YYYY-MM') AS month, SUM(i.value) AS total
+     FROM warehouse_transfers t
+     JOIN warehouse_transfer_items i ON i.transfer_id = t.id
+     WHERE t.kind = 'write_off' AND t.cancelled_at IS NULL
+     GROUP BY month`
+  );
+  const map = {};
+  for (const row of result.rows) {
+    map[row.month] = Number(row.total);
+  }
+  return map;
+}
+
+async function fetchWriteOffsByProductForMonth(month) {
+  const result = await pool.query(
+    `SELECT i.product_id, SUM(i.value) AS total
+     FROM warehouse_transfers t
+     JOIN warehouse_transfer_items i ON i.transfer_id = t.id
+     WHERE t.kind = 'write_off' AND t.cancelled_at IS NULL
+       AND to_char(t.effective_date, 'YYYY-MM') = $1
+     GROUP BY i.product_id`,
+    [month]
+  );
+  return Object.fromEntries(result.rows.map((row) => [row.product_id, Number(row.total)]));
+}
+
 // Разбивка "Основного отчёта" по товарам за конкретный месяц — то же самое, что строка месяца
 // в MAIN_COLUMNS, только на уровне каждого товара. Выручку берём из операций "Покупка" именно
 // выбранного месяца, а не из полной стоимости заказа: иначе сентябрьский возврат апрельской
@@ -330,6 +359,8 @@ async function getProductBreakdownForMonth(month, warehouses) {
     packagingByMonth,
     marketingByMonth,
     unplannedIncomeByMonth,
+    writeOffsByMonth,
+    productWriteOffs,
   ] = await Promise.all([
     computeCosts(warehouses),
     getAdMarketingByProductForMonth(month),
@@ -339,6 +370,8 @@ async function getProductBreakdownForMonth(month, warehouses) {
     fetchPackagingExpensesByMonth(),
     fetchMarketingByMonth(),
     fetchUnplannedIncomeByMonth(),
+    fetchWriteOffsByMonth(),
+    fetchWriteOffsByProductForMonth(month),
   ]);
   const { cogsByProductMonth, returnsCostByProductMonth } = costData;
   const productCogs = cogsByProductMonth[month] || {};
@@ -477,6 +510,7 @@ async function getProductBreakdownForMonth(month, warehouses) {
       packaging: 0,
       other_expenses: 0,
       unplanned_income: 0,
+      write_offs: productWriteOffs[p.product_id] || 0,
     };
   });
 
@@ -516,6 +550,8 @@ async function getProductBreakdownForMonth(month, warehouses) {
   allocateRemainder(packagingByMonth[month] || 0, 'packaging', issuedOrderWeight);
   allocateRemainder(otherExpensesByMonth[month] || 0, 'other_expenses', issuedOrderWeight);
   allocateRemainder(unplannedIncomeByMonth[month] || 0, 'unplanned_income', issuedOrderWeight);
+  // Своя сумма уже у товара; делится только списание товара, которого нет среди продаж месяца.
+  allocateRemainder(writeOffsByMonth[month] || 0, 'write_offs', issuedOrderWeight);
 
   // Налог в общей строке считается от совокупной чистой выручки. Распределяем ровно эту сумму
   // между товарами с положительной чистой выручкой — так возврат старой продажи не создаёт
@@ -534,6 +570,7 @@ async function getProductBreakdownForMonth(month, warehouses) {
     - row.marketing_reviews
     - row.packaging
     - row.other_expenses
+    - row.write_offs
     + row.unplanned_income);
   const roundedTotalNetProfit = Math.round(exactNetProfits.reduce((sum, value) => sum + value, 0));
   let roundedProfitAssigned = 0;
@@ -550,6 +587,7 @@ async function getProductBreakdownForMonth(month, warehouses) {
       + row.marketing_reviews
       + row.packaging
       + row.other_expenses
+      + row.write_offs
       - row.unplanned_income;
     row.net_profit = netProfit;
     row.margin = row.revenue !== 0 ? (netProfit / row.revenue) * 100 : null;
@@ -660,17 +698,18 @@ router.get('/monthly/:month/products', async (req, res) => {
 // считаются по магазину целиком: прочие расходы, упаковку и внеплановые доходы из "Расходов"
 // (Traty) и маркетинг из трёх источников продвижения. Пересчитывает чистую прибыль, маржу и ROI с их учётом.
 // Используется для обеих "полных" таблиц отчёта — по всем складам и по Алматы с Астаной.
-function withStoreWideExpenses(rows, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth) {
+function withStoreWideExpenses(rows, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth, writeOffsByMonth) {
   return rows.map((row) => {
     const otherExpenses = otherExpensesByMonth[row.month] || 0;
     const marketing = marketingByMonth[row.month] || 0;
     const packaging = packagingByMonth[row.month] || 0;
     const unplannedIncome = unplannedIncomeByMonth[row.month] || 0;
-    const netProfit = row.net_profit - otherExpenses - marketing - packaging + unplannedIncome;
+    const writeOffs = writeOffsByMonth[row.month] || 0;
+    const netProfit = row.net_profit - otherExpenses - marketing - packaging - writeOffs + unplannedIncome;
     // ROI = чистая прибыль / (себестоимость + маркетинг + упаковка + прочие расходы за вычетом
     // внеплановых доходов) — комиссия, доставка и налоги в знаменатель не входят, это не
     // инвестиция, а транзакционные издержки Kaspi.
-    const totalExpenses = row.cost_of_goods + marketing + packaging + otherExpenses - unplannedIncome;
+    const totalExpenses = row.cost_of_goods + marketing + packaging + otherExpenses + writeOffs - unplannedIncome;
     const margin = row.revenue !== 0 ? (netProfit / row.revenue) * 100 : null;
     const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 
@@ -680,6 +719,7 @@ function withStoreWideExpenses(rows, otherExpensesByMonth, marketingByMonth, pac
       packaging,
       other_expenses: otherExpenses,
       unplanned_income: unplannedIncome,
+      write_offs: writeOffs,
       net_profit: netProfit,
       margin,
       roi,
@@ -689,7 +729,7 @@ function withStoreWideExpenses(rows, otherExpensesByMonth, marketingByMonth, pac
 
 router.get('/monthly', async (req, res) => {
   try {
-    const [months, monthsMainCities, monthsSelfBuyCities, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth, latestUpload] = await Promise.all([
+    const [months, monthsMainCities, monthsSelfBuyCities, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth, writeOffsByMonth, latestUpload] = await Promise.all([
       aggregateKaspiPayMonthly(),
       aggregateKaspiPayMonthly(MAIN_CITIES),
       aggregateKaspiPayMonthly(SELF_BUY_CITIES),
@@ -697,6 +737,7 @@ router.get('/monthly', async (req, res) => {
       fetchMarketingByMonth(),
       fetchPackagingExpensesByMonth(),
       fetchUnplannedIncomeByMonth(),
+      fetchWriteOffsByMonth(),
       fetchLatestUploadPeriod(),
     ]);
 
@@ -704,8 +745,8 @@ router.get('/monthly', async (req, res) => {
     // сюда попадают все склады (включая самовыкупы) и все операции Kaspi Pay, в том числе по
     // заказам с нераспознанной точкой продаж и по тем, которых вообще нет в данных заказов Kaspi.
     // monthsMainCities — прежний основной отчёт по Алматы и Астане.
-    const monthsAll = withStoreWideExpenses(months, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth);
-    const monthsMainCitiesWithExpenses = withStoreWideExpenses(monthsMainCities, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth);
+    const monthsAll = withStoreWideExpenses(months, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth, writeOffsByMonth);
+    const monthsMainCitiesWithExpenses = withStoreWideExpenses(monthsMainCities, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth, writeOffsByMonth);
 
     res.json({ months, monthsAll, monthsMainCities: monthsMainCitiesWithExpenses, monthsSelfBuyCities, latestUpload });
   } catch (err) {
@@ -806,6 +847,7 @@ module.exports.fetchOtherExpensesByMonth = fetchOtherExpensesByMonth;
 module.exports.fetchMarketingByMonth = fetchMarketingByMonth;
 module.exports.fetchPackagingExpensesByMonth = fetchPackagingExpensesByMonth;
 module.exports.fetchUnplannedIncomeByMonth = fetchUnplannedIncomeByMonth;
+module.exports.fetchWriteOffsByMonth = fetchWriteOffsByMonth;
 module.exports.withStoreWideExpenses = withStoreWideExpenses;
 module.exports.getProductBreakdownForMonth = getProductBreakdownForMonth;
 module.exports.fetchLatestUploadPeriod = fetchLatestUploadPeriod;

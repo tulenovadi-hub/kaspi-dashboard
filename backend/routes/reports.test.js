@@ -63,6 +63,10 @@ test('product breakdown uses monthly operations and allocates shared costs by is
     if (sql.includes('FROM review_bonus_expenses')) return { rows: [] };
 
     if (sql.includes("entry_type = 'income'")) return { rows: [{ month, total: '40' }] };
+    if (sql.includes('warehouse_transfer_items') && sql.includes('i.product_id')) {
+      return { rows: [{ product_id: 'a', total: '10' }] };
+    }
+    if (sql.includes('warehouse_transfer_items')) return { rows: [{ month, total: '10' }] };
     if (sql.includes('FROM expenses')) {
       return params[0] === 'Упаковка'
         ? { rows: [{ month, total: '100' }] }
@@ -95,8 +99,10 @@ test('product breakdown uses monthly operations and allocates shared costs by is
   assert.equal(sum('taxes'), 21);
   assert.equal(byId.get('a').unplanned_income, 20);
   assert.equal(byId.get('b').unplanned_income, 20);
-  assert.equal(sum('net_profit'), -151, 'unplanned income must raise net profit');
-  assert.equal(byId.get('a').margin, (-159 / 600) * 100, 'margin must use gross revenue before returns');
+  assert.equal(byId.get('a').write_offs, 10, 'a write-off stays on its own product');
+  assert.equal(byId.get('b').write_offs, 0);
+  assert.equal(sum('net_profit'), -161, 'unplanned income raises net profit, write-offs lower it');
+  assert.equal(byId.get('a').margin, (-169 / 600) * 100, 'margin must use gross revenue before returns');
 });
 
 test('latest Excel period comes only from the most recent upload batch', async () => {
