@@ -59,7 +59,7 @@ async function saveOrders(orders, { onlyMissingEntries = false } = {}) {
          state = EXCLUDED.state,
          status = EXCLUDED.status,
          raw_data = EXCLUDED.raw_data,
-         origin_city = EXCLUDED.origin_city,
+         origin_city = CASE WHEN orders.self_buy_marked THEN orders.origin_city ELSE EXCLUDED.origin_city END,
          pickup_point_id = EXCLUDED.pickup_point_id,
          was_completed = orders.was_completed OR EXCLUDED.was_completed`,
       [order.id, attrs.code, attrs.creationDate, attrs.totalPrice, attrs.state, attrs.status, JSON.stringify(order), originCity, attrs.pickupPointId || null, completedEvidence]

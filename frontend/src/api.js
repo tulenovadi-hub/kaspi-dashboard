@@ -458,6 +458,22 @@ export function transferWarehouseStock(password, transfer) {
   });
 }
 
+export function fetchSelfBuyOrders(password) {
+  return apiRequest('/api/self-buy-orders', password);
+}
+
+export function markSelfBuyOrder(password, orderNumber) {
+  return apiRequest('/api/self-buy-orders', password, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order_number: orderNumber }),
+  });
+}
+
+export function unmarkSelfBuyOrder(password, orderNumber) {
+  return apiRequest(`/api/self-buy-orders/${encodeURIComponent(orderNumber)}`, password, { method: 'DELETE' });
+}
+
 export function fetchWarehouseCities(password) {
   return apiRequest('/api/warehouse/cities', password);
 }

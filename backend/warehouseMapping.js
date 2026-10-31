@@ -20,6 +20,12 @@
 
 const PICKUP_POINT_PREFIX = '18619047_';
 
+// Отдельные заказы можно пометить самовыкупом (см. routes/selfBuyOrders.js). Такой заказ остаётся
+// без реального склада: origin_city заменяется этим городом, у которого нет партий. Поэтому заказ
+// не уменьшает остаток, не берёт себестоимость и считается в самовыкупах, как и заказы самовыкупных
+// складов. В таблице warehouses этого "склада" нет.
+const MARKED_SELF_BUY_CITY = 'Отмеченные самовыкупы';
+
 // Начальное содержимое таблицы warehouses. Дальше источник правды — база: миграция только
 // дописывает отсутствующие строки и выбранный на сайте тип не перезаписывает.
 const DEFAULT_WAREHOUSES = [
@@ -60,7 +66,7 @@ function applyWarehouses(rows) {
   replaceArray(WAREHOUSES, rows);
   replaceArray(ALL_CITIES, cities);
   replaceArray(MAIN_CITIES, main);
-  replaceArray(SELF_BUY_CITIES, rows.filter((w) => w.role === 'selfbuy').map((w) => w.city));
+  replaceArray(SELF_BUY_CITIES, [...rows.filter((w) => w.role === 'selfbuy').map((w) => w.city), MARKED_SELF_BUY_CITY]);
   // На "Складе" показываем только реальные склады.
   replaceArray(DISPLAY_CITIES, main);
   replaceObject(CITY_ORDER, cities.map((city, i) => [city, i]));
@@ -88,6 +94,7 @@ function resolveWarehouse(pickupPointId) {
 
 module.exports = {
   PICKUP_POINT_PREFIX,
+  MARKED_SELF_BUY_CITY,
   DEFAULT_WAREHOUSES,
   WAREHOUSES,
   ALL_CITIES,

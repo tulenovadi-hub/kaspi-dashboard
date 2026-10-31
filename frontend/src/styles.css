@@ -3667,6 +3667,10 @@ input[type="date"] {
 .expenses-sync-notes { margin-bottom: 20px; }
 .expenses-sync-notes .report-upload-success { margin-top: 0; }
 
+/* Блок "Самовыкупы вручную" на странице "Настройки" (SelfBuyOrders.jsx). */
+.self-buy-form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.self-buy-form input { flex: 1 1 200px; min-width: 0; }
+
 /* Блок "Склады" на странице "Настройки" (WarehouseSettings.jsx). */
 .wh-set-list { display: grid; gap: 8px; margin-bottom: 8px; }
 .wh-set-row {

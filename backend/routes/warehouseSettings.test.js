@@ -65,7 +65,7 @@ test('a warehouse without a type belongs to neither group, and choosing one upda
   const { router } = setup();
   const { MAIN_CITIES, SELF_BUY_CITIES, DISPLAY_CITIES, ALL_CITIES } = mapping;
   assert.deepEqual(MAIN_CITIES, ['Алматы']);
-  assert.deepEqual(SELF_BUY_CITIES, ['Атырау']);
+  assert.deepEqual(SELF_BUY_CITIES, ['Атырау', mapping.MARKED_SELF_BUY_CITY]);
   assert.ok(ALL_CITIES.includes('Актобе'));
 
   const result = await call(router, 'put', '/:code/role', { params: { code: 'PP9' }, body: { role: 'main' } });
@@ -74,7 +74,7 @@ test('a warehouse without a type belongs to neither group, and choosing one upda
   assert.deepEqual(DISPLAY_CITIES, ['Алматы', 'Актобе']);
 
   await call(router, 'put', '/:code/role', { params: { code: 'PP8' }, body: { role: 'main' } });
-  assert.deepEqual(SELF_BUY_CITIES, []);
+  assert.deepEqual(SELF_BUY_CITIES, [mapping.MARKED_SELF_BUY_CITY]);
 });
 
 test('role change rejects bad input and a missing warehouse', async () => {

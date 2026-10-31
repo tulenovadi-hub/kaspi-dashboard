@@ -28,6 +28,11 @@ async function initDb() {
   // сопоставляем через справочник warehouseMapping.js.
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS origin_city TEXT;`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_id TEXT;`);
+  // Заказ, вручную помеченный самовыкупом: его origin_city держится на MARKED_SELF_BUY_CITY,
+  // и синхронизация с пересчётом складов его не перезаписывают.
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS self_buy_marked BOOLEAN NOT NULL DEFAULT false;`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS self_buy_marked_by TEXT;`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS self_buy_marked_at TIMESTAMPTZ;`);
   // Необратимый признак: как только заказ хотя бы раз был выдан покупателю, он больше никогда
   // не должен возвращать товар в доступный остаток — даже если Kaspi позже сменит status.
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS was_completed BOOLEAN NOT NULL DEFAULT false;`);
@@ -64,7 +69,7 @@ async function initDb() {
   await pool.query(`
     UPDATE orders
     SET origin_city = (SELECT w.city FROM warehouses w WHERE w.pickup_point_id = orders.pickup_point_id)
-    WHERE raw_data IS NOT NULL
+    WHERE raw_data IS NOT NULL AND self_buy_marked = false
   `);
 
   await pool.query(`

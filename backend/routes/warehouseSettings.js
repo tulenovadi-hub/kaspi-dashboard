@@ -69,7 +69,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Склад с таким кодом или городом уже есть' });
     }
     // Заказы этой точки могли прийти раньше, чем склад завели: привязываем и их.
-    await client.query(`UPDATE orders SET origin_city = $1 WHERE pickup_point_id = $2`, [city, pickupPointId]);
+    await client.query(`UPDATE orders SET origin_city = $1 WHERE pickup_point_id = $2 AND self_buy_marked = false`, [city, pickupPointId]);
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
