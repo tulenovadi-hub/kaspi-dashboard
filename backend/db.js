@@ -300,9 +300,8 @@ async function initDb() {
   // кэша, у которого раз в 30 дней проверяется свежесть).
   await pool.query(`ALTER TABLE product_images ADD COLUMN IF NOT EXISTS is_manual BOOLEAN NOT NULL DEFAULT false;`);
 
-  // Расходы, синхронизируемые из гугл-таблицы (лист "Расход"). При каждой синхронизации
-  // таблица полностью перезаписывается свежими данными из Google Sheets — так проще и надёжнее,
-  // чем пытаться сопоставлять строки, если в таблице что-то поменяли местами или удалили.
+  // Расходы и внеплановые доходы бизнеса. С 2026-08-01 приходят из Traty и сопоставляются по
+  // traty_id; строки до этой даты остались от гугл-таблицы (row_index), синхронизация их не трогает.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS expenses (
       id SERIAL PRIMARY KEY,
@@ -317,6 +316,9 @@ async function initDb() {
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);`);
+  await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS traty_id BIGINT;`);
+  await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS entry_type TEXT NOT NULL DEFAULT 'expense';`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_traty_id ON expenses(traty_id);`);
 
   // Расходы на рекламу (сервис "Маркетинг" в Kaspi Pay) — по дням и по конкретным рекламным
   // кампаниям (кампания = один товар). Официального API для этого нет, данные заливаются либо

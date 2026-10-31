@@ -248,7 +248,7 @@ async function aggregateKaspiPayMonthly(warehouses) {
   });
 }
 
-// Категория "Прочие затраты" из гугл-таблицы расходов — операционные расходы (реклама, зарплата,
+// Категория "Прочие затраты" из таблицы расходов — операционные расходы (реклама, зарплата,
 // доставка и т.д.). "Товар" сюда не включаем — это уже учтено через себестоимость (FIFO по партиям).
 // "Вывод" тоже не включаем — это выводы/дивиденды собственника, а не расход бизнеса.
 const OTHER_EXPENSES_CATEGORY = 'Прочие затраты';
@@ -257,7 +257,7 @@ async function fetchOtherExpensesByMonth() {
   const result = await pool.query(
     `SELECT to_char(expense_date, 'YYYY-MM') AS month, SUM(amount) AS total
      FROM expenses
-     WHERE category = $1 AND expense_date IS NOT NULL
+     WHERE category = $1 AND entry_type = 'expense' AND expense_date IS NOT NULL
      GROUP BY month`,
     [OTHER_EXPENSES_CATEGORY]
   );
@@ -268,7 +268,7 @@ async function fetchOtherExpensesByMonth() {
   return map;
 }
 
-// Категория "Упаковка" из той же гугл-таблицы расходов — расходы на фулфилмент (упаковка,
+// Категория "Упаковка" из той же таблицы расходов — расходы на фулфилмент (упаковка,
 // обработка заказов, хранение и т.д.), вносятся вручную. Не привязана к городу отгрузки,
 // поэтому считается по всему магазину целиком и подмешивается только в "Основной отчёт" —
 // та же логика, что и у OTHER_EXPENSES_CATEGORY выше.
@@ -278,9 +278,25 @@ async function fetchPackagingExpensesByMonth() {
   const result = await pool.query(
     `SELECT to_char(expense_date, 'YYYY-MM') AS month, SUM(amount) AS total
      FROM expenses
-     WHERE category = $1 AND expense_date IS NOT NULL
+     WHERE category = $1 AND entry_type = 'expense' AND expense_date IS NOT NULL
      GROUP BY month`,
     [PACKAGING_EXPENSES_CATEGORY]
+  );
+  const map = {};
+  for (const row of result.rows) {
+    map[row.month] = Number(row.total);
+  }
+  return map;
+}
+
+// Внеплановые доходы бизнеса из Traty, в любой категории — уменьшают прочие расходы месяца, но
+// показываются отдельно от них. Обычная выручка сюда не входит, она приходит из Kaspi Pay.
+async function fetchUnplannedIncomeByMonth() {
+  const result = await pool.query(
+    `SELECT to_char(expense_date, 'YYYY-MM') AS month, SUM(amount) AS total
+     FROM expenses
+     WHERE entry_type = 'income' AND expense_date IS NOT NULL
+     GROUP BY month`
   );
   const map = {};
   for (const row of result.rows) {
@@ -310,6 +326,7 @@ async function getProductBreakdownForMonth(month, warehouses) {
     otherExpensesByMonth,
     packagingByMonth,
     marketingByMonth,
+    unplannedIncomeByMonth,
   ] = await Promise.all([
     computeCosts(warehouses),
     getAdMarketingByProductForMonth(month),
@@ -318,6 +335,7 @@ async function getProductBreakdownForMonth(month, warehouses) {
     fetchOtherExpensesByMonth(),
     fetchPackagingExpensesByMonth(),
     fetchMarketingByMonth(),
+    fetchUnplannedIncomeByMonth(),
   ]);
   const { cogsByProductMonth, returnsCostByProductMonth } = costData;
   const productCogs = cogsByProductMonth[month] || {};
@@ -455,6 +473,7 @@ async function getProductBreakdownForMonth(month, warehouses) {
       marketing_reviews: productReviewMarketing[p.product_id] || 0,
       packaging: 0,
       other_expenses: 0,
+      unplanned_income: 0,
     };
   });
 
@@ -493,6 +512,7 @@ async function getProductBreakdownForMonth(month, warehouses) {
   allocateRemainder(totalReviews, 'marketing_reviews', issuedOrderWeight);
   allocateRemainder(packagingByMonth[month] || 0, 'packaging', issuedOrderWeight);
   allocateRemainder(otherExpensesByMonth[month] || 0, 'other_expenses', issuedOrderWeight);
+  allocateRemainder(unplannedIncomeByMonth[month] || 0, 'unplanned_income', issuedOrderWeight);
 
   // Налог в общей строке считается от совокупной чистой выручки. Распределяем ровно эту сумму
   // между товарами с положительной чистой выручкой — так возврат старой продажи не создаёт
@@ -510,7 +530,8 @@ async function getProductBreakdownForMonth(month, warehouses) {
     - row.marketing_bonuses
     - row.marketing_reviews
     - row.packaging
-    - row.other_expenses);
+    - row.other_expenses
+    + row.unplanned_income);
   const roundedTotalNetProfit = Math.round(exactNetProfits.reduce((sum, value) => sum + value, 0));
   let roundedProfitAssigned = 0;
 
@@ -525,7 +546,8 @@ async function getProductBreakdownForMonth(month, warehouses) {
       + row.marketing_bonuses
       + row.marketing_reviews
       + row.packaging
-      + row.other_expenses;
+      + row.other_expenses
+      - row.unplanned_income;
     row.net_profit = netProfit;
     row.margin = row.revenue !== 0 ? (netProfit / row.revenue) * 100 : null;
     row.roi = totalInvestments !== 0 ? (netProfit / totalInvestments) * 100 : null;
@@ -632,19 +654,20 @@ router.get('/monthly/:month/products', async (req, res) => {
 });
 
 // Подмешивает к строкам месяца расходы, которые не привязаны к городу отгрузки и потому всегда
-// считаются по магазину целиком: прочие расходы и упаковку из "Расходов" (Google Таблица) и
-// маркетинг из трёх источников продвижения. Пересчитывает чистую прибыль, маржу и ROI с их учётом.
+// считаются по магазину целиком: прочие расходы, упаковку и внеплановые доходы из "Расходов"
+// (Traty) и маркетинг из трёх источников продвижения. Пересчитывает чистую прибыль, маржу и ROI с их учётом.
 // Используется для обеих "полных" таблиц отчёта — по всем складам и по Алматы с Астаной.
-function withStoreWideExpenses(rows, otherExpensesByMonth, marketingByMonth, packagingByMonth) {
+function withStoreWideExpenses(rows, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth) {
   return rows.map((row) => {
     const otherExpenses = otherExpensesByMonth[row.month] || 0;
     const marketing = marketingByMonth[row.month] || 0;
     const packaging = packagingByMonth[row.month] || 0;
-    const netProfit = row.net_profit - otherExpenses - marketing - packaging;
-    // ROI = чистая прибыль / (себестоимость + маркетинг + упаковка + прочие расходы) —
-    // комиссия, доставка и налоги в знаменатель не входят, это не инвестиция, а транзакционные
-    // издержки Kaspi.
-    const totalExpenses = row.cost_of_goods + marketing + packaging + otherExpenses;
+    const unplannedIncome = unplannedIncomeByMonth[row.month] || 0;
+    const netProfit = row.net_profit - otherExpenses - marketing - packaging + unplannedIncome;
+    // ROI = чистая прибыль / (себестоимость + маркетинг + упаковка + прочие расходы за вычетом
+    // внеплановых доходов) — комиссия, доставка и налоги в знаменатель не входят, это не
+    // инвестиция, а транзакционные издержки Kaspi.
+    const totalExpenses = row.cost_of_goods + marketing + packaging + otherExpenses - unplannedIncome;
     const margin = row.revenue !== 0 ? (netProfit / row.revenue) * 100 : null;
     const roi = totalExpenses !== 0 ? (netProfit / totalExpenses) * 100 : null;
 
@@ -653,6 +676,7 @@ function withStoreWideExpenses(rows, otherExpensesByMonth, marketingByMonth, pac
       marketing,
       packaging,
       other_expenses: otherExpenses,
+      unplanned_income: unplannedIncome,
       net_profit: netProfit,
       margin,
       roi,
@@ -662,13 +686,14 @@ function withStoreWideExpenses(rows, otherExpensesByMonth, marketingByMonth, pac
 
 router.get('/monthly', async (req, res) => {
   try {
-    const [months, monthsMainCities, monthsSelfBuyCities, otherExpensesByMonth, marketingByMonth, packagingByMonth, latestUpload] = await Promise.all([
+    const [months, monthsMainCities, monthsSelfBuyCities, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth, latestUpload] = await Promise.all([
       aggregateKaspiPayMonthly(),
       aggregateKaspiPayMonthly(MAIN_CITIES),
       aggregateKaspiPayMonthly(SELF_BUY_CITIES),
       fetchOtherExpensesByMonth(),
       fetchMarketingByMonth(),
       fetchPackagingExpensesByMonth(),
+      fetchUnplannedIncomeByMonth(),
       fetchLatestUploadPeriod(),
     ]);
 
@@ -676,8 +701,8 @@ router.get('/monthly', async (req, res) => {
     // сюда попадают все склады (включая самовыкупы) и все операции Kaspi Pay, в том числе по
     // заказам с нераспознанной точкой продаж и по тем, которых вообще нет в данных заказов Kaspi.
     // monthsMainCities — прежний основной отчёт по Алматы и Астане.
-    const monthsAll = withStoreWideExpenses(months, otherExpensesByMonth, marketingByMonth, packagingByMonth);
-    const monthsMainCitiesWithExpenses = withStoreWideExpenses(monthsMainCities, otherExpensesByMonth, marketingByMonth, packagingByMonth);
+    const monthsAll = withStoreWideExpenses(months, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth);
+    const monthsMainCitiesWithExpenses = withStoreWideExpenses(monthsMainCities, otherExpensesByMonth, marketingByMonth, packagingByMonth, unplannedIncomeByMonth);
 
     res.json({ months, monthsAll, monthsMainCities: monthsMainCitiesWithExpenses, monthsSelfBuyCities, latestUpload });
   } catch (err) {
@@ -777,6 +802,8 @@ module.exports.aggregateKaspiPayMonthly = aggregateKaspiPayMonthly;
 module.exports.fetchOtherExpensesByMonth = fetchOtherExpensesByMonth;
 module.exports.fetchMarketingByMonth = fetchMarketingByMonth;
 module.exports.fetchPackagingExpensesByMonth = fetchPackagingExpensesByMonth;
+module.exports.fetchUnplannedIncomeByMonth = fetchUnplannedIncomeByMonth;
+module.exports.withStoreWideExpenses = withStoreWideExpenses;
 module.exports.getProductBreakdownForMonth = getProductBreakdownForMonth;
 module.exports.fetchLatestUploadPeriod = fetchLatestUploadPeriod;
 module.exports.MAIN_CITIES = MAIN_CITIES;

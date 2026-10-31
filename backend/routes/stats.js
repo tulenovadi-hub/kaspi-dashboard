@@ -544,8 +544,8 @@ function addMarketingForecast(marketingData, revenueByDay, from, to) {
   return { byDay, estimatedDays, estimatedTotal };
 }
 
-// Операционные расходы из гугл-таблицы (страница "Расходы"): ровно те же две категории, что
-// вычитаются из чистой прибыли в "Отчёте" (routes/reports.js) — иначе цифра на Главной и цифра
+// Операционные расходы (страница "Расходы"): ровно те же две категории, что вычитаются из чистой
+// прибыли в "Отчёте" (routes/reports.js), за вычетом внеплановых доходов месяца — иначе цифра на Главной и цифра
 // в отчёте за тот же месяц разъехались бы. "Товар" сюда не входит (уже учтён себестоимостью по
 // партиям FIFO), "Вывод" тоже (дивиденды собственника, а не расход бизнеса), "Логистика" — это
 // карго из Китая, она входит в себестоимость партии, а не в отдельный расход.
@@ -621,9 +621,10 @@ function elapsedDaysInMonth(month, today) {
 // с начала месяца по сегодня — тоже: доля × число прошедших дней = всё, что записано.
 async function fetchOpExpensesByDay(from, to) {
   const result = await pool.query(
-    `SELECT to_char(expense_date, 'YYYY-MM') AS month, COALESCE(SUM(amount), 0) AS total
+    `SELECT to_char(expense_date, 'YYYY-MM') AS month,
+            COALESCE(SUM(CASE WHEN entry_type = 'income' THEN -amount ELSE amount END), 0) AS total
      FROM expenses
-     WHERE category = ANY($3::text[])
+     WHERE (entry_type = 'income' OR category = ANY($3::text[]))
        AND expense_date >= date_trunc('month', $1::date)
        AND expense_date < date_trunc('month', $2::date) + interval '1 month'
      GROUP BY month`,

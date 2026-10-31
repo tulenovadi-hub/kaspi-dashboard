@@ -62,6 +62,7 @@ test('product breakdown uses monthly operations and allocates shared costs by is
     if (sql.includes('FROM bonus_expenses')) return { rows: [] };
     if (sql.includes('FROM review_bonus_expenses')) return { rows: [] };
 
+    if (sql.includes("entry_type = 'income'")) return { rows: [{ month, total: '40' }] };
     if (sql.includes('FROM expenses')) {
       return params[0] === 'Упаковка'
         ? { rows: [{ month, total: '100' }] }
@@ -92,8 +93,10 @@ test('product breakdown uses monthly operations and allocates shared costs by is
   assert.equal(byId.get('a').other_expenses, 100);
   assert.equal(byId.get('b').other_expenses, 100);
   assert.equal(sum('taxes'), 21);
-  assert.equal(sum('net_profit'), -191);
-  assert.equal(byId.get('a').margin, (-179 / 600) * 100, 'margin must use gross revenue before returns');
+  assert.equal(byId.get('a').unplanned_income, 20);
+  assert.equal(byId.get('b').unplanned_income, 20);
+  assert.equal(sum('net_profit'), -151, 'unplanned income must raise net profit');
+  assert.equal(byId.get('a').margin, (-159 / 600) * 100, 'margin must use gross revenue before returns');
 });
 
 test('latest Excel period comes only from the most recent upload batch', async () => {

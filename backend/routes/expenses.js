@@ -1,50 +1,25 @@
 const express = require('express');
 const axios = require('axios');
-const XLSX = require('xlsx');
 const { pool } = require('../db');
 
 const router = express.Router();
 
-// Лист "Бизнес" в гугл-таблице владельца (общая книга личных/семейных финансов, куда бизнес-расходы
-// пишет мобильное приложение — отсюда колонки "Время", "Кто", "ID"). Доступ открыт по ссылке
-// ("Все у кого есть ссылка → Читатель"), поэтому читаем через публичный CSV-экспорт Google Sheets,
-// без ключей и сервисных аккаунтов.
-// До 2026-08-27 источником был отдельный лист "Расход" в книге 1vFY-Oyp...685IDEk (gid 2038389366) —
-// вся его история перенесена сюда, старая книга оставлена только как эталон для сверки.
-const SPREADSHEET_ID = '1QZvZ8yS3os8rHyYWwmbe-WOS-fnpBoYj_Uj3ToiYPYY';
-const SHEET_GID = '306790768';
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=${SHEET_GID}`;
+// Расходы и внеплановые доходы приходят из приложения Traty, бюджет "Бизнес". Ключ только читает
+// и только этот бюджет, лежит в настройках сервера. Каждый раз приходит весь период: правки и
+// удаления видны только сравнением с базой.
+// До 2026-10-31 источником был лист "Бизнес" гугл-таблицы, он больше не обновляется.
+const TRATY_URL = 'https://api.traty.kz/api/export/entries';
 
-function parseNumber(value) {
-  if (value === null || value === undefined || value === '') return 0;
-  const num = Number(String(value).replace(/[^\d.-]/g, ''));
-  return Number.isFinite(num) ? num : 0;
-}
-
-// Даты в листе — текст. Приложение пишет их как ДД.ММ.ГГГГ, в перенесённой истории из старого
-// листа "Расход" тот же формат, но встречается и ДД/ММ/ГГГГ — принимаем оба, плюс ISO на случай,
-// если Google Таблицы сами превратят ячейку в настоящую дату.
-function parseSheetDate(value) {
-  if (!value) return null;
-  const raw = String(value).trim();
-
-  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (iso) {
-    const [, year, month, day] = iso;
-    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-  }
-
-  const dmy = raw.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
-  if (!dmy) return null;
-  const [, day, month, year] = dmy;
-  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-}
+// Всё, что раньше этого дня (январь–июль 2026, 277 строк, в том числе строки с нулевой суммой),
+// осталось в базе из гугл-таблицы и в Traty не переносилось: синхронизация эти строки не трогает.
+const TRATY_FROM = '2026-08-01';
 
 // "Отчёт" завязан на ТОЧНЫЕ названия категорий: "Прочие затраты" вычитаются из чистой прибыли,
-// "Упаковка" идёт в отчёте отдельной колонкой, а "Товар" и "Вывод" из расходов исключаются
-// (товар уже учтён через себестоимость по партиям FIFO, вывод — дивиденды собственника, а не
-// расход бизнеса). В приложении, которое пишет в лист, названия категорий свои, поэтому
-// приводим их к каноническим здесь, в одном месте. Сравнение без учёта регистра.
+// "Упаковка" идёт в отчёте отдельной колонкой, а "Товар", "Вывод" и "Маркетинг" из расходов
+// исключаются (товар уже учтён через себестоимость по партиям FIFO, вывод — дивиденды
+// собственника, а не расход бизнеса, реклама уже посчитана в разделе "Маркетинг"; нулевых сумм
+// в Traty не бывает, поэтому она записывается настоящей суммой в свою категорию). Приводим
+// названия к каноническим здесь, в одном месте. Сравнение без учёта регистра.
 const CATEGORY_ALIASES = {
   'прочие затраты': 'Прочие затраты',
   'прочее': 'Прочие затраты',
@@ -57,6 +32,7 @@ const CATEGORY_ALIASES = {
   'вывод': 'Вывод',
   'выводы': 'Вывод',
   'дивиденды': 'Вывод',
+  'маркетинг': 'Маркетинг',
   'упаковка': 'Упаковка',
   'фулфилмент': 'Упаковка',
   // Логистика — это карго из Китая. Раньше категория называлась "Доставка", но в "Отчёте" уже
@@ -80,7 +56,7 @@ function normalizeCategory(value) {
   return CATEGORY_ALIASES[raw.toLowerCase()] || raw;
 }
 
-// Сравниваем строку листа с тем, что уже лежит в базе. NUMERIC приходит из Postgres строкой
+// Сравниваем запись Traty с тем, что уже лежит в базе. NUMERIC приходит из Postgres строкой
 // ("10000" или "10000.00"), поэтому сумму сравниваем числом, а не текстом; дату база отдаёт
 // уже в виде 'YYYY-MM-DD' (см. to_char в запросе), пустые текстовые поля — как '' или NULL.
 function sameRecord(dbRow, record) {
@@ -88,6 +64,7 @@ function sameRecord(dbRow, record) {
     && (dbRow.name || '') === record.name
     && (dbRow.category || '') === record.category
     && (dbRow.source || '') === record.source
+    && dbRow.entry_type === record.type
     && Number(dbRow.amount) === Number(record.amount)
     && (dbRow.comment || '') === record.comment;
 }
@@ -98,123 +75,102 @@ function chunked(items, size) {
   return out;
 }
 
-function findCol(headers, ...candidates) {
-  for (const candidate of candidates) {
-    const idx = headers.findIndex((h) => h.trim().toLowerCase() === candidate.toLowerCase());
-    if (idx !== -1) return idx;
-  }
-  return -1;
+// Ответ Traty проверяем целиком ДО записи: синхронизация удаляет всё, чего нет в выгрузке, поэтому
+// кривая или неполная выгрузка не должна дойти до базы.
+function isValidEntry(entry) {
+  return Number.isInteger(entry?.id)
+    && /^\d{4}-\d{2}-\d{2}$/.test(entry.date)
+    && Number.isFinite(entry.amount)
+    && (entry.type === 'expense' || entry.type === 'income');
+}
+
+function tratyErrorMessage(status) {
+  if (status === 401) return 'Traty не принял ключ — проверьте TRATY_EXPORT_KEY в настройках сервера';
+  if (status === 404) return 'В Traty не найден бюджет «Бизнес»';
+  if (status === 429) return 'Слишком много обновлений подряд — Traty просит подождать несколько минут';
+  return 'Не удалось получить данные из Traty';
 }
 
 router.post('/sync', async (req, res) => {
-  let csvText;
+  if (!process.env.TRATY_EXPORT_KEY) {
+    return res.status(500).json({ error: 'На сервере не настроен TRATY_EXPORT_KEY — расходы не обновляются' });
+  }
+
+  // При любой ошибке выходим раньше, чем тронем базу. Статус всегда 502, а не статус Traty:
+  // 401 на нашем API означает "сессия истекла" и выбросил бы владельца из приложения.
+  let entries;
   try {
-    const response = await axios.get(CSV_URL, { timeout: 15000 });
-    csvText = response.data;
-  } catch (err) {
-    console.error('Не удалось скачать гугл-таблицу:', err.message);
-    return res.status(502).json({
-      error: 'Не удалось скачать данные из Google Таблицы. Проверьте, что доступ по ссылке открыт ("Все у кого есть ссылка → Читатель").',
+    const response = await axios.get(TRATY_URL, {
+      params: { from: TRATY_FROM },
+      headers: { 'X-Export-Key': process.env.TRATY_EXPORT_KEY },
+      timeout: 15000,
     });
-  }
-
-  let rows;
-  try {
-    const workbook = XLSX.read(csvText, { type: 'string', raw: true });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
+    entries = response.data?.entries;
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Не удалось разобрать данные из таблицы' });
+    console.error('Не удалось скачать выгрузку Traty:', err.message);
+    return res.status(502).json({ error: tratyErrorMessage(err.response?.status) });
   }
 
-  if (rows.length === 0) {
-    return res.status(400).json({ error: 'Таблица пустая' });
+  if (!Array.isArray(entries) || !entries.every(isValidEntry)) {
+    console.error('Traty вернул выгрузку неожиданного вида');
+    return res.status(502).json({ error: 'Traty вернул данные в неожиданном виде — расходы не обновлены' });
+  }
+  // Пустой ответ при живом бюджете — это почти наверняка сбой, а не удалённые записи.
+  if (entries.length === 0) {
+    return res.status(502).json({ error: 'Traty вернул пустую выгрузку — расходы не обновлены' });
   }
 
-  const headers = rows[0].map((h) => String(h || ''));
-  const idx = {
-    date: findCol(headers, 'Дата'),
-    // "Описание" — как колонка называется в новом листе, остальные варианты остались от старого
-    name: findCol(headers, 'Описание', 'Наименования', 'Наименование'),
-    category: findCol(headers, 'Категория'),
-    source: findCol(headers, 'Источник', 'From', 'Откуда'),
-    amount: findCol(headers, 'Сумма'),
-    // В старом листе в "Коментарий" писали, кто сделал расход — в новом для этого есть "Кто"
-    comment: findCol(headers, 'Кто', 'Коментарий', 'Комментарий'),
-  };
-
-  if (idx.date === -1 || idx.amount === -1) {
-    return res.status(400).json({ error: 'Не найдены ожидаемые колонки (Дата, Сумма) — проверьте структуру листа "Бизнес"' });
-  }
-
-  const records = [];
-  const unknownCategories = new Map(); // категория -> сколько строк
-  let withoutDate = 0;
-  for (let i = 1; i < rows.length; i += 1) {
-    const row = rows[i];
-    if (!row || row.every((cell) => cell === '' || cell === null || cell === undefined)) continue;
-
-    const date = parseSheetDate(row[idx.date]);
-    const amount = parseNumber(row[idx.amount]);
-    if (!date && !amount) continue; // пустая/технический мусор строка
-
-    // Запись без распознанной даты в базу попадёт, но выпадет и из сводки по месяцам, и из
-    // "Отчёта" — раньше это происходило молча, теперь считаем такие строки и показываем на странице.
-    if (!date) withoutDate += 1;
-
-    const category = idx.category !== -1 ? normalizeCategory(row[idx.category]) : '';
-    if (category && !KNOWN_CATEGORIES.has(category)) {
+  const unknownCategories = new Map(); // категория -> сколько записей
+  const records = entries.map((entry) => {
+    const category = normalizeCategory(entry.category);
+    if (entry.type === 'expense' && category && !KNOWN_CATEGORIES.has(category)) {
       unknownCategories.set(category, (unknownCategories.get(category) || 0) + 1);
     }
-
-    records.push({
-      date,
-      name: idx.name !== -1 ? String(row[idx.name] || '') : '',
+    return {
+      tratyId: entry.id,
+      type: entry.type,
+      date: entry.date,
+      name: String(entry.description || ''),
       category,
-      source: idx.source !== -1 ? String(row[idx.source] || '') : '',
-      amount,
-      comment: idx.comment !== -1 ? String(row[idx.comment] || '') : '',
-      rowIndex: i + 1, // +1 т.к. считаем от 1 и первая строка — заголовок
-    });
-  }
+      source: 'Traty',
+      amount: entry.amount,
+      comment: String(entry.author || ''),
+    };
+  });
 
-  // Раньше синхронизация делала TRUNCATE и вставляла ВСЕ строки листа заново по одной
-  // (330 записей = 330 запросов к базе, несколько секунд на каждое обновление, и id всех
-  // расходов менялись при каждом синке). Теперь сравниваем лист с тем, что уже лежит в базе,
-  // и трогаем только различия: обычно между двумя открытиями страницы добавилась одна-две
-  // строки, значит и записи будет одна-две. Ключ сопоставления — номер строки в листе
-  // (`row_index`): колонка "ID" есть только у записей, которые пишет мобильное приложение
-  // (53 из 330), у перенесённой истории её нет, поэтому как общий ключ она не годится.
-  // Если строку из середины листа удалят, номера ниже сдвинутся и обновится весь хвост —
-  // это правильно и по-прежнему одним запросом.
+  // Сравниваем выгрузку с тем, что уже лежит в базе, и трогаем только различия: обычно между
+  // двумя открытиями страницы добавилась одна-две записи. Ключ сопоставления — постоянный номер
+  // записи в Traty (`traty_id`). Строки с датой от TRATY_FROM без этого номера остались от
+  // гугл-таблицы: первая успешная синхронизация заменяет их выгрузкой в одной транзакции.
   let inserted = 0;
   let updated = 0;
   let removed = 0;
   const client = await pool.connect();
   try {
     const existing = await client.query(
-      `SELECT id, row_index, to_char(expense_date, 'YYYY-MM-DD') AS date,
+      `SELECT id, traty_id, entry_type, to_char(expense_date, 'YYYY-MM-DD') AS date,
               name, category, source, amount, comment
-       FROM expenses`
+       FROM expenses
+       WHERE traty_id IS NOT NULL OR expense_date >= $1::date`,
+      [TRATY_FROM]
     );
 
-    const byRow = new Map();
-    const staleIds = []; // строки без row_index и дубли — наследие старых синхронизаций
+    const byTratyId = new Map();
+    const staleIds = []; // строки гугл-таблицы за период, который теперь приходит из Traty
     for (const row of existing.rows) {
-      if (row.row_index === null || byRow.has(row.row_index)) {
+      if (row.traty_id === null) {
         staleIds.push(row.id);
         continue;
       }
-      byRow.set(row.row_index, row);
+      byTratyId.set(Number(row.traty_id), row);
     }
 
     const toInsert = [];
     const toUpdate = [];
     const seen = new Set();
     for (const r of records) {
-      seen.add(r.rowIndex);
-      const current = byRow.get(r.rowIndex);
+      seen.add(r.tratyId);
+      const current = byTratyId.get(r.tratyId);
       if (!current) {
         toInsert.push(r);
       } else if (!sameRecord(current, r)) {
@@ -222,8 +178,8 @@ router.post('/sync', async (req, res) => {
       }
     }
     const toDelete = staleIds.concat(
-      Array.from(byRow.entries())
-        .filter(([rowIndex]) => !seen.has(rowIndex))
+      Array.from(byTratyId.entries())
+        .filter(([tratyId]) => !seen.has(tratyId))
         .map(([, row]) => row.id)
     );
 
@@ -235,36 +191,40 @@ router.post('/sync', async (req, res) => {
     }
 
     // Вставка и обновление — пачками по 200 строк одним запросом, а не строка за строкой.
+    // ON CONFLICT: страницу могут открыть на двух устройствах сразу, и вторая синхронизация
+    // не должна падать на записях, которые первая уже вставила.
     for (const chunk of chunked(toInsert, 200)) {
       const params = [];
       const values = chunk.map((r, i) => {
-        params.push(r.date, r.name, r.category, r.source, r.amount, r.comment, r.rowIndex);
-        const n = i * 7;
-        return `($${n + 1}, $${n + 2}, $${n + 3}, $${n + 4}, $${n + 5}, $${n + 6}, $${n + 7})`;
+        params.push(r.date, r.name, r.category, r.source, r.amount, r.comment, r.tratyId, r.type);
+        const n = i * 8;
+        return `($${n + 1}, $${n + 2}, $${n + 3}, $${n + 4}, $${n + 5}, $${n + 6}, $${n + 7}, $${n + 8})`;
       });
-      await client.query(
-        `INSERT INTO expenses (expense_date, name, category, source, amount, comment, row_index)
-         VALUES ${values.join(', ')}`,
+      const result = await client.query(
+        `INSERT INTO expenses (expense_date, name, category, source, amount, comment, traty_id, entry_type)
+         VALUES ${values.join(', ')}
+         ON CONFLICT (traty_id) DO NOTHING`,
         params
       );
-      inserted += chunk.length;
+      inserted += result.rowCount;
     }
 
     for (const chunk of chunked(toUpdate, 200)) {
       const params = [];
       const values = chunk.map((r, i) => {
-        params.push(r.id, r.date, r.name, r.category, r.source, r.amount, r.comment);
-        const n = i * 7;
+        params.push(r.id, r.date, r.name, r.category, r.source, r.amount, r.comment, r.type);
+        const n = i * 8;
         // Типы явно указываем только у первой строки VALUES — Postgres выведет остальные по ней.
         return i === 0
-          ? `($${n + 1}::int, $${n + 2}::date, $${n + 3}::text, $${n + 4}::text, $${n + 5}::text, $${n + 6}::numeric, $${n + 7}::text)`
-          : `($${n + 1}, $${n + 2}, $${n + 3}, $${n + 4}, $${n + 5}, $${n + 6}, $${n + 7})`;
+          ? `($${n + 1}::int, $${n + 2}::date, $${n + 3}::text, $${n + 4}::text, $${n + 5}::text, $${n + 6}::numeric, $${n + 7}::text, $${n + 8}::text)`
+          : `($${n + 1}, $${n + 2}, $${n + 3}, $${n + 4}, $${n + 5}, $${n + 6}, $${n + 7}, $${n + 8})`;
       });
       await client.query(
         `UPDATE expenses e
          SET expense_date = v.expense_date, name = v.name, category = v.category,
-             source = v.source, amount = v.amount, comment = v.comment, synced_at = now()
-         FROM (VALUES ${values.join(', ')}) AS v(id, expense_date, name, category, source, amount, comment)
+             source = v.source, amount = v.amount, comment = v.comment,
+             entry_type = v.entry_type, synced_at = now()
+         FROM (VALUES ${values.join(', ')}) AS v(id, expense_date, name, category, source, amount, comment, entry_type)
          WHERE e.id = v.id`,
         params
       );
@@ -287,7 +247,6 @@ router.post('/sync', async (req, res) => {
     updated,
     removed,
     changed: inserted + updated + removed,
-    withoutDate,
     unknownCategories: Array.from(unknownCategories, ([name, count]) => ({ name, count })),
   });
 });
@@ -295,9 +254,9 @@ router.post('/sync', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, expense_date, name, category, source, amount, comment, synced_at
+      `SELECT id, expense_date, name, category, source, amount, comment, entry_type, synced_at
        FROM expenses
-       ORDER BY expense_date DESC NULLS LAST, row_index DESC`
+       ORDER BY expense_date DESC NULLS LAST, traty_id DESC NULLS LAST, row_index DESC`
     );
     res.json({ expenses: result.rows });
   } catch (err) {
@@ -309,10 +268,10 @@ router.get('/', async (req, res) => {
 router.get('/monthly', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT to_char(expense_date, 'YYYY-MM') AS month, category, SUM(amount) AS total, COUNT(*) AS records_count
+      SELECT to_char(expense_date, 'YYYY-MM') AS month, category, entry_type, SUM(amount) AS total, COUNT(*) AS records_count
       FROM expenses
       WHERE expense_date IS NOT NULL
-      GROUP BY month, category
+      GROUP BY month, category, entry_type
       ORDER BY month DESC
     `);
 
@@ -320,14 +279,20 @@ router.get('/monthly', async (req, res) => {
     const categoriesSet = new Set();
 
     for (const row of result.rows) {
-      const category = row.category || 'Без категории';
-      categoriesSet.add(category);
-
       if (!monthsMap.has(row.month)) {
-        monthsMap.set(row.month, { month: row.month, total: 0, records_count: 0, byCategory: {} });
+        monthsMap.set(row.month, { month: row.month, total: 0, records_count: 0, income: 0, byCategory: {} });
       }
       const monthEntry = monthsMap.get(row.month);
       const amount = Number(row.total);
+
+      // Доходы идут отдельным полем: в категории и в сумму расходов они не входят.
+      if (row.entry_type === 'income') {
+        monthEntry.income += amount;
+        continue;
+      }
+
+      const category = row.category || 'Без категории';
+      categoriesSet.add(category);
       monthEntry.byCategory[category] = (monthEntry.byCategory[category] || 0) + amount;
       monthEntry.total += amount;
       monthEntry.records_count += Number(row.records_count);

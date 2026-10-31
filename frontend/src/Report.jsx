@@ -85,7 +85,8 @@ function sumProductRows(products) {
     + total.marketing_bonuses
     + total.marketing_reviews
     + total.packaging
-    + total.other_expenses;
+    + total.other_expenses
+    - total.unplanned_income;
   total.margin = total.revenue !== 0 ? (total.net_profit / total.revenue) * 100 : null;
   total.roi = investments !== 0 ? (total.net_profit / investments) * 100 : null;
   return total;

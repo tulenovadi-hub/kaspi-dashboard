@@ -30,6 +30,7 @@ export const MAIN_COLUMNS = [
   { key: 'marketing', label: 'Маркетинг' },
   { key: 'packaging', label: 'Упаковка' },
   { key: 'other_expenses', label: 'Прочие расходы' },
+  { key: 'unplanned_income', label: 'Внеплановые доходы' },
   { key: 'net_profit', label: 'Чистая прибыль' },
   { key: 'margin', label: 'Маржа' },
   { key: 'roi', label: 'ROI' },
@@ -38,7 +39,7 @@ export const MAIN_COLUMNS = [
 // Разбивка по товарам внутри развёрнутого месяца "Основного отчёта" — те же колонки, что в
 // MAIN_COLUMNS, только вместо "Месяц" — товар, а единый "Маркетинг" раскрыт на три источника
 // (реклама, бонусы от продавца, бонусы за отзыв) — все три точно разносятся по товару через
-// привязку кампания→товар. Упаковка и прочие расходы распределяются сервером между товарами
+// привязку кампания→товар. Упаковка, прочие расходы и внеплановые доходы распределяются сервером между товарами
 // пропорционально количеству выданных заказов за месяц.
 export const PRODUCT_COLUMNS = [
   { key: 'product_name', label: 'Товар' },
@@ -54,6 +55,7 @@ export const PRODUCT_COLUMNS = [
   { key: 'marketing_reviews', label: 'Бонусы за отзыв' },
   { key: 'packaging', label: 'Упаковка' },
   { key: 'other_expenses', label: 'Прочие расходы' },
+  { key: 'unplanned_income', label: 'Внеплановые доходы' },
   { key: 'net_profit', label: 'Чистая прибыль' },
   { key: 'margin', label: 'Маржа' },
   { key: 'roi', label: 'ROI' },
@@ -68,7 +70,7 @@ export const SELF_BUY_COLUMNS = [
 ];
 
 // Столбцы, которые красим сплошным цветом в "Основном отчёте"
-export const GREEN_KEYS = new Set(['revenue', 'net_profit']);
+export const GREEN_KEYS = new Set(['revenue', 'unplanned_income', 'net_profit']);
 export const YELLOW_KEYS = new Set(['cost_of_returns']);
 export const RED_KEYS = new Set([
   'cost_of_goods', 'returns', 'commission', 'delivery', 'taxes',
@@ -85,7 +87,7 @@ export const RED_KEYS = new Set([
 export const PERCENT_OF_REVENUE_KEYS = new Set([
   'cost_of_goods', 'returns', 'commission', 'delivery', 'taxes',
   'marketing', 'marketing_ads', 'marketing_bonuses', 'marketing_reviews',
-  'packaging', 'other_expenses',
+  'packaging', 'other_expenses', 'unplanned_income',
 ]);
 
 // Показатели-проценты: форматируются как "20.0%", а не как сумма, и на компьютере красятся
@@ -100,11 +102,14 @@ const MONTH_STRUCTURAL = ['month', 'revenue', 'net_profit', 'margin', 'roi'];
 const PRODUCT_STRUCTURAL = ['product_name', 'revenue', 'net_profit', 'margin', 'roi'];
 
 // "Себестоимость возвратов" — справочная сумма: она не вычитается и не прибавляется к прибыли.
+// "Внеплановые доходы" прибавляются к прибыли, поэтому в разбивке идут с плюсом, а не с минусом.
 const MONTH_LINE_EXTRAS = {
   cost_of_returns: { informational: true, note: 'справочно, не влияет на прибыль' },
+  unplanned_income: { credit: true },
 };
 const PRODUCT_LINE_EXTRAS = {
   cost_of_returns: { informational: true, note: 'справочно, не влияет на прибыль' },
+  unplanned_income: { credit: true },
 };
 
 function toLines(columns, structural, extras) {

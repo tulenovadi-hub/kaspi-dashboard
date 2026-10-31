@@ -59,7 +59,7 @@ function fullDate(value) {
 }
 
 export default function ExpensesMobile({
-  months, categories, filtered, filteredTotal,
+  months, categories, filtered, filteredTotal, filteredIncome,
   search, categoryFilter, monthFilter,
   onSearch, onCategory, onMonth,
   loading, isOnline, syncing, syncMessage, syncWarnings, syncError,
@@ -91,12 +91,41 @@ export default function ExpensesMobile({
     return i < 0 ? 'var(--text-muted)' : CATEGORY_COLORS[i % CATEGORY_COLORS.length];
   };
 
+  const renderRow = (e, sum, sumClass) => {
+    const isOpen = openId === e.id;
+    return (
+      <button
+        key={e.id}
+        className="em-row"
+        aria-expanded={isOpen}
+        onClick={() => setOpenId((prev) => (prev === e.id ? null : e.id))}
+      >
+        <span className="em-row-name">{e.name || '—'}</span>
+        <span className={sumClass}>{sum}</span>
+        <span className="em-row-meta">
+          {dayMonth(e.expense_date)}
+          <i className="em-cat-dot" style={{ background: colorOf(e.category) }} />
+          {e.category || '—'}
+        </span>
+        <span />
+        {isOpen && (
+          <span className="em-row-detail">
+            <span className="em-line"><span>Дата</span><span>{fullDate(e.expense_date)}</span></span>
+            <span className="em-line"><span>Категория</span><span>{e.category || '—'}</span></span>
+            <span className="em-line"><span>Источник</span><span>{e.source || '—'}</span></span>
+            <span className="em-line"><span>Кто</span><span>{e.comment || '—'}</span></span>
+          </span>
+        )}
+      </button>
+    );
+  };
+
   return (
     <div className="em">
-      {/* Кнопки "Обновить" здесь больше нет: гугл-таблица подтягивается сама при открытии
+      {/* Кнопки "Обновить" здесь больше нет: записи Traty подтягиваются сами при открытии
           страницы и при свайпе вниз (см. Expenses.jsx). Пока идёт синхронизация — одна тихая
           строка, чтобы было видно, что цифры сейчас могут доехать. */}
-      {syncing && <div className="em-sync-line">Обновляем из гугл-таблицы…</div>}
+      {syncing && <div className="em-sync-line">Обновляем из Traty…</div>}
       {syncMessage && <div className="report-upload-success">{syncMessage}</div>}
       {syncWarnings.map((w) => (
         <div key={w} className="expenses-sync-warning">{w}</div>
@@ -105,7 +134,7 @@ export default function ExpensesMobile({
 
       <div style={{ opacity: loading || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
         {sorted.length === 0 ? (
-          <div className="empty-state">Пока нет данных — расходы подтянутся из гугл-таблицы</div>
+          <div className="empty-state">Пока нет данных — расходы подтянутся из Traty</div>
         ) : (
           <>
             <div className="em-months">
@@ -138,6 +167,11 @@ export default function ExpensesMobile({
                 {previous && (
                   <div className="em-total-sub">
                     {formatMonthLabel(previous.month)}: {shortMoney(previous.total)}
+                  </div>
+                )}
+                {current.income > 0 && (
+                  <div className="em-total-sub">
+                    Внеплановые доходы: <span className="expenses-income-cell">+{shortMoney(current.income)}</span>
                   </div>
                 )}
               </div>
@@ -173,6 +207,15 @@ export default function ExpensesMobile({
               })}
             </div>
 
+            {filteredIncome.length > 0 && (
+              <>
+                <div className="em-sec"><span>Внеплановые доходы</span></div>
+                <div className="em-list">
+                  {filteredIncome.map((e) => renderRow(e, `+${formatMoney(e.amount)}`, 'em-row-sum expenses-income-cell'))}
+                </div>
+              </>
+            )}
+
             <div className="em-sec"><span>Расходы месяца</span></div>
             {categoryFilter && (
               <button className="em-active-filter" onClick={() => onCategory('')}>
@@ -192,34 +235,7 @@ export default function ExpensesMobile({
             <div className="em-list">
               {filtered.length === 0 ? (
                 <div className="empty-state">Ничего не найдено</div>
-              ) : filtered.map((e) => {
-                const isOpen = openId === e.id;
-                return (
-                  <button
-                    key={e.id}
-                    className="em-row"
-                    aria-expanded={isOpen}
-                    onClick={() => setOpenId((prev) => (prev === e.id ? null : e.id))}
-                  >
-                    <span className="em-row-name">{e.name || '—'}</span>
-                    <span className="em-row-sum">{formatMoney(e.amount)}</span>
-                    <span className="em-row-meta">
-                      {dayMonth(e.expense_date)}
-                      <i className="em-cat-dot" style={{ background: colorOf(e.category) }} />
-                      {e.category || '—'}
-                    </span>
-                    <span />
-                    {isOpen && (
-                      <span className="em-row-detail">
-                        <span className="em-line"><span>Дата</span><span>{fullDate(e.expense_date)}</span></span>
-                        <span className="em-line"><span>Категория</span><span>{e.category || '—'}</span></span>
-                        <span className="em-line"><span>Источник</span><span>{e.source || '—'}</span></span>
-                        <span className="em-line"><span>Кто</span><span>{e.comment || '—'}</span></span>
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+              ) : filtered.map((e) => renderRow(e, formatMoney(e.amount), 'em-row-sum'))}
             </div>
 
             {filtered.length > 0 && (
@@ -233,8 +249,8 @@ export default function ExpensesMobile({
       </div>
 
       <div className="report-note">
-        Данные подтягиваются из листа «Бизнес» гугл-таблицы. Строки с нераспознанной датой не
-        попадают ни в сводку по месяцам, ни в «Отчёт»; незнакомые категории не учитываются в «Отчёте».
+        Данные подтягиваются из Traty, бюджет «Бизнес». Незнакомые категории не учитываются в
+        «Отчёте». Внеплановые доходы показаны отдельно и уменьшают прочие расходы месяца.
       </div>
     </div>
   );

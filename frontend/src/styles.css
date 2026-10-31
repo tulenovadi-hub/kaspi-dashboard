@@ -3739,6 +3739,8 @@ input[type="date"] {
   color: var(--text-primary);
 }
 
+.expenses-income-cell { color: var(--accent-up); }
+
 .users-password-cell {
   display: flex;
   gap: 8px;
@@ -6055,7 +6057,7 @@ input[type="date"] {
 }
 
 /* ===== Расходы на телефоне (ExpensesMobile.jsx) — месяц целиком ===== */
-/* Строка "Обновляем из гугл-таблицы…" на месте бывшей карточки с кнопкой "Обновить" */
+/* Строка "Обновляем из Traty…" на месте бывшей карточки с кнопкой "Обновить" */
 .em-sync-line { margin-top: 10px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); }
 
 .em-months { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 14px 0 12px; padding-bottom: 2px; }

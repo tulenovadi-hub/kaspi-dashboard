@@ -42,15 +42,15 @@ export default function Expenses({ password, active = true, isOnline = true }) {
   // остаётся на месте и просто тускнеет, как в офлайне (см. useAppRefresh.js).
   const refreshTick = useAppRefresh(active);
 
-  // Кнопки "Обновить" на странице больше нет (убрана 2026-09-09): гугл-таблица подтягивается
-  // сама при каждом открытии страницы и при свайпе вниз. Синхронизация идёт ПАРАЛЛЕЛЬНО с
-  // чтением базы, а не до него: показать уже сохранённые расходы можно сразу, а поход в Google
-  // (~0,5 с на скачивание листа) не должен задерживать страницу. Перечитываем базу только
+  // Кнопки "Обновить" на странице больше нет (убрана 2026-09-09): записи Traty подтягиваются
+  // сами при каждом открытии страницы и при свайпе вниз. Синхронизация идёт ПАРАЛЛЕЛЬНО с
+  // чтением базы, а не до него: показать уже сохранённые расходы можно сразу, а поход в Traty
+  // не должен задерживать страницу. Перечитываем базу только
   // если синхронизация реально что-то изменила — иначе страница зря мигнёт.
   useEffect(() => {
     if (!active) return;
     loadData();
-    if (isOnline) syncFromSheet();
+    if (isOnline) syncFromTraty();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, refreshTick]);
 
@@ -62,7 +62,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
     setMonthFilter(months.reduce((a, b) => (a.month > b.month ? a : b)).month);
   }, [isMobile, months, monthFilter]);
 
-  function syncFromSheet() {
+  function syncFromTraty() {
     setSyncing(true);
     setSyncMessage('');
     setSyncWarnings([]);
@@ -71,28 +71,21 @@ export default function Expenses({ password, active = true, isOnline = true }) {
       .then((res) => {
         // Раньше здесь всегда писали "Обновлено расходов: 330" — при автоматической
         // синхронизации это была бы строка на каждое открытие страницы ни о чём. Теперь
-        // сообщение появляется, только если в таблице действительно что-то поменялось.
+        // сообщение появляется, только если в Traty действительно что-то поменялось.
         const parts = [];
         if (res.inserted) parts.push(`добавлено ${formatRecords(res.inserted)}`);
         if (res.updated) parts.push(`изменено ${formatRecords(res.updated)}`);
         if (res.removed) parts.push(`удалено ${formatRecords(res.removed)}`);
-        setSyncMessage(parts.length > 0 ? `Из гугл-таблицы: ${parts.join(', ')}` : '');
+        setSyncMessage(parts.length > 0 ? `Из Traty: ${parts.join(', ')}` : '');
 
-        // Две вещи, которые раньше ломались молча: строка с непонятной датой выпадает и из сводки
-        // по месяцам, и из "Отчёта"; незнакомая категория не попадает ни в "прочие затраты",
-        // ни в "упаковку" отчёта. Показываем обе прямо здесь, чтобы это было видно сразу.
+        // Незнакомая категория раньше ломалась молча: она не попадает ни в "прочие затраты",
+        // ни в "упаковку" отчёта. Показываем её прямо здесь, чтобы это было видно сразу.
         const warnings = [];
-        if (res.withoutDate > 0) {
-          warnings.push(
-            `Строк с нераспознанной датой: ${res.withoutDate}. Они не попадут ни в сводку по месяцам, ` +
-            'ни в «Отчёт» — проверьте формат даты в таблице (нужен ДД.ММ.ГГГГ).'
-          );
-        }
         if (res.unknownCategories && res.unknownCategories.length > 0) {
           const list = res.unknownCategories.map((c) => `«${c.name}» (${c.count})`).join(', ');
           warnings.push(
             `Незнакомые категории: ${list}. В «Отчёте» они не учитываются. Ожидаются: ` +
-            'Прочие затраты, Товар, Вывод, Упаковка, Логистика.'
+            'Прочие затраты, Товар, Вывод, Упаковка, Логистика, Маркетинг.'
           );
         }
         setSyncWarnings(warnings);
@@ -103,24 +96,35 @@ export default function Expenses({ password, active = true, isOnline = true }) {
       })
       // Неудачная синхронизация не должна прятать уже загруженные расходы — своя строка,
       // отдельно от ошибки загрузки, чтобы было видно, что цифры на странице могут быть вчерашние.
-      .catch((err) => setSyncError(`Не удалось обновить из гугл-таблицы: ${err.message}`))
+      .catch((err) => setSyncError(`Не удалось обновить из Traty: ${err.message}`))
       .finally(() => setSyncing(false));
   }
 
+  // Внеплановые доходы приходят тем же списком, но показываются отдельно: в список и итог
+  // расходов они не попадают.
+  const expenseEntries = useMemo(() => expenses.filter((e) => e.entry_type !== 'income'), [expenses]);
+
   const listCategories = useMemo(() => {
-    return Array.from(new Set(expenses.map((e) => e.category).filter(Boolean))).sort();
-  }, [expenses]);
+    return Array.from(new Set(expenseEntries.map((e) => e.category).filter(Boolean))).sort();
+  }, [expenseEntries]);
 
   const availableMonths = useMemo(() => {
     return Array.from(new Set(expenses.map((e) => (e.expense_date || '').slice(0, 7)).filter(Boolean))).sort().reverse();
   }, [expenses]);
 
   const filtered = useMemo(() => {
-    return expenses
+    return expenseEntries
       .filter((e) => !search || (e.name || '').toLowerCase().includes(search.toLowerCase()))
       .filter((e) => !categoryFilter || e.category === categoryFilter)
       .filter((e) => !monthFilter || (e.expense_date || '').slice(0, 7) === monthFilter);
-  }, [expenses, search, categoryFilter, monthFilter]);
+  }, [expenseEntries, search, categoryFilter, monthFilter]);
+
+  const filteredIncome = useMemo(() => {
+    return expenses
+      .filter((e) => e.entry_type === 'income')
+      .filter((e) => !search || (e.name || '').toLowerCase().includes(search.toLowerCase()))
+      .filter((e) => !monthFilter || (e.expense_date || '').slice(0, 7) === monthFilter);
+  }, [expenses, search, monthFilter]);
 
   const totalFiltered = filtered.reduce((sum, e) => sum + Number(e.amount), 0);
 
@@ -138,6 +142,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
             categories={categories}
             filtered={filtered}
             filteredTotal={totalFiltered}
+            filteredIncome={filteredIncome}
             search={search}
             categoryFilter={categoryFilter}
             monthFilter={monthFilter}
@@ -161,7 +166,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
       <div className="app-header">
         <h1 className="app-title">Расходы</h1>
         <div className="sync-status">
-          {syncing ? 'Обновляем из гугл-таблицы…' : 'Гугл-таблица, лист «Бизнес» — обновляется при открытии страницы'}
+          {syncing ? 'Обновляем из Traty…' : 'Traty, бюджет «Бизнес» — обновляется при открытии страницы'}
         </div>
       </div>
 
@@ -181,7 +186,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
       <div className="section-title">По месяцам</div>
       <div className="card">
         {months.length === 0 ? (
-          <div className="empty-state">Пока нет данных — расходы подтянутся из гугл-таблицы</div>
+          <div className="empty-state">Пока нет данных — расходы подтянутся из Traty</div>
         ) : (
           <div className="table-scroll">
             <table className="product-table">
@@ -192,6 +197,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
                     <th key={c} className="num">{c}</th>
                   ))}
                   <th className="num">СУММА РАСХОДОВ</th>
+                  <th className="num">Внеплановые доходы</th>
                 </tr>
               </thead>
               <tbody>
@@ -202,6 +208,7 @@ export default function Expenses({ password, active = true, isOnline = true }) {
                       <td key={c} className="num">{m.byCategory[c] ? formatMoney(m.byCategory[c]) : '—'}</td>
                     ))}
                     <td className="num expenses-total-cell">{formatMoney(m.total)}</td>
+                    <td className="num expenses-income-cell">{m.income ? `+${formatMoney(m.income)}` : '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -209,6 +216,38 @@ export default function Expenses({ password, active = true, isOnline = true }) {
           </div>
         )}
       </div>
+
+      {filteredIncome.length > 0 && (
+        <>
+          <div className="section-title">Внеплановые доходы</div>
+          <div className="card">
+            <div className="table-scroll">
+              <table className="product-table">
+                <thead>
+                  <tr>
+                    <th>Дата</th>
+                    <th>Название</th>
+                    <th>Категория</th>
+                    <th className="num">Сумма</th>
+                    <th>Кто</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredIncome.map((e) => (
+                    <tr key={e.id}>
+                      <td>{formatDateDMY(e.expense_date)}</td>
+                      <td>{e.name || '—'}</td>
+                      <td>{e.category || '—'}</td>
+                      <td className="num expenses-income-cell">+{formatMoney(e.amount)}</td>
+                      <td className="batch-note-cell">{e.comment || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="section-title">Все расходы</div>
       <div className="batches-toolbar">
