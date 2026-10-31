@@ -661,7 +661,7 @@ router.post('/transfer', async (req, res) => {
   };
 
   try {
-    await runStockChange('warehouse-transfer', key, {}, (client, stock) => (
+    await runStockChange(key, {}, (client, stock) => (
       applyTransfer(client, transfer, stock, crypto.randomUUID(), new Date().toISOString())
     ));
     res.status(201).json({ ok: true });
@@ -672,30 +672,31 @@ router.post('/transfer', async (req, res) => {
   }
 });
 
-// Перемещения и списания идут в той же очереди, что и сверка: минутное обновление заказов не
-// должно вклиниться между расчётом остатка и переносом партий. Повтор запроса с тем же ключом не
-// создаст вторую запись. build получает client и пересчитанный остаток.
-async function runStockChange(label, idempotencyKey, options, build) {
-  await enqueueKaspiSync(label, async () => {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      if (idempotencyKey) {
-        const existing = await client.query('SELECT id FROM warehouse_transfers WHERE idempotency_key = $1', [idempotencyKey]);
-        if (existing.rowCount > 0) {
-          await client.query('COMMIT');
-          return;
-        }
+// Перемещения и списания намеренно НЕ стоят в очереди enqueueKaspiSync: она занята походами в
+// Kaspi, и запись ждала бы их конца минутами (2026-11-01 списание висело на "Списываем…"). Если
+// обновление заказов вклинится посреди записи, доступный остаток разойдётся максимум на один заказ,
+// а сама запись от этого не ломается. Друг от друга такие операции защищает блокировка в базе.
+// Повтор запроса с тем же ключом не создаст вторую запись. build получает client и остаток.
+async function runStockChange(idempotencyKey, options, build) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext('warehouse-stock-change'))`);
+    if (idempotencyKey) {
+      const existing = await client.query('SELECT id FROM warehouse_transfers WHERE idempotency_key = $1', [idempotencyKey]);
+      if (existing.rowCount > 0) {
+        await client.query('COMMIT');
+        return;
       }
-      await build(client, await computeWarehouseStock(client, options));
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {});
-      throw err;
-    } finally {
-      client.release();
     }
-  });
+    await build(client, await computeWarehouseStock(client, options));
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 function normalizeTransferItems(items) {
@@ -769,7 +770,7 @@ router.post('/write-off', async (req, res) => {
   };
 
   try {
-    await runStockChange('warehouse-write-off', key, {}, (client, stock) => (
+    await runStockChange(key, {}, (client, stock) => (
       applyTransfer(client, transfer, stock, crypto.randomUUID(), new Date().toISOString())
     ));
     res.status(201).json({ ok: true });
@@ -787,7 +788,7 @@ router.post('/write-offs/:id/cancel', async (req, res) => {
   }
 
   try {
-    await runStockChange('warehouse-write-off-cancel', null, { includeWrittenOff: true }, async (client, stock) => {
+    await runStockChange(null, { includeWrittenOff: true }, async (client, stock) => {
       const original = await client.query(
         `SELECT t.from_warehouse, t.cancelled_at, i.product_id, i.product_name, i.quantity
          FROM warehouse_transfers t
