@@ -583,6 +583,89 @@ async function fetchConfirmedReturnsByDay(from, to, mode) {
   }]));
 }
 
+// Подтверждённые возвраты по товарам: то же влияние на прибыль, что и в
+// fetchConfirmedReturnsByDay, но по заказам. Многотоварный заказ делится по сумме позиций, как
+// и покупка. Возврат заказа, которого нет среди товаров периода, остаётся в общем остатке.
+async function fetchConfirmedReturnsByProduct(from, to, mode) {
+  const result = await pool.query(
+    `WITH order_returns AS (
+       SELECT kpt.order_number,
+              SUM(-(kpt.amount + kpt.commission_total + kpt.delivery_cost + (-kpt.amount * $4::numeric))) AS profit_impact
+       FROM kaspi_pay_transactions kpt
+       JOIN orders o ON o.code = kpt.order_number
+       WHERE kpt.operation_type = 'Возврат'
+         AND kpt.operation_date >= $1::date
+         AND kpt.operation_date < $2::date + interval '1 day'
+         AND o.origin_city = ANY($3::text[])
+       GROUP BY kpt.order_number
+     )
+     SELECT r.order_number, r.profit_impact, oi.product_id, oi.total_price
+     FROM order_returns r
+     JOIN orders o ON o.code = r.order_number
+     JOIN order_items oi ON oi.order_id = o.id`,
+    [from, to, citiesFor(mode), TAX_RATE]
+  );
+
+  const orderTotals = new Map();
+  for (const row of result.rows) {
+    orderTotals.set(row.order_number, (orderTotals.get(row.order_number) || 0) + Number(row.total_price));
+  }
+  const byProduct = new Map();
+  for (const row of result.rows) {
+    const orderTotal = orderTotals.get(row.order_number);
+    if (!(orderTotal > 0)) continue;
+    const impact = Math.max(0, Number(row.profit_impact) || 0) * (Number(row.total_price) / orderTotal);
+    byProduct.set(row.product_id, (byProduct.get(row.product_id) || 0) + impact);
+  }
+  return byProduct;
+}
+
+// Реклама и бонусы, привязанные к товару через кампанию, — та же привязка, что в разбивке
+// "Отчёта" (getCampaignCostByProductForMonth). Кампания на несколько товаров делится поровну.
+async function fetchLinkedMarketingByProduct(from, to) {
+  const sources = [
+    ['ad_expenses', 'cost', 'ad_campaign_products'],
+    ['bonus_expenses', 'bonus_amount', 'bonus_campaign_products'],
+    ['review_bonus_expenses', 'bonus_amount', 'review_bonus_campaign_products'],
+  ];
+  const byProduct = new Map();
+  await Promise.all(sources.map(async ([costTable, costColumn, linkTable]) => {
+    const result = await pool.query(
+      `WITH campaign_costs AS (
+         SELECT campaign_id, SUM(${costColumn}) AS total_cost
+         FROM ${costTable}
+         WHERE expense_date >= $1::date AND expense_date <= $2::date
+         GROUP BY campaign_id
+       )
+       SELECT l.product_id, SUM(c.total_cost / counts.products) AS cost
+       FROM campaign_costs c
+       JOIN ${linkTable} l ON l.campaign_id = c.campaign_id
+       JOIN (SELECT campaign_id, COUNT(*) AS products FROM ${linkTable} GROUP BY campaign_id) counts
+         ON counts.campaign_id = c.campaign_id
+       GROUP BY l.product_id`,
+      [from, to]
+    );
+    for (const row of result.rows) {
+      byProduct.set(row.product_id, (byProduct.get(row.product_id) || 0) + Number(row.cost));
+    }
+  }));
+  return byProduct;
+}
+
+// Делит общую сумму между товарами: сначала каждому его точная часть, а то, что к товарам не
+// привязано (кампания без привязки, прогноз маркетинга, возврат товара без продаж в периоде),
+// пропорционально выручке. Сумма долей всегда равна total.
+function allocateToProducts(total, exactByProduct, revenueByProduct) {
+  const productIds = [...revenueByProduct.keys()];
+  const exactFor = (id) => exactByProduct.get(id) || 0;
+  const remainder = total - productIds.reduce((sum, id) => sum + exactFor(id), 0);
+  const totalRevenue = productIds.reduce((sum, id) => sum + revenueByProduct.get(id), 0);
+  return new Map(productIds.map((id) => {
+    const share = totalRevenue > 0 ? revenueByProduct.get(id) / totalRevenue : 1 / productIds.length;
+    return [id, exactFor(id) + remainder * share];
+  }));
+}
+
 // Сегодняшняя дата по Алматы (UTC+5) — тот же сдвиг, что у выручки в SQL выше.
 // Date.now() всегда в UTC, поэтому от часового пояса сервера (Render живёт в UTC) не зависит.
 function todayAlmaty() {
@@ -662,7 +745,10 @@ async function computeSummaryNetProfit(from, to, mode) {
   // Маркетинг не привязан к городу отгрузки, поэтому вычитаем его только на "Главной" (mode
   // !== 'selfbuy') — так же, как колонка "Маркетинг" в "Отчёте" есть только в "Основном отчёте"
   // (Алматы, Астана), а не в "Самовыкупах".
-  const [itemsResult, kptResult, costData, marketingData, opExpensesByDay, confirmedReturnsByDay] = await Promise.all([
+  const [
+    itemsResult, kptResult, costData, marketingData, opExpensesByDay, confirmedReturnsByDay,
+    linkedMarketingByProduct, confirmedReturnsByProduct,
+  ] = await Promise.all([
     pool.query(
       // day — та же "казахстанская" дата, что и в /summary (сдвиг +5 часов), иначе выручка и
       // прибыль одного заказа попадали бы на разные дни графика.
@@ -690,6 +776,8 @@ async function computeSummaryNetProfit(from, to, mode) {
     // "Отчёте" есть лишь в основном отчёте, а не в "Самовыкупах".
     mode !== 'selfbuy' ? fetchOpExpensesByDay(from, to) : Promise.resolve(new Map()),
     fetchConfirmedReturnsByDay(from, to, mode),
+    mode !== 'selfbuy' ? fetchLinkedMarketingByProduct(from, to) : Promise.resolve(new Map()),
+    fetchConfirmedReturnsByProduct(from, to, mode),
   ]);
 
   // Выручка выбранного периода по дням нужна для прогноза маркетинга. Берём те же позиции,
@@ -844,9 +932,9 @@ async function computeSummaryNetProfit(from, to, mode) {
   let apiDeliveryOrders = 0;
   let fallbackDeliveryOrders = 0;
   let fallbackCostItems = 0;
-  // Прибыль по каждому товару до общих расходов. Ниже маркетинг, операционные расходы и
-  // подтверждённые возвраты распределяются пропорционально выручке товара. Резерв будущих
-  // возвратов, наоборот, считается непосредственно по ставке каждого товара.
+  // Прибыль по каждому товару до общих расходов. Ниже маркетинг и подтверждённые возвраты
+  // разносятся по самому товару, а операционные расходы и всё непривязанное — пропорционально
+  // выручке (см. allocateToProducts). Резерв возвратов считается по ставке каждого товара.
   const profitByProduct = new Map();
   for (const [productId, stat] of perProductKnown) {
     profitByProduct.set(productId, stat.profit);
@@ -908,28 +996,20 @@ async function computeSummaryNetProfit(from, to, mode) {
   const marketingUncertainty = marketingForecast.estimatedTotal * 0.25;
   const forecastLow = totalNetProfit - commissionDownside - expectedReturnReserve - marketingUncertainty;
   const forecastHigh = totalNetProfit + commissionUpside + expectedReturnReserve + marketingUncertainty;
-  const totalProductRevenue = [...revenueByProduct.values()].reduce((sum, value) => sum + value, 0);
   const productEntries = [...profitByProduct.entries()];
-  let allocatedMarketing = 0;
-  let allocatedOpExpenses = 0;
-  let allocatedReturns = 0;
+  const productRevenues = new Map(productEntries.map(([productId]) => [productId, revenueByProduct.get(productId) || 0]));
+  const marketingShares = allocateToProducts(marketing, linkedMarketingByProduct, productRevenues);
+  const opExpenseShares = allocateToProducts(opExpenses, new Map(), productRevenues);
+  const returnShares = allocateToProducts(confirmedReturnImpact, confirmedReturnsByProduct, productRevenues);
   let roundedProfitAssigned = 0;
 
   const products = productEntries.map(([productId, contributionProfit], index) => {
     const revenue = revenueByProduct.get(productId) || 0;
-    const share = totalProductRevenue > 0 ? revenue / totalProductRevenue : 0;
     const isLast = index === productEntries.length - 1;
 
-    // Последний товар получает остаток от дробных копеек, поэтому распределённые суммы
-    // сходятся с общими точно, а не только приблизительно.
-    const productMarketing = isLast ? marketing - allocatedMarketing : marketing * share;
-    const productOpExpenses = isLast ? opExpenses - allocatedOpExpenses : opExpenses * share;
-    const productReturns = isLast
-      ? confirmedReturnImpact - allocatedReturns
-      : confirmedReturnImpact * share;
-    allocatedMarketing += productMarketing;
-    allocatedOpExpenses += productOpExpenses;
-    allocatedReturns += productReturns;
+    const productMarketing = marketingShares.get(productId);
+    const productOpExpenses = opExpenseShares.get(productId);
+    const productReturns = returnShares.get(productId);
 
     const productReserve = reserveByProduct.get(productId) || 0;
     const exactProfit = contributionProfit - productMarketing - productOpExpenses - productReturns - productReserve;
@@ -1252,3 +1332,4 @@ module.exports.computeCostsByOrderItem = computeCostsByOrderItem;
 module.exports.TAX_RATE = TAX_RATE;
 module.exports.forecastUnknownItemProfit = forecastUnknownItemProfit;
 module.exports.returnProfitImpact = returnProfitImpact;
+module.exports.allocateToProducts = allocateToProducts;

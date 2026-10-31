@@ -44,3 +44,16 @@ test('return impact includes commission credit, delivery adjustment and tax reli
     deliveryCost: 0,
   }), 25500); // возврат 30 000 - комиссия 3 600 - налог 900
 });
+
+test('shared totals go to the product first and only the unlinked rest goes by revenue', () => {
+  const { allocateToProducts } = require('./stats');
+  const revenue = new Map([['a', 300], ['b', 100]]);
+
+  const shares = allocateToProducts(100, new Map([['b', 60], ['sold-out', 20]]), revenue);
+  assert.equal(shares.get('a'), 30, 'three quarters of the 40 left, nothing of its own');
+  assert.equal(shares.get('b'), 70, 'its own 60 plus a quarter of the rest');
+  assert.equal(shares.get('a') + shares.get('b'), 100, 'spend on a product with no sales stays in the total');
+
+  assert.deepEqual([...allocateToProducts(80, new Map(), revenue).values()], [60, 20]);
+  assert.deepEqual([...allocateToProducts(10, new Map(), new Map([['a', 0], ['b', 0]])).values()], [5, 5]);
+});

@@ -40,7 +40,8 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
   const daysCount = days.length || 1;
   const avgQtyPerDay = (totalQty / daysCount).toFixed(1);
 
-  // Сумма чистой прибыли за весь период. Для дней без загруженного Excel-отчёта Kaspi Pay
+  // Прибыль товара за весь период ДО общих расходов: маркетинг, операционные расходы и резерв
+  // возвратов здесь не вычтены, полная чистая прибыль товара — в таблице под Главной. Для дней без загруженного Excel-отчёта Kaspi Pay
   // net_profit — это прогноз по историческому % прибыли этого товара (см. backend), не null —
   // поэтому суммируем все дни, где значение вообще есть (по-настоящему null бывает, только если
   // по товару вообще никогда не было ни одного известного дня — тогда прогнозировать не от чего).
@@ -56,7 +57,7 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
           <div style={{ color: '#6b7690', fontSize: 13, marginTop: 4 }}>
             Продано за период: {formatNumber(product.total_quantity)} шт на {formatMoney(product.total_revenue)}
             {' '}
-            (Чистая прибыль:{' '}
+            (Прибыль до общих расходов:{' '}
             <span style={{ color: totalNetProfit < 0 ? '#ff6b6b' : '#3ddc97', fontWeight: 600 }}>
               {formatMoney(totalNetProfit)}
             </span>
@@ -87,7 +88,7 @@ export default function ProductDetail({ password, product, from, to, mode = 'mai
           className={`period-chip ${metric === 'net_profit' ? 'active' : ''}`}
           onClick={() => setMetric('net_profit')}
         >
-          Чистая прибыль
+          Прибыль до общих расходов
         </button>
       </div>
 
