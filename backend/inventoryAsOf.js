@@ -85,7 +85,7 @@ function classifyReleased(o, asOf) {
     if (o.tracking_active === false && before(o.last_track_at)) return exact('none');
   }
   if (before(o.completion_at)) return exact('none');
-  if (o.dc_order_number !== null && seenBefore) return estimate('returning', 'Отмена уже была, но закончилась позже даты: неизвестно, ехала ли она на эту дату');
+  if (o.dc_order_number !== null && seenBefore) return estimate('returning', 'Отмена без подтверждённой даты окончания: неизвестно, ехала ли она на эту дату');
   return estimate('to_customers', 'Заказ отменён позже даты: неизвестно, был ли он уже принят и списан с остатка');
 }
 
