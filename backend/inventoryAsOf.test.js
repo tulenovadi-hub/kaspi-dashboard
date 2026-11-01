@@ -8,7 +8,7 @@ const AS_OF = almatyDayStart(DATE);
 const order = (fields) => ({
   creation_date: '2026-09-29T05:00:00Z', status: 'COMPLETED', was_completed: true, manual_sale: false,
   completion_at: null, first_purchase_date: null, dc_order_number: null, dc_status: null, first_seen_at: null,
-  stock_returned_at: null, archived_at: null, tracking_active: null, tracking_status: null, wonder_received: null,
+  stock_returned_at: null, archived_at: null, last_track_at: null, tracking_active: null, tracking_status: null, wonder_received: null,
   restored_from_archive: false, ...fields,
 });
 const at = (fields) => classifyAt(order(fields), AS_OF, DATE);
@@ -52,6 +52,19 @@ test('a cancellation is on its way back from when it was seen until the stock bu
 
 test('a cancellation without tracking now is only an estimate for the past', () => {
   const placed = at(cancellation({ first_seen_at: '2026-09-29T10:00:00Z' }));
+  assert.equal(placed.bucket, 'returning');
+  assert.equal(placed.exact, false);
+});
+
+test('a finished or never-shipped cancellation left the road when its tracking ended', () => {
+  const seen = { first_seen_at: '2026-09-07T00:00:00Z', tracking_active: false };
+  assert.deepEqual(at({ ...cancellation(seen), tracking_status: 'CANCELLED', last_track_at: '2026-09-16T00:00:00Z' }), { bucket: 'none', exact: true, reason: null });
+  assert.deepEqual(at({ ...cancellation(seen), status: 'RETURNED', dc_status: 'RETURNED', tracking_status: 'FINISHED', last_track_at: '2026-08-08T00:00:00Z' }), { bucket: 'none', exact: true, reason: null });
+  assert.equal(at({ ...cancellation(seen), tracking_status: 'CANCELLED', last_track_at: '2026-10-05T00:00:00Z' }).exact, false);
+});
+
+test('a parcel back at the warehouse stays on the way until the button, even if archived later', () => {
+  const placed = at(cancellation({ first_seen_at: '2026-09-07T00:00:00Z', tracking_active: false, tracking_status: 'RETURNED', last_track_at: '2026-09-20T00:00:00Z', archived_at: '2026-10-20T00:00:00Z' }));
   assert.equal(placed.bucket, 'returning');
   assert.equal(placed.exact, false);
 });

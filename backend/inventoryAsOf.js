@@ -67,20 +67,25 @@ function classifyDelivered(o, asOf, asOfDate) {
   return { bucket: 'unresolved', exact: false, reason: 'Выдан, но нет ни даты выдачи от Kaspi, ни операции "Покупка" в Kaspi Pay' };
 }
 
-// Заказ, который сейчас не списан с остатка: отмена или снятый до доставки.
+// Заказ, который сейчас не списан с остатка: отмена, завершённый возврат или снятый до доставки.
+// Трекинг без RETURNED закончился тем, что товар никуда не вернулся и не уехал (отменён до отправки,
+// FINISHED): после этой даты заказа в пути нет. RETURNED — товар приехал и ждал кнопку, это ещё в пути.
 function classifyReleased(o, asOf) {
   const seenBefore = new Date(o.first_seen_at) < asOf;
+  const before = (value) => Boolean(value) && new Date(value) < asOf;
   if (o.dc_order_number !== null) {
     if (o.stock_returned_at !== null) {
-      if (new Date(o.stock_returned_at) < asOf) return exact('none');
+      if (before(o.stock_returned_at)) return exact('none');
       return seenBefore
         ? exact('returning')
         : estimate('to_customers', 'Отмена замечена позже даты: заказ точно был в пути, но неизвестно, в какую сторону');
     }
-    if (o.archived_at !== null && new Date(o.archived_at) < asOf) return exact('none');
-    if (seenBefore) return estimate('returning', 'Отмена уже была, но сейчас не числится едущей обратно: неизвестно, ехала ли она на эту дату');
+    if (before(o.archived_at)) return exact('none');
+    if (o.tracking_status === 'RETURNED' && seenBefore) return estimate('returning', 'Вернулся на склад, позже убран из списка без кнопки: неизвестно, когда именно');
+    if (o.tracking_active === false && before(o.last_track_at)) return exact('none');
   }
-  if (o.completion_at && new Date(o.completion_at) < asOf) return exact('none');
+  if (before(o.completion_at)) return exact('none');
+  if (o.dc_order_number !== null && seenBefore) return estimate('returning', 'Отмена уже была, но закончилась позже даты: неизвестно, ехала ли она на эту дату');
   return estimate('to_customers', 'Заказ отменён позже даты: неизвестно, был ли он уже принят и списан с остатка');
 }
 
@@ -124,10 +129,12 @@ async function loadSources(db) {
   const [batches, orders, items, moves, adjustments] = await Promise.all([
     db.query(`
       SELECT id, product_id, product_name, cost_price, warehouse, quantity, received_date::text AS received_date,
-             created_at, status, note, COALESCE(purchase_price, cost_price) AS purchase_price,
+             MIN(created_at) OVER (PARTITION BY COALESCE(supply_group_id, 'batch-' || id)) AS created_at,
+             status, note, COALESCE(purchase_price, cost_price) AS purchase_price,
              COALESCE(logistics_cost, 0) AS logistics_cost, extra_expenses,
              COALESCE(supply_group_id, 'batch-' || id) AS supply_key
       FROM product_batches
+      ORDER BY product_id, warehouse, received_date, id
     `),
     db.query(
       `SELECT o.id, o.code, o.creation_date, o.status, o.was_completed, o.origin_city, o.manual_sale,
@@ -135,7 +142,7 @@ async function loadSources(db) {
                    THEN to_timestamp((o.raw_data->'attributes'->>'completionDate')::numeric / 1000.0) END AS completion_at,
               pay.first_purchase_date,
               dc.order_number AS dc_order_number, dc.status AS dc_status, dc.first_seen_at, dc.stock_returned_at,
-              dc.archived_at, dc.tracking_active, dc.tracking_status, dc.wonder_received, dc.restored_from_archive
+              dc.archived_at, dc.last_track_at, dc.tracking_active, dc.tracking_status, dc.wonder_received, dc.restored_from_archive
        FROM orders o
        LEFT JOIN delivery_cancellations dc ON dc.order_number = o.code
        LEFT JOIN (
