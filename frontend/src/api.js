@@ -414,6 +414,11 @@ export function fetchInventoryValue(password) {
   return apiRequest('/api/warehouse/inventory-value', password);
 }
 
+// То же на начало дня по Алматы, со списком заказов в пути и сверками.
+export function fetchInventoryAsOf(password, date) {
+  return apiRequest(`/api/warehouse/inventory-as-of?date=${date}`, password);
+}
+
 export function fetchProductImages(password, productIds) {
   return apiRequest('/api/product-images', password, {
     method: 'POST',

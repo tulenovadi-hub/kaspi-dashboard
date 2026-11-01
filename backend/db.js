@@ -732,6 +732,35 @@ async function initDb() {
     console.log('Создан пользователь по умолчанию: admin / (старый общий пароль сайта). Обязательно смените его в Настройках!');
   }
 
+  // Статус заказа в orders перезаписывается, и восстановить прошлое можно только по косвенным датам
+  // (inventoryAsOf.js). С этой таблицы начинается настоящая история: строка на каждую смену статуса.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS order_status_history (
+      id BIGSERIAL PRIMARY KEY,
+      order_code TEXT NOT NULL,
+      source TEXT NOT NULL,
+      state TEXT,
+      status TEXT,
+      seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_order_status_history_code ON order_status_history(order_code, seen_at);`);
+  // Точка отсчёта: что было на момент появления таблицы. Выполняется один раз.
+  await pool.query(`
+    INSERT INTO order_status_history (order_code, source, state, status)
+    SELECT code, 'start', state, status FROM orders
+    WHERE code IS NOT NULL AND NOT EXISTS (SELECT 1 FROM order_status_history)
+  `);
+
+  // Деньги в товаре на начало месяца, снятые по факту: см. captureMonthSnapshot.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS inventory_month_snapshots (
+      as_of_date DATE PRIMARY KEY,
+      captured_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      payload JSONB NOT NULL
+    );
+  `);
+
   console.log('База данных готова: таблицы orders, order_items, product_batches, kaspi_pay_transactions, product_images, expenses, ad_expenses, bonus_expenses, users, sessions и Kaspi API шлюза на месте.');
 }
 

@@ -2976,6 +2976,45 @@ input[type="date"] {
   margin-bottom: 18px;
 }
 
+.report-inventory-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.report-inventory-head select {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.report-inventory-warning {
+  color: var(--accent-warn);
+}
+
+.report-inventory-orders {
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+
+.report-inventory-orders summary {
+  cursor: pointer;
+  color: var(--accent-brand);
+}
+
+.report-inventory-orders .product-table td.report-inventory-note {
+  white-space: normal;
+  min-width: 180px;
+  color: var(--text-muted);
+}
+
 /* Воронка акции на "Бонусах от продавца": просмотры → клики → корзина → заказы одной строкой.
    Обычный flex с переносом, а не сетка: шагов немного, а на телефоне они должны свободно
    переноситься вместе со стрелками. */

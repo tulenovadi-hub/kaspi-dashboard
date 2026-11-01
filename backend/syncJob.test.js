@@ -24,7 +24,8 @@ test('returned-order sync scans from the stock cutoff and stores RETURNED status
   };
 
   const query = async (sql, params) => {
-    if (sql.includes('SELECT id FROM orders')) return { rows: [{ id: 'order-1' }] };
+    if (sql.includes('INSERT INTO order_status_history')) return { rows: [] };
+    if (sql.includes('SELECT id, status FROM orders')) return { rows: [{ id: 'order-1' }] };
     if (sql.includes('SELECT DISTINCT order_id')) return { rows: [{ order_id: 'order-1' }] };
     if (sql.includes('INSERT INTO orders')) {
       upsertSql = sql;
@@ -96,7 +97,8 @@ test('old active orders are refreshed individually without aborting on one faile
       ]);
       return { rows: [{ code: 'old-success' }, { code: 'old-failure' }] };
     }
-    if (sql.includes('SELECT id FROM orders')) return { rows: [{ id: 'order-old-success' }] };
+    if (sql.includes('INSERT INTO order_status_history')) return { rows: [] };
+    if (sql.includes('SELECT id, status FROM orders')) return { rows: [{ id: 'order-old-success' }] };
     if (sql.includes('SELECT DISTINCT order_id')) return { rows: [{ order_id: 'order-old-success' }] };
     if (sql.includes('INSERT INTO orders')) {
       savedStatus = params[5];

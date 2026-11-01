@@ -60,7 +60,13 @@ function upsertFromAttrs(client, attrs) {
   const returnedToWarehouse = attrs.kaspiDelivery ? attrs.kaspiDelivery.returnedToWarehouse : null;
 
   return client.query(
-    `INSERT INTO delivery_cancellations
+    `WITH history AS (
+       INSERT INTO order_status_history (order_code, source, state, status)
+       SELECT $1, 'cancellations', $7, $8
+       WHERE NOT EXISTS (SELECT 1 FROM excluded_orders WHERE order_number = $1)
+         AND NOT EXISTS (SELECT 1 FROM delivery_cancellations WHERE order_number = $1 AND status IS NOT DISTINCT FROM $8)
+     )
+     INSERT INTO delivery_cancellations
        (order_number, creation_date, total_price, cancellation_reason, delivery_mode, origin_city, state, status, returned_to_warehouse)
      SELECT $1, to_timestamp($2 / 1000.0), $3, $4, $5, $6, $7, $8, $9
      WHERE NOT EXISTS (SELECT 1 FROM excluded_orders WHERE order_number = $1)

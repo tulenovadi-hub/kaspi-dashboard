@@ -26,16 +26,18 @@ function hasCompletedEvidence(attrs) {
 async function saveOrders(orders, { onlyMissingEntries = false } = {}) {
   const ids = orders.map((order) => order.id);
   let existingIds = new Set();
+  let existingStatuses = new Map();
   let ordersWithItems = new Set();
 
   if (ids.length > 0) {
     const [existingResult, itemsResult] = await Promise.all([
-      pool.query(`SELECT id FROM orders WHERE id = ANY($1::text[])`, [ids]),
+      pool.query(`SELECT id, status FROM orders WHERE id = ANY($1::text[])`, [ids]),
       onlyMissingEntries
         ? pool.query(`SELECT DISTINCT order_id FROM order_items WHERE order_id = ANY($1::text[])`, [ids])
         : Promise.resolve({ rows: [] }),
     ]);
     existingIds = new Set(existingResult.rows.map((row) => row.id));
+    existingStatuses = new Map(existingResult.rows.map((row) => [row.id, row.status]));
     ordersWithItems = new Set(itemsResult.rows.map((row) => row.order_id));
   }
 
@@ -69,6 +71,12 @@ async function saveOrders(orders, { onlyMissingEntries = false } = {}) {
     // фоновой синхронизации. В настоящем pg rowCount=0; undefined сохраняет совместимость
     // с простыми mock-ответами в тестах.
     if (saved.rowCount === 0) continue;
+    if (existingStatuses.get(order.id) !== attrs.status) {
+      await pool.query(
+        `INSERT INTO order_status_history (order_code, source, state, status) VALUES ($1, 'orders', $2, $3)`,
+        [attrs.code, attrs.state, attrs.status]
+      );
+    }
     savedOrders += 1;
     if (isNew) newOrders += 1;
     if (CUSTOMER_RETURN_STATUSES.includes(attrs.status) && attrs.code) customerReturnCodes.push(String(attrs.code));

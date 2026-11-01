@@ -14,6 +14,7 @@ const statsRoutes = require('./routes/stats');
 const batchesRoutes = require('./routes/batches');
 const reportsRoutes = require('./routes/reports');
 const warehouseRoutes = require('./routes/warehouse');
+const { captureMonthSnapshot } = require('./inventoryAsOf');
 const warehouseSettingsRoutes = require('./routes/warehouseSettings');
 const selfBuyOrdersRoutes = require('./routes/selfBuyOrders');
 const manualSalesRoutes = require('./routes/manualSales');
@@ -212,6 +213,9 @@ async function runLiveSyncCycle() {
   // Выполняется после заказов в той же очереди, поэтому даже долгая проверка отмен не
   // пересекается с очередным минутным запросом.
   const cancellations = await trySyncRecentDeliveryCancellations();
+  // Снимок на начало месяца снимается здесь: минутный проход первым видит новый месяц.
+  // Его ошибка не должна считаться ошибкой синхронизации, повторится через минуту.
+  await captureMonthSnapshot(pool).catch((err) => console.error('Снимок денег в товаре не снят:', err));
   return { mode: orderMode, ...orders, delivery_cancellations: cancellations };
 }
 
