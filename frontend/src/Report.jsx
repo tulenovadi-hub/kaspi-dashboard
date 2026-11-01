@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { uploadKaspiPayReport, fetchMonthlyReport, fetchMonthProductBreakdown } from './api.js';
-import { formatDateDMY, formatMoney, formatMonthLabel, formatPercent } from './dateUtils.js';
+import { uploadKaspiPayReport, fetchMonthlyReport, fetchMonthProductBreakdown, fetchInventoryValue } from './api.js';
+import { formatDateDMY, formatMoney, formatMonthLabel, formatNumber, formatPercent } from './dateUtils.js';
 import ReportMobile from './ReportMobile.jsx';
 import { useWarehouseCities } from './useWarehouseCities.js';
 import { useIsMobile } from './useIsMobile.js';
@@ -185,6 +185,36 @@ function MonthlyTable({
   );
 }
 
+// Снимок на сейчас, а не за месяц, поэтому это карточка над таблицами, а не колонка в них. Сумма со
+// "Склада" здесь первым слагаемым и не меняется: добавляется только то, что из остатка уже ушло,
+// а к покупателю ещё не попало.
+function ActualInventoryCard({ inventory, failed }) {
+  if (failed && !inventory) {
+    return (
+      <div className="stat-card inventory-summary-total report-actual-inventory">
+        <div className="stat-label">Фактически в товаре сейчас</div>
+        <div className="stat-card-hint">Не удалось посчитать, обновите страницу</div>
+      </div>
+    );
+  }
+  if (inventory?.actual_total === undefined) return null;
+
+  return (
+    <div className="stat-card inventory-summary-total report-actual-inventory">
+      <div className="stat-label">Фактически в товаре сейчас</div>
+      <div className="stat-value">{formatMoney(inventory.actual_total)}</div>
+      <div className="stat-card-hint">
+        Склад и поставки {formatMoney(inventory.total)}
+        {' + '}к клиентам {formatMoney(inventory.to_customers_value)} ({formatNumber(inventory.to_customers_quantity)} шт)
+        {' + '}отмены едут к нам {formatMoney(inventory.returning_value)} ({formatNumber(inventory.returning_quantity)} шт)
+        {inventory.off_shelf_unpriced_quantity > 0 && (
+          <> · из них {formatNumber(inventory.off_shelf_unpriced_quantity)} шт без себестоимости: нет ни одной партии, в сумму не вошли</>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Report({ password, active = true, isOnline = true }) {
   const [months, setMonths] = useState([]);
   const [monthsAll, setMonthsAll] = useState([]);
@@ -196,6 +226,8 @@ export default function Report({ password, active = true, isOnline = true }) {
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState('');
   const [latestUpload, setLatestUpload] = useState(undefined);
+  const [inventory, setInventory] = useState(null);
+  const [inventoryFailed, setInventoryFailed] = useState(false);
   const cities = useWarehouseCities(password, active);
   const fileInputRef = useRef(null);
 
@@ -235,6 +267,13 @@ export default function Report({ password, active = true, isOnline = true }) {
   function loadReport() {
     setLoading(true);
     setError('');
+    // Грузится отдельно: без этой цифры сами таблицы отчёта должны открываться как обычно.
+    fetchInventoryValue(password)
+      .then((res) => {
+        setInventory(res);
+        setInventoryFailed(false);
+      })
+      .catch(() => setInventoryFailed(true));
     fetchMonthlyReport(password)
       .then((res) => {
         setMonths(res.months);
@@ -327,6 +366,7 @@ export default function Report({ password, active = true, isOnline = true }) {
         <div className="empty-state">Загрузка...</div>
       ) : (
         <div style={{ opacity: (loading && hasData) || !isOnline ? 0.55 : 1, transition: 'opacity 0.25s ease' }}>
+          <ActualInventoryCard inventory={inventory} failed={inventoryFailed} />
           {isMobile ? (
             <ReportMobile
               monthsAll={monthsAll}

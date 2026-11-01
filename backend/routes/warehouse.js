@@ -18,6 +18,23 @@ const DELIVERY_CANCELLATION_STATUSES = ['CANCELLING', 'CANCELLED'];
 const { DISPLAY_CITIES: DISPLAY_WAREHOUSES, CITY_ORDER: WAREHOUSE_SORT_ORDER, ALL_CITIES, MAIN_CITIES, SELF_BUY_CITIES, MARKED_SELF_BUY_CITY, WRITE_OFF_CITY } = require('../warehouseMapping');
 const { TransferError, applyTransfer } = require('../warehouseTransfer');
 
+// Сколько стоят единицы очереди FIFO с места skip по место skip + take. Единицы за концом партий
+// (их остаток добавила сверка или продано больше, чем заведено) идут по unitCostBeyond.
+function fifoRangeValue(batches, skip, take, unitCostBeyond) {
+  let toSkip = skip;
+  let left = take;
+  let value = 0;
+  for (const batch of batches) {
+    if (left === 0) break;
+    const skipped = Math.min(batch.quantity, toSkip);
+    toSkip -= skipped;
+    const taken = Math.min(batch.quantity - skipped, left);
+    value += taken * batch.cost_price;
+    left -= taken;
+  }
+  return value + left * (unitCostBeyond || 0);
+}
+
 // Считает остатки по методу FIFO отдельно для каждого склада (города):
 // партии одного города списываются только продажами (и возвратами в пути, см. ниже),
 // отгруженными с этого же города
@@ -136,6 +153,13 @@ async function computeWarehouseStock(db = pool, { includeWrittenOff = false } = 
       quantity: Number(b.quantity),
       remaining: Number(b.quantity),
     });
+  }
+
+  // Цена товара в городе, где своих партий нет: последняя партия этого товара на любом складе.
+  const newestBatchByProduct = new Map();
+  for (const b of batchesResult.rows) {
+    const newest = newestBatchByProduct.get(b.product_id);
+    if (!newest || new Date(b.received_date) >= new Date(newest.received_date)) newestBatchByProduct.set(b.product_id, b);
   }
 
   const products = [];
@@ -289,6 +313,16 @@ async function computeWarehouseStock(db = pool, { includeWrittenOff = false } = 
   for (const product of products) {
     if (product.calculated_remaining === undefined) product.calculated_remaining = product.remaining;
     if (product.adjustment_balance === undefined) product.adjustment_balance = 0;
+
+    // Товар, ушедший с полки, но ещё не у покупателя: в той же очереди FIFO он стоит сразу за
+    // уже выданным, поэтому и цена у него та самая, по которой он списался из остатка.
+    const lastBatch = product.batches[product.batches.length - 1];
+    const newestBatch = newestBatchByProduct.get(product.product_id);
+    const unitCostBeyond = lastBatch?.cost_price ?? product.current_cost_price ?? (newestBatch ? Number(newestBatch.cost_price) : null);
+    const delivered = product.total_sold + product.customer_returns;
+    product.in_progress_value = fifoRangeValue(product.batches, delivered, product.in_progress, unitCostBeyond);
+    product.returning_value = fifoRangeValue(product.batches, delivered + product.in_progress, product.returning, unitCostBeyond);
+    product.off_shelf_unpriced = unitCostBeyond === null ? product.in_progress + product.returning : 0;
   }
 
   // Списанный товар уже не лежит на складе: ни в остатках, ни в деньгах в товаре, ни на "Закупе".
@@ -324,11 +358,25 @@ async function computeInventoryValue() {
     byProduct.set(key, row);
   };
 
+  // Товар, который из остатка уже вычтен, но ещё наш: едет к клиенту или возвращается отменой.
+  // В stock_value и total он не входит, это только для "Фактически в товаре" в "Отчёте".
+  // Отмеченные самовыкупы со склада не уходили, им здесь не место.
+  const toCustomers = { value: 0, quantity: 0 };
+  const returning = { value: 0, quantity: 0 };
+  let offShelfUnpriced = 0;
+
   for (const p of products) {
     stockValue += p.remaining_value;
     stockByWarehouse.set(p.warehouse, (stockByWarehouse.get(p.warehouse) || 0) + p.remaining_value);
     // Один товар лежит на нескольких складах — строки складов складываются в одну товарную.
     addToProduct(p.product_id, p.product_name, p.remaining_value, p.remaining);
+
+    if (p.warehouse === MARKED_SELF_BUY_CITY) continue;
+    toCustomers.value += p.in_progress_value;
+    toCustomers.quantity += p.in_progress;
+    returning.value += p.returning_value;
+    returning.quantity += p.returning;
+    offShelfUnpriced += p.off_shelf_unpriced;
   }
 
   // Считаем по ПОЛНОЙ себестоимости партии (cost_price = закупка + логистика + прочие расходы за
@@ -389,6 +437,13 @@ async function computeInventoryValue() {
     // "Всего в товаре" = остаток по себестоимости + всё вложенное в партии, которые ещё едут.
     // Обе части считаются одинаково — по полной себестоимости, вместе с логистикой.
     total: stockValue + transitPurchase + transitExtra,
+    to_customers_value: toCustomers.value,
+    to_customers_quantity: toCustomers.quantity,
+    returning_value: returning.value,
+    returning_quantity: returning.quantity,
+    // Штуки без единой партии на всех складах: цены у них нет, в сумму они вошли нулём.
+    off_shelf_unpriced_quantity: offShelfUnpriced,
+    actual_total: stockValue + transitPurchase + transitExtra + toCustomers.value + returning.value,
     // Те же деньги, разложенные по товарам (сумма by_product === total). Нули не отдаём: товар
     // с нулевым остатком в разбивке "сколько денег лежит" — просто шум.
     by_product: [...byProduct.values()]
@@ -839,4 +894,5 @@ router.get('/', async (req, res) => {
 
 module.exports = router;
 module.exports.computeWarehouseStock = computeWarehouseStock;
+module.exports.computeInventoryValue = computeInventoryValue;
 module.exports.DISPLAY_WAREHOUSES = DISPLAY_WAREHOUSES;
